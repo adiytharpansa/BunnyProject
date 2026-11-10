@@ -1,6 +1,7 @@
 package com.bunny.app.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.ZoneId
@@ -75,7 +76,39 @@ class LibraryRepository @Inject constructor(
         )
     }
 
+    // ------------------------------------------------- riwayat pencarian
+
+    /**
+     * Recent searches, newest first — shown on the search page before
+     * typing (the official app's "zero-prefix" list; REA dissection
+     * 2026-11-10) and one of Mesin Selera's local signals. Stored as one
+     * newline-joined settings value, capped at [MAX_RECENT_SEARCHES];
+     * never leaves the device.
+     */
+    val recentSearches: Flow<List<String>> = settingDao.observeValue(KEY_RECENT_SEARCHES)
+        .map { raw ->
+            raw?.split('\n')?.map { it.trim() }?.filter { it.isNotEmpty() }
+                ?: emptyList()
+        }
+
+    suspend fun recordSearch(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return
+        val current = recentSearches.first()
+        val updated = (
+            listOf(trimmed) +
+                current.filterNot { it.equals(trimmed, ignoreCase = true) }
+            ).take(MAX_RECENT_SEARCHES)
+        settingDao.upsert(SettingEntity(KEY_RECENT_SEARCHES, updated.joinToString("\n")))
+    }
+
+    suspend fun clearRecentSearches() {
+        settingDao.upsert(SettingEntity(KEY_RECENT_SEARCHES, ""))
+    }
+
     private companion object {
         const val KEY_QUOTA_BYTES = "jatah_quota_bytes"
+        const val KEY_RECENT_SEARCHES = "recent_searches"
+        const val MAX_RECENT_SEARCHES = 10
     }
 }

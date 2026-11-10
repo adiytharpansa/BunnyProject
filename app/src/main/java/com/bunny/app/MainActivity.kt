@@ -39,6 +39,7 @@ import com.bunny.app.playback.CrashRecorder
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
+import com.bunny.app.presentation.screens.search.SearchScreen
 import com.bunny.app.presentation.screens.terbit.TerbitScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
                 // screens own their scaffolds, this one only owns the tab
                 // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
+                var openSearch by remember { mutableStateOf(false) }
                 var selectedTab by remember { mutableStateOf(0) }
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
@@ -65,7 +67,7 @@ class MainActivity : ComponentActivity() {
                 val videoId = openVideoId
                 Scaffold(
                     bottomBar = {
-                        if (videoId == null) {
+                        if (videoId == null && !openSearch) {
                             NavigationBar {
                                 NavigationBarItem(
                                     selected = selectedTab == 0,
@@ -103,8 +105,16 @@ class MainActivity : ComponentActivity() {
                                 videoId = videoId,
                                 onBack = { openVideoId = null },
                             )
+                        } else if (openSearch) {
+                            SearchScreen(
+                                onBack = { openSearch = false },
+                                onVideoClick = { openVideoId = it },
+                            )
                         } else if (selectedTab == 0) {
-                            HomeScreen(onVideoClick = { openVideoId = it })
+                            HomeScreen(
+                                onVideoClick = { openVideoId = it },
+                                onSearchClick = { openSearch = true },
+                            )
                             val report = crashReport
                             if (report != null) {
                                 CrashReportBlock(
@@ -119,7 +129,10 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         } else {
-                            TerbitScreen(onVideoClick = { openVideoId = it })
+                            TerbitScreen(
+                                onVideoClick = { openVideoId = it },
+                                onSearchClick = { openSearch = true },
+                            )
                         }
                     }
                 }

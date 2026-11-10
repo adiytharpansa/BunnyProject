@@ -26,6 +26,14 @@
     <string name="nav_home">Beranda</string>
     <string name="nav_terbit">Terbit</string>
     <string name="terbit_title">Terbit</string>
+    <string name="search_open">Cari</string>
+    <string name="search_hint">Cari video…</string>
+    <string name="search_recent">Pencarian terakhir</string>
+    <string name="search_clear_history">Hapus riwayat pencarian</string>
+    <string name="search_clear_query">Hapus teks</string>
+    <string name="search_more">Muat lebih banyak</string>
+    <string name="search_empty">Tidak ada hasil untuk “%1$s”</string>
+    <string name="search_error">Pencarian gagal. Periksa koneksi lalu coba lagi.</string>
     <string name="terbit_edition">Edisi %1$s</string>
     <string name="terbit_summary">%1$d video terbaru dari %2$d langganan</string>
     <string name="terbit_empty">Belum ada langganan. Buka sebuah video, lalu ketuk Langganan — video terbaru dari kanal itu akan terbit di sini setiap pagi.</string>
