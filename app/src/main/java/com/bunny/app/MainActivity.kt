@@ -12,7 +12,9 @@ import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
+import androidx.media3.common.util.UnstableApi
 
+@UnstableApi
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
