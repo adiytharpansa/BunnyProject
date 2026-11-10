@@ -56,6 +56,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -81,9 +82,20 @@ import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.DataCost
+
+/** How long a card must stay the best candidate before its preview starts. */
+private const val PREVIEW_DWELL_MS = 700L
+
+/** A card must be at least this visible (0..1) to be a preview candidate. */
+private const val PREVIEW_MIN_VISIBLE_FRACTION = 0.6f
+
+/** Poll interval for the preview progress hairline. */
+private const val PREVIEW_PROGRESS_TICK_MS = 250L
 
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,16 +123,17 @@ fun HomeScreen(
         state.items.filter { it.reason == topicFilter }
     }
 
-    // Inline previews (the official app's feed playback): the card
-    // occupying most of the viewport starts a muted preview after a
-    // short dwell; scrolling away or leaving Home stops it.
+    // Inline previews (the official app's feed playback): the topmost card
+    // showing most of its area starts a muted preview after a short dwell;
+    // scrolling away, leaving Home or backgrounding the app stops it.
     val listState = rememberLazyListState()
     val previewingId by viewModel.previewingId.collectAsState()
+    val previewStatus by viewModel.previewStatus.collectAsState()
     val previewCandidate by remember {
         derivedStateOf {
             val info = listState.layoutInfo
             var bestId: String? = null
-            var bestFraction = 0.6f
+            var bestFraction = 0f
             for (itemInfo in info.visibleItemsInfo) {
                 val id = itemInfo.key as? String ?: continue
                 val start = maxOf(itemInfo.offset, info.viewportStartOffset)
@@ -133,7 +146,9 @@ fun HomeScreen(
                 } else {
                     0f
                 }
-                if (fraction >= bestFraction) {
+                // Strictly greater: on a tie the TOPMOST card wins
+                // (visibleItemsInfo is ordered top to bottom).
+                if (fraction >= PREVIEW_MIN_VISIBLE_FRACTION && fraction > bestFraction) {
                     bestFraction = fraction
                     bestId = id
                 }
@@ -141,35 +156,44 @@ fun HomeScreen(
             bestId
         }
     }
-    LaunchedEffect(previewCandidate) {
-        val candidate = previewCandidate
-        if (candidate == null) {
-            viewModel.stopPreview()
-        } else {
-            delay(700)
-            viewModel.startPreview(candidate)
-        }
+
+    // Backgrounding / screen-off must stop the preview (the player would
+    // otherwise keep downloading); coming back restarts the dwell.
+    var foregroundCount by remember { mutableIntStateOf(0) }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) { foregroundCount++ }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.stopPreview() }
+
+    LaunchedEffect(previewCandidate, foregroundCount) {
+        // Stop the previous card's preview IMMEDIATELY when the candidate
+        // changes; otherwise it keeps playing (and then swaps to the new
+        // video while still attached to the old card) during the dwell.
+        viewModel.stopPreview()
+        val candidate = previewCandidate ?: return@LaunchedEffect
+        delay(PREVIEW_DWELL_MS)
+        viewModel.startPreview(candidate)
     }
     DisposableEffect(Unit) {
         onDispose { viewModel.stopPreview() }
     }
-    // Preview progress for the hairline on the previewing card.
+
+    // Preview progress for the hairline on the previewing card. Exposed as
+    // a lambda so only the hairline redraws on each tick.
     var previewProgress by remember { mutableStateOf<Float?>(null) }
-    LaunchedEffect(previewingId) {
-        if (previewingId == null) {
-            previewProgress = null
+    val previewProgressProvider = remember { { previewProgress } }
+    LaunchedEffect(previewingId, previewStatus.firstFrameRendered) {
+        previewProgress = null
+        if (previewingId == null || !previewStatus.firstFrameRendered) {
             return@LaunchedEffect
         }
+        val player = viewModel.previewPlayer
         while (true) {
-            val player = viewModel.previewPlayer
             val duration = player.duration
             previewProgress = if (duration > 0) {
-                (player.currentPosition.toFloat() / duration)
-                    .coerceIn(0f, 1f)
+                (player.currentPosition.toFloat() / duration).coerceIn(0f, 1f)
             } else {
                 null
             }
-            delay(250)
+            delay(PREVIEW_PROGRESS_TICK_MS)
         }
     }
 
@@ -301,17 +325,24 @@ fun HomeScreen(
                         )
                     }
                     items(visibleItems, key = { it.id }) { item ->
+                        val isPreviewingThis = previewingId == item.id
                         VideoCard(
                             item = item,
                             onClick = { onVideoClick(item.id) },
-                            previewPlayer = if (previewingId == item.id) {
+                            previewPlayer = if (isPreviewingThis) {
                                 viewModel.previewPlayer
                             } else {
                                 null
                             },
-                            isPreviewing = previewingId == item.id,
-                            previewProgress = if (previewingId == item.id) {
-                                previewProgress
+                            isPreviewing = isPreviewingThis,
+                            previewReady = isPreviewingThis && previewStatus.firstFrameRendered,
+                            previewAspect = if (isPreviewingThis) {
+                                previewStatus.videoAspect
+                            } else {
+                                null
+                            },
+                            previewProgress = if (isPreviewingThis) {
+                                previewProgressProvider
                             } else {
                                 null
                             },

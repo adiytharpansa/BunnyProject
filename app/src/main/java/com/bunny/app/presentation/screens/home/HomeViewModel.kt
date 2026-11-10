@@ -6,6 +6,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.playback.FeedPreviewManager
+import com.bunny.app.playback.PreviewStatus
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.rank.FeedRanker
 import com.bunny.core.rank.TasteProfile
@@ -52,19 +53,39 @@ class HomeViewModel @Inject constructor(
     /** The video whose card currently shows an inline preview. */
     val previewingId: StateFlow<String?> = _previewingId.asStateFlow()
 
+    /**
+     * First-frame / aspect / failure state of the running preview. The
+     * card keeps its thumbnail until the first frame is rendered.
+     */
+    val previewStatus: StateFlow<PreviewStatus> = previewManager.status
+
     /** Attach point for the preview surface in the previewing card. */
     val previewPlayer: ExoPlayer get() = previewManager.player
 
     private var previewJob: Job? = null
 
+    /**
+     * Videos whose preview already failed in this session (no playable
+     * source, or every source errored). They keep their thumbnail instead
+     * of being retried on every scroll.
+     */
+    private val failedPreviewIds = mutableSetOf<String>()
+
     fun startPreview(videoId: String) {
-        if (_previewingId.value == videoId) return
+        if (_previewingId.value == videoId || videoId in failedPreviewIds) return
         previewJob?.cancel()
         previewJob = viewModelScope.launch {
             try {
                 val streams = backend.getPlaybackStreams(videoId)
-                previewManager.start(streams)
-                _previewingId.value = videoId
+                // No suspension point between start() and the id update, so
+                // a cancel can never land between them.
+                if (previewManager.start(streams)) {
+                    _previewingId.value = videoId
+                } else {
+                    // Nothing playable: never mark the card as previewing,
+                    // or it would show a black surface forever.
+                    failedPreviewIds += videoId
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -80,7 +101,22 @@ class HomeViewModel @Inject constructor(
         previewManager.stop()
     }
 
+    override fun onCleared() {
+        previewManager.stop()
+        super.onCleared()
+    }
+
     init {
+        // A preview whose every source failed returns its card to the
+        // thumbnail and is not retried this session.
+        viewModelScope.launch {
+            previewManager.status.collect { status ->
+                if (status.failed) {
+                    _previewingId.value?.let { failedPreviewIds += it }
+                    stopPreview()
+                }
+            }
+        }
         load()
     }
 
