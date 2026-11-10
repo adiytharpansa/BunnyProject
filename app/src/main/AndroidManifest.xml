@@ -36,7 +36,12 @@
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
-                <action android:name="androidx.media.session.MediaSessionService" />
+                <!-- Media3 1.4's MediaSessionService.SERVICE_INTERFACE is the
+                     media3-prefixed action below. The legacy androidx.media
+                     variant made SessionToken resolution fail with
+                     IllegalArgumentException and crashed every video open
+                     (field crash report 2026-11-10). -->
+                <action android:name="androidx.media3.session.MediaSessionService" />
                 <action android:name="android.media.session.MediaButtonReceiver" />
             </intent-filter>
         </service>

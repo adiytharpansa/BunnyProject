@@ -61,20 +61,31 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun connectController() {
-        val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
-        val future = MediaController.Builder(application, token).buildAsync()
-        controllerFuture = future
-        future.addListener(
-            {
-                try {
-                    _controllerPlayer.value = future.get()
-                    PlaybackDiagnostics.log("MediaController terhubung ke layanan")
-                } catch (e: Exception) {
-                    PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
-                }
-            },
-            ContextCompat.getMainExecutor(application),
-        )
+        // The controller is an enhancement (notification + background
+        // controls); playback itself runs through PlaybackManager and must
+        // never be hostage to it. SessionToken's constructor throws
+        // IllegalArgumentException when the service cannot be resolved —
+        // a wrong manifest action string did exactly that and crashed
+        // every video open (field crash report 2026-11-10) — so any
+        // failure here degrades to "no controller" and is only logged.
+        try {
+            val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
+            val future = MediaController.Builder(application, token).buildAsync()
+            controllerFuture = future
+            future.addListener(
+                {
+                    try {
+                        _controllerPlayer.value = future.get()
+                        PlaybackDiagnostics.log("MediaController terhubung ke layanan")
+                    } catch (e: Exception) {
+                        PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
+                    }
+                },
+                ContextCompat.getMainExecutor(application),
+            )
+        } catch (e: Exception) {
+            PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     private var videoId: String? = null
