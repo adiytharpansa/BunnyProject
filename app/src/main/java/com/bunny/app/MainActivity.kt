@@ -7,6 +7,9 @@ import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -26,20 +31,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.Subscriptions
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Sensors
-import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
@@ -50,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
@@ -321,10 +328,9 @@ private fun CrashReportBlock(
 }
 
 /**
- * Bottom bar in the official app's style: flat, icon-only, a hairline on
- * top, outline icon when idle and filled when selected. Built by hand
- * because the Material NavigationBar has a fixed 80dp height.
- * Tabs: Beranda · Live · Kanal · Profil.
+ * Bottom bar: icon-only, a soft tonal pill behind the selected icon,
+ * hairline on top. Built by hand because the Material NavigationBar has
+ * a fixed 80dp height. Tabs: Beranda · Live · Kanal · Profil.
  */
 @Composable
 private fun BunnyBottomBar(
@@ -335,7 +341,7 @@ private fun BunnyBottomBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)),
     ) {
         Box(
             modifier = Modifier
@@ -347,7 +353,8 @@ private fun BunnyBottomBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .height(52.dp),
+                .height(58.dp)
+                .padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BottomBarItem(
@@ -369,16 +376,16 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 2,
                 onClick = { onSelect(2) },
-                filled = Icons.Filled.VideoLibrary,
-                outlined = Icons.Outlined.VideoLibrary,
+                filled = Icons.Filled.Subscriptions,
+                outlined = Icons.Outlined.Subscriptions,
                 description = stringResource(R.string.nav_kanal),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
                 selected = selectedTab == 3,
                 onClick = { onSelect(3) },
-                filled = Icons.Filled.Person,
-                outlined = Icons.Outlined.Person,
+                filled = Icons.Filled.AccountCircle,
+                outlined = Icons.Outlined.AccountCircle,
                 description = stringResource(R.string.nav_profile),
                 modifier = Modifier.weight(1f),
             )
@@ -395,6 +402,22 @@ private fun BottomBarItem(
     description: String,
     modifier: Modifier = Modifier,
 ) {
+    val accent = MaterialTheme.colorScheme.primary
+    val tint by animateColorAsState(
+        targetValue = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(200),
+        label = "navTint",
+    )
+    val pillAlpha by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = tween(200),
+        label = "navPillAlpha",
+    )
+    val pillScale by animateFloatAsState(
+        targetValue = if (selected) 1f else 0.4f,
+        animationSpec = tween(200),
+        label = "navPillScale",
+    )
     Box(
         modifier = modifier
             .fillMaxHeight()
@@ -407,10 +430,21 @@ private fun BottomBarItem(
             ),
         contentAlignment = Alignment.Center,
     ) {
+        Box(
+            modifier = Modifier
+                .width(64.dp)
+                .height(34.dp)
+                .graphicsLayer {
+                    alpha = pillAlpha
+                    scaleX = pillScale
+                }
+                .clip(RoundedCornerShape(17.dp))
+                .background(accent.copy(alpha = 0.20f)),
+        )
         Icon(
             imageVector = if (selected) filled else outlined,
             contentDescription = description,
-            tint = MaterialTheme.colorScheme.onBackground,
+            tint = tint,
             modifier = Modifier.size(26.dp),
         )
     }
