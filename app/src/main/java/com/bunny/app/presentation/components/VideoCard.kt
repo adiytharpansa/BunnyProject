@@ -300,12 +300,12 @@ private fun CardMenu(videoId: String) {
 // different) instead of one repeated brand block. The letter stays
 // near-white for contrast on every tone.
 private val AvatarPalette = listOf(
-    Color(0xFF37474F),
-    Color(0xFF4E5D3A),
-    Color(0xFF5D4037),
-    Color(0xFF455A64),
-    Color(0xFF6A4C5E),
-    Color(0xFF3E5641),
+    Color(0xFF8F481C),
+    Color(0xFF6B3A1E),
+    Color(0xFF7A5230),
+    Color(0xFF5A3A24),
+    Color(0xFFA5602A),
+    Color(0xFF4A3020),
 )
 
 private fun avatarColor(channelName: String): Color =
