@@ -64,4 +64,8 @@
     <string name="profile_title">Profil</string>
     <string name="profile_name">Pengguna Bunny</string>
     <string name="profile_hint">Akun lokal di perangkat ini</string>
+    <string name="player_back">Kembali</string>
+    <string name="player_more">…selengkapnya</string>
+    <string name="player_less">Lebih sedikit</string>
+    <string name="player_enable_short">Aktifkan</string>
 </resources>

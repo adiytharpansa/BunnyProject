@@ -21,23 +21,29 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.HighQuality
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.PictureInPictureAlt
+import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -79,10 +86,10 @@ fun PlayerScreen(
 
     // The media notification cannot appear on Android 13+ until the user
     // grants POST_NOTIFICATIONS. The system dialog is never shown on its
-    // own: it appears only when the user taps the "Aktifkan putar latar &
-    // notifikasi" button below, i.e. at the moment they choose to enable
-    // the feature (owner decision 2026-11-10). Devices below Android 13
-    // need no runtime grant.
+    // own: it appears only when the user taps the "Aktifkan" button in the
+    // background-play card, i.e. at the moment they choose to enable the
+    // feature (owner decision 2026-11-10). Devices below Android 13 need
+    // no runtime grant.
     val context = LocalContext.current
     var notificationsGranted by remember {
         mutableStateOf(
@@ -110,6 +117,10 @@ fun PlayerScreen(
     var showQualityDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
 
+    // YouTube-style: the title clamps to two lines and the grey
+    // description box expands in place.
+    var infoExpanded by remember(videoId) { mutableStateOf(false) }
+
     LaunchedEffect(videoId) { viewModel.open(videoId) }
     BackHandler {
         viewModel.stopPlayback()
@@ -121,16 +132,8 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = {
-                viewModel.stopPlayback()
-                onBack()
-            }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
-            }
-            Text("Bunny", style = MaterialTheme.typography.titleMedium)
-        }
-
+        // Video first, edge to edge; the back button floats on it
+        // (no separate app bar, like the official watch page).
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,19 +158,40 @@ fun PlayerScreen(
             if (state is PlayerUiState.Loading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
             }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.45f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                IconButton(onClick = {
+                    viewModel.stopPlayback()
+                    onBack()
+                }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.player_back),
+                        tint = Color.White,
+                    )
+                }
+            }
         }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             when (val current = state) {
                 is PlayerUiState.Loading -> Text(
                     stringResource(R.string.player_loading),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 is PlayerUiState.Error -> {
@@ -190,16 +214,21 @@ fun PlayerScreen(
                 }
 
                 is PlayerUiState.Ready -> {
+                    // ---- Title (2 lines, expands with the info box)
                     Text(
                         current.details.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = if (infoExpanded) Int.MAX_VALUE else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { infoExpanded = !infoExpanded },
                     )
+
+                    // ---- Info box: views + date, data estimate, source
                     val channelId = current.details.channelId
                     val meta = listOfNotNull(
-                        // The channel gets its own row below (the
-                        // official layout); it only stays in the meta
-                        // line when no channel row can be built.
+                        // The channel has its own row below; it only
+                        // stays in the meta line when no row can be built.
                         if (channelId == null) {
                             current.details.channelName.takeIf { it.isNotEmpty() }
                         } else {
@@ -208,40 +237,76 @@ fun PlayerScreen(
                         current.details.viewCount?.let { formatCount(it) + " x ditonton" },
                         current.details.uploadedText,
                     ).joinToString(" • ")
-                    if (meta.isNotEmpty()) {
-                        Text(meta, style = MaterialTheme.typography.bodyMedium)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { infoExpanded = !infoExpanded },
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            if (meta.isNotEmpty()) {
+                                Text(
+                                    meta,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            // Timbangan at the player: the estimate comes
+                            // from the real formats, not the card ladder.
+                            current.estimatedSizeBytes?.let { bytes ->
+                                Text(
+                                    stringResource(
+                                        R.string.player_data_estimate,
+                                        DataCost.formatSize(bytes),
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (infoExpanded) {
+                                Text(
+                                    current.sourceNote,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                stringResource(
+                                    if (infoExpanded) R.string.player_less
+                                    else R.string.player_more,
+                                ),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
-                    Text(
-                        current.sourceNote,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    // Timbangan at the player: the estimate now comes
-                    // from the real formats, not the card ladder.
-                    current.estimatedSizeBytes?.let { bytes ->
-                        Text(
-                            stringResource(
-                                R.string.player_data_estimate,
-                                DataCost.formatSize(bytes),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
+
                     if (current.jatahExceeded && current.quotaBytes != null) {
-                        Text(
-                            stringResource(
-                                R.string.player_jatah_warning,
-                                DataCost.formatSize(current.monthUsedBytes),
-                                DataCost.formatSize(current.quotaBytes),
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.player_jatah_warning,
+                                    DataCost.formatSize(current.monthUsedBytes),
+                                    DataCost.formatSize(current.quotaBytes),
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
                     }
-                    // Channel row, the official watch-page layout:
-                    // avatar + name (tap → channel page) + subscribe
-                    // pill. Langganan lokal remains Terbit's source.
+
+                    // ---- Channel row: avatar + name (tap -> channel
+                    // page) + subscribe pill. Langganan lokal remains
+                    // the source of the Kanal tab.
                     if (channelId != null) {
                         val subFlow = remember(channelId) {
                             viewModel.subscriptionState(channelId)
@@ -255,14 +320,13 @@ fun PlayerScreen(
                                         channelId,
                                         current.details.channelName,
                                     )
-                                }
-                                .padding(vertical = 6.dp),
+                                },
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(40.dp)
                                     .clip(CircleShape)
                                     .background(
                                         MaterialTheme.colorScheme.primaryContainer,
@@ -272,7 +336,7 @@ fun PlayerScreen(
                                 Text(
                                     current.details.channelName
                                         .firstOrNull()?.uppercase() ?: "?",
-                                    style = MaterialTheme.typography.titleSmall,
+                                    style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme
                                         .onPrimaryContainer,
                                 )
@@ -280,77 +344,81 @@ fun PlayerScreen(
                             Text(
                                 current.details.channelName,
                                 style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
                             if (subscribed) {
-                                OutlinedButton(onClick = {
-                                    viewModel.toggleSubscription(
-                                        channelId = channelId,
-                                        channelName = current.details.channelName,
-                                        subscribed = true,
+                                FilledTonalButton(
+                                    shape = CircleShape,
+                                    onClick = {
+                                        viewModel.toggleSubscription(
+                                            channelId = channelId,
+                                            channelName = current.details.channelName,
+                                            subscribed = true,
+                                        )
+                                    },
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
                                     )
-                                }) {
-                                    Text(stringResource(R.string.player_unsubscribe))
+                                    Text(
+                                        stringResource(R.string.player_unsubscribe),
+                                        modifier = Modifier.padding(start = 6.dp),
+                                    )
                                 }
                             } else {
-                                Button(onClick = {
-                                    viewModel.toggleSubscription(
-                                        channelId = channelId,
-                                        channelName = current.details.channelName,
-                                        subscribed = false,
-                                    )
-                                }) {
+                                Button(
+                                    shape = CircleShape,
+                                    onClick = {
+                                        viewModel.toggleSubscription(
+                                            channelId = channelId,
+                                            channelName = current.details.channelName,
+                                            subscribed = false,
+                                        )
+                                    },
+                                ) {
                                     Text(stringResource(R.string.player_subscribe))
                                 }
                             }
                         }
                     }
-                    // Action row: the player's controls as chips, like
-                    // the official app's horizontal action strip.
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    ) {
+
+                    // ---- Action strip: pill buttons with icons
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
-                            AssistChip(
+                            ActionPill(
+                                icon = Icons.Outlined.HighQuality,
+                                label = stringResource(R.string.player_quality) +
+                                    ": " + (
+                                        playerOptions.selectedQuality?.let { "${it}p" }
+                                            ?: stringResource(R.string.player_quality_auto)
+                                        ),
                                 onClick = {
                                     viewModel.refreshOptions()
                                     showQualityDialog = true
                                 },
-                                label = {
-                                    Text(
-                                        stringResource(R.string.player_quality) +
-                                            ": " + (
-                                                playerOptions.selectedQuality
-                                                    ?.let { "${it}p" }
-                                                    ?: stringResource(
-                                                        R.string.player_quality_auto,
-                                                    )
-                                                ),
-                                    )
-                                },
                             )
                         }
                         item {
-                            AssistChip(
+                            ActionPill(
+                                icon = Icons.Outlined.Speed,
+                                label = formatSpeed(playerOptions.speed),
                                 onClick = { showSpeedDialog = true },
-                                label = {
-                                    Text(
-                                        stringResource(R.string.player_speed) +
-                                            ": " + formatSpeed(playerOptions.speed),
-                                    )
-                                },
                             )
                         }
                         item {
-                            AssistChip(
+                            ActionPill(
+                                icon = Icons.Outlined.PictureInPictureAlt,
+                                label = stringResource(R.string.player_pip),
                                 onClick = onPipClick,
-                                label = { Text(stringResource(R.string.player_pip)) },
                             )
                         }
                     }
+
                     if (showQualityDialog) {
                         AlertDialog(
                             onDismissRequest = { showQualityDialog = false },
@@ -414,19 +482,57 @@ fun PlayerScreen(
                             },
                         )
                     }
+
+                    // ---- Background play + notification card
                     if (!notificationsGranted) {
-                        Button(onClick = {
-                            PlaybackDiagnostics.log("Izin notifikasi: diminta dari tombol aktivasi")
-                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        }) {
-                            Text(stringResource(R.string.player_enable_background))
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                    Text(
+                                        stringResource(R.string.player_enable_background),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                Text(
+                                    stringResource(R.string.player_enable_background_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Button(
+                                    shape = CircleShape,
+                                    onClick = {
+                                        PlaybackDiagnostics.log(
+                                            "Izin notifikasi: diminta dari tombol aktivasi",
+                                        )
+                                        notificationPermission.launch(
+                                            Manifest.permission.POST_NOTIFICATIONS,
+                                        )
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                ) {
+                                    Text(stringResource(R.string.player_enable_short))
+                                }
+                            }
                         }
-                        Text(
-                            stringResource(R.string.player_enable_background_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                     }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     DiagnosticsBlock(
                         events = diagnostics,
                         pastFailures = pastFailures,
@@ -441,6 +547,33 @@ fun PlayerScreen(
     }
 }
 
+/** Rounded grey pill with a leading icon, like YouTube's action strip. */
+@Composable
+private fun ActionPill(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
 @Composable
 private fun DiagnosticsBlock(
     events: List<String>,
@@ -449,7 +582,10 @@ private fun DiagnosticsBlock(
 ) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
-        Text(stringResource(R.string.player_diagnostics))
+        Text(
+            stringResource(R.string.player_diagnostics),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     if (expanded) {
         Text(
