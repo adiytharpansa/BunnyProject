@@ -1,14 +1,20 @@
 package com.bunny.app.presentation.screens.player
 
 import android.app.Application
+import android.content.ComponentName
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoDetails
+import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -35,10 +41,41 @@ class PlayerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
-    /** The shared player the screen's PlayerView binds to. */
-    val player get() = playbackManager.player
+    /**
+     * The player the screen's PlayerView binds to: a MediaController, not
+     * the raw ExoPlayer. The controller connection is what registers the
+     * session with PlaybackService — without it the notification provider
+     * never sees a session, so no media notification is posted and
+     * background playback dies with the UI (device test 2026-11-10).
+     * Sources are still loaded through PlaybackManager onto the very same
+     * underlying player; the controller is the remote control for it.
+     */
+    private val _controllerPlayer = MutableStateFlow<Player?>(null)
+    val controllerPlayer: StateFlow<Player?> = _controllerPlayer.asStateFlow()
+    private var controllerFuture: ListenableFuture<MediaController>? = null
 
     val diagnostics = PlaybackDiagnostics.events
+
+    init {
+        connectController()
+    }
+
+    private fun connectController() {
+        val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
+        val future = MediaController.Builder(application, token).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            {
+                try {
+                    _controllerPlayer.value = future.get()
+                    PlaybackDiagnostics.log("MediaController terhubung ke layanan")
+                } catch (e: Exception) {
+                    PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
+                }
+            },
+            ContextCompat.getMainExecutor(application),
+        )
+    }
 
     private var videoId: String? = null
     private var loadJob: Job? = null
@@ -63,6 +100,9 @@ class PlayerViewModel @Inject constructor(
         // ViewModel is being cleared mid-flight, this line brackets them in
         // the diagnostics ring (field report 2026-11-10).
         PlaybackDiagnostics.log("PlayerViewModel dibersihkan (onCleared)")
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        controllerFuture = null
+        _controllerPlayer.value = null
         super.onCleared()
     }
 

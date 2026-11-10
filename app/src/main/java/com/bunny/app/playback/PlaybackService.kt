@@ -37,6 +37,13 @@ class PlaybackService : MediaSessionService() {
                 .setChannelName(CHANNEL_NAME_RES)
                 .build(),
         )
+        // Materialise the session NOW, not on first controller demand:
+        // the notification provider can only promote this service to the
+        // foreground for a session that exists (field finding 2026-11-10:
+        // a purely lazy session meant no notification and no background
+        // playback on the device test).
+        playbackManager.session()
+        PlaybackDiagnostics.log("Layanan dibuat; sesi media siap")
         playbackManager.player.addListener(object : Player.Listener {
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 PlaybackDiagnostics.log("Layanan: playWhenReady=$playWhenReady reason=$reason")
@@ -45,6 +52,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
+        PlaybackDiagnostics.log("Kontroler terhubung: ${controllerInfo.packageName}")
         return playbackManager.session()
     }
 

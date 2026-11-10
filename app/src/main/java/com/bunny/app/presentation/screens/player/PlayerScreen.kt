@@ -1,6 +1,11 @@
 package com.bunny.app.presentation.screens.player
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,13 +37,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
+import com.bunny.app.playback.PlaybackDiagnostics
 
 @UnstableApi
 @Composable
@@ -49,6 +57,25 @@ fun PlayerScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
+    val controller by viewModel.controllerPlayer.collectAsState()
+
+    // The media notification cannot appear on Android 13+ until the user
+    // grants POST_NOTIFICATIONS; ask for it when the player opens (device
+    // test 2026-11-10: background playback + notification both missing).
+    val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        PlaybackDiagnostics.log("Izin notifikasi: ${if (granted) "diberikan" else "ditolak"}")
+    }
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
     BackHandler {
@@ -80,10 +107,14 @@ fun PlayerScreen(
             AndroidView(
                 factory = { context ->
                     PlayerView(context).apply {
-                        player = viewModel.player
                         useController = true
                         keepScreenOn = true
                     }
+                },
+                update = { view ->
+                    // Bind the MediaController once it connects; it drives
+                    // the same underlying player PlaybackManager loads.
+                    if (view.player !== controller) view.player = controller
                 },
                 onRelease = { it.player = null },
                 modifier = Modifier.fillMaxSize(),
