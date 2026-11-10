@@ -23,9 +23,9 @@ import java.util.concurrent.ConcurrentHashMap
  * no NewPipeExtractor, no YouTube.js, no third-party YouTube code at all.
  * Platform libraries only (OkHttp, coroutines, org.json).
  *
- * Fase 1 scope: session bootstrap, home (trending + seed mixture), search,
- * video details, and playback for streams that carry direct URLs. Ciphered
- * formats are Fase 2 (Lontar's own cipher solver) — see docs/DESIGN.md.
+ * Fase 1 scope: session bootstrap, home (locally composed seed mixture),
+ * search, video details, and playback for streams that carry direct URLs.
+ * Ciphered formats are Fase 2 (Lontar's own cipher solver) — see DESIGN.md.
  */
 class LontarEngine(
     private val httpClient: OkHttpClient,
@@ -40,23 +40,22 @@ class LontarEngine(
     private val playerCache = ConcurrentHashMap<String, JSONObject>()
 
     override suspend fun healthCheck(): String = try {
-        ensureSession()
+        val active = ensureSession()
         "Mesin Lontar siap — sesi InnerTube aktif (persona ${LontarPersona.CLIENT_NAME} " +
-            "${LontarPersona.CLIENT_VERSION})"
+            "${active.clientVersion})"
     } catch (e: Exception) {
         "Mesin Lontar belum siap: ${e.message}"
     }
 
     override suspend fun getHomeFeed(page: String?): Page<VideoItem> {
-        if (page != null) {
-            return InnertubeParser.parseFeedPage(browse(continuation = page))
-        }
-        val trending = InnertubeParser.parseFeedPage(browse(browseId = "FEtrending"))
-        if (trending.items.isNotEmpty()) return trending
-        // Anonymous visitors get an empty trending shelf on some networks, so
-        // Lontar falls back to its seed mixture: parallel topic searches,
-        // interleaved round-robin, duplicates removed. This mixture — not a
-        // copied homepage — is Bunny's home by design.
+        // Bunny's home is its seed mixture by design AND by necessity:
+        // YouTube retired the trending page (browseId FEtrending answers
+        // HTTP 400 INVALID_ARGUMENT on every client — verified 2026-11-10),
+        // and the anonymous FEwhat_to_watch shelf comes back empty. So the
+        // home feed is composed locally from topic searches: interleaved
+        // round-robin, live streams and duplicates removed. The mixture has
+        // no continuation token; later pages are simply empty.
+        if (page != null) return Page(items = emptyList(), nextPage = null)
         return seedMixture()
     }
 
@@ -110,25 +109,11 @@ class LontarEngine(
         return response
     }
 
-    private suspend fun browse(browseId: String? = null, continuation: String? = null): JSONObject {
-        val body = baseBody()
-        when {
-            continuation != null -> body.put("continuation", continuation)
-            browseId != null -> body.put("browseId", browseId)
-        }
-        return post("browse", body)
-    }
-
     private suspend fun baseBody(): JSONObject {
         val activeSession = ensureSession()
         val client = JSONObject()
             .put("clientName", LontarPersona.CLIENT_NAME)
-            .put("clientVersion", LontarPersona.CLIENT_VERSION)
-            .put("androidSdkVersion", LontarPersona.ANDROID_SDK_VERSION)
-            .put("deviceMake", "Google")
-            .put("deviceModel", "Pixel 8")
-            .put("osName", "Android")
-            .put("osVersion", "14")
+            .put("clientVersion", activeSession.clientVersion)
             .put("hl", LontarPersona.HL)
             .put("gl", LontarPersona.GL)
             .put("visitorData", activeSession.visitorData)
@@ -145,15 +130,24 @@ class LontarEngine(
                 .url("https://www.youtube.com/youtubei/v1/$endpoint?key=${activeSession.apiKey}&prettyPrint=false")
                 .header("User-Agent", LontarPersona.USER_AGENT)
                 .header("X-YouTube-Client-Name", LontarPersona.CLIENT_NAME_ID)
-                .header("X-YouTube-Client-Version", LontarPersona.CLIENT_VERSION)
-                .header("X-Goog-Visitor-Id", activeSession.visitorData)
+                .header("X-YouTube-Client-Version", activeSession.clientVersion)
                 .header("Content-Type", "application/json")
                 .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                 .build()
             httpClient.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    throw LontarException("InnerTube $endpoint menjawab HTTP ${response.code}")
+                    // Include the server's own error message: a bare HTTP code
+                    // cost a full debugging round on 2026-11-10 (the 400 hid
+                    // INVALID_ARGUMENT vs FAILED_PRECONDITION, which point to
+                    // entirely different causes).
+                    val detail = runCatching {
+                        JSONObject(text).getJSONObject("error").getString("message")
+                    }.getOrNull()
+                    throw LontarException(
+                        "InnerTube $endpoint menjawab HTTP ${response.code}" +
+                            (detail?.let { ": $it" } ?: ""),
+                    )
                 }
                 JSONObject(text)
             }
@@ -170,7 +164,7 @@ class LontarEngine(
     private suspend fun fetchSession(): InnertubeSession = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://www.youtube.com/")
-            .header("User-Agent", LontarPersona.DESKTOP_USER_AGENT)
+            .header("User-Agent", LontarPersona.USER_AGENT)
             .header("Accept-Language", "id-ID,id;q=0.9,en;q=0.8")
             .build()
         httpClient.newCall(request).execute().use { response ->

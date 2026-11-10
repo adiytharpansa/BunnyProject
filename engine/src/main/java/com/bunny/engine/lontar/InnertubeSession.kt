@@ -1,36 +1,51 @@
 package com.bunny.engine.lontar
 
 /**
- * One anonymous InnerTube session: the API key and visitor data every
- * request needs, harvested from YouTube's own homepage configuration —
- * the same bootstrap the official web client performs.
+ * One anonymous InnerTube session: the API key, client version and visitor
+ * data every request needs, harvested from YouTube's own homepage
+ * configuration — the same bootstrap the official web client performs.
+ * Harvesting (instead of hardcoding) lets the persona track what YouTube
+ * currently serves.
  */
 data class InnertubeSession(
     val apiKey: String,
+    val clientVersion: String,
     val visitorData: String,
 ) {
     companion object {
         private val API_KEY_REGEX = Regex(""""INNERTUBE_API_KEY":\s*"([^"]+)"""")
-        private val VISITOR_DATA_REGEX = Regex(""""visitorData":\s*"([^"]+)"""")
+        private val CLIENT_VERSION_REGEX = Regex(""""INNERTUBE_CLIENT_VERSION":\s*"([^"]+)"""")
+        private val VISITOR_DATA_REGEX = Regex(""""visitorData":\s*"([^"]+?)"""")
 
         /** Extracts a session from homepage HTML; null when markers are absent. */
         fun fromHomepageHtml(html: String): InnertubeSession? {
             val apiKey = API_KEY_REGEX.find(html)?.groupValues?.get(1) ?: return null
+            val clientVersion = CLIENT_VERSION_REGEX.find(html)?.groupValues?.get(1) ?: return null
             val visitorData = VISITOR_DATA_REGEX.find(html)?.groupValues?.get(1) ?: return null
-            return InnertubeSession(apiKey = apiKey, visitorData = visitorData)
+            return InnertubeSession(
+                apiKey = apiKey,
+                clientVersion = clientVersion,
+                visitorData = visitorData,
+            )
         }
     }
 }
 
-/** The client persona Lontar presents to InnerTube (Android official app). */
+/**
+ * The client persona Lontar presents to InnerTube: the WEB client.
+ *
+ * Field finding (2026-11-10, reproduced from server error bodies): the
+ * ANDROID client fails against the web API key with FAILED_PRECONDITION,
+ * and browseId FEtrending answers INVALID_ARGUMENT on every client since
+ * YouTube retired the trending page — while the WEB client serves search
+ * and browse normally with the homepage-harvested key and visitor data.
+ * Playback personas are a separate Fase 2 question; the metadata plane
+ * (home, search, details) speaks WEB.
+ */
 object LontarPersona {
-    const val CLIENT_NAME = "ANDROID"
-    const val CLIENT_NAME_ID = "3"
-    const val CLIENT_VERSION = "19.44.38"
-    const val ANDROID_SDK_VERSION = 34
+    const val CLIENT_NAME = "WEB"
+    const val CLIENT_NAME_ID = "1"
     const val USER_AGENT =
-        "com.google.android.youtube/$CLIENT_VERSION (Linux; U; Android 14; id_ID)"
-    const val DESKTOP_USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     const val HL = "id"
