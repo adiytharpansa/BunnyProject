@@ -28,6 +28,11 @@ object BackendModule {
 
     @Provides
     @Singleton
-    fun provideExtractionBackend(httpClient: OkHttpClient): ExtractionBackend =
+    fun provideLontarEngine(httpClient: OkHttpClient): LontarEngine =
         LontarEngine(httpClient)
+
+    @Provides
+    @Singleton
+    fun provideExtractionBackend(engine: LontarEngine): ExtractionBackend =
+        engine
 }

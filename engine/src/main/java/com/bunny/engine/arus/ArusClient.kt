@@ -37,6 +37,16 @@ class OkHttpArusTransport(
     }
 }
 
+/** One SABR conversation, as consumers (the A2 stream store) depend on it. */
+interface ArusConversation {
+    fun stream(
+        session: ArusSession,
+        video: ArusFormat,
+        audio: ArusFormat,
+        sink: ArusMediaSink,
+    ): ArusResult
+}
+
 /** Receives demultiplexed media as the conversation delivers it. */
 interface ArusMediaSink {
     /**
@@ -102,9 +112,9 @@ class ArusClient(
     private val transport: ArusTransport,
     private val sleeper: (Long) -> Unit = { Thread.sleep(it) },
     private val maxRequests: Int = 60,
-) {
+) : ArusConversation {
 
-    fun stream(
+    override fun stream(
         session: ArusSession,
         video: ArusFormat,
         audio: ArusFormat,

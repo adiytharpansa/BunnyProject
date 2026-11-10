@@ -10,10 +10,12 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.playback.ArusPlayback
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
+import com.bunny.engine.lontar.LontarEngine
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
@@ -73,6 +75,7 @@ data class RelatedUiState(
 class PlayerViewModel @Inject constructor(
     private val application: Application,
     private val backend: ExtractionBackend,
+    private val lontarEngine: LontarEngine,
     private val playbackManager: PlaybackManager,
     private val library: LibraryRepository,
 ) : ViewModel() {
@@ -139,6 +142,54 @@ class PlayerViewModel @Inject constructor(
 
     fun retry() {
         load()
+    }
+
+    /**
+     * Arus Fase A2 — the deliberate experiment: play the open video
+     * through a SABR conversation instead of the classic chain. Wired
+     * to the diagnostics block on purpose; whether Arus joins the
+     * automatic chain is Fase A3's decision, made with this test's
+     * results. Failures land in the diagnostics ring, where the user
+     * who pressed the button is already looking.
+     */
+    fun playViaArus() {
+        val id = videoId ?: return
+        val ready = _uiState.value as? PlayerUiState.Ready ?: run {
+            PlaybackDiagnostics.log("Arus: video belum siap, percobaan dibatalkan")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                PlaybackDiagnostics.log("Arus: meminta sesi SABR (persona VISIONOS)…")
+                val sabr = lontarEngine.sabrSession(id)
+                if (sabr == null) {
+                    PlaybackDiagnostics.log("Arus: respons player tidak membawa sesi SABR")
+                    return@launch
+                }
+                val (session, persona) = sabr
+                val picked = ArusPlayback.pickFormats(session)
+                if (picked == null) {
+                    PlaybackDiagnostics.log("Arus: sesi SABR tanpa format video/audio")
+                    return@launch
+                }
+                val (video, audio) = picked
+                PlaybackDiagnostics.log(
+                    "Arus: video itag ${video.itag} (${video.height}p), audio itag ${audio.itag}",
+                )
+                val store = ArusPlayback.newStore(session, video, audio, persona.userAgent)
+                PlaybackService.start(application)
+                playbackManager.playArus(
+                    store, video, audio,
+                    ready.details.title,
+                    ready.details.channelName,
+                    ready.details.thumbnailUrl,
+                )
+            } catch (e: Exception) {
+                PlaybackDiagnostics.log(
+                    "Arus gagal: ${e.javaClass.simpleName}: ${e.message}",
+                )
+            }
+        }
     }
 
     fun stopPlayback() {

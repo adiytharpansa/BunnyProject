@@ -23,6 +23,8 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.engine.arus.ArusFormat
+import com.bunny.engine.arus.ArusStreamStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -99,15 +101,8 @@ class PlaybackManager @Inject constructor(
         channelName: String = "",
         artworkUrl: String? = null,
     ) {
-        // A manual quality override names track groups of the PREVIOUS
-        // video's manifest; it must never leak into a new video.
-        if (selectedQualityHeight != null) {
-            selectedQualityHeight = null
-            player.trackSelectionParameters = player.trackSelectionParameters
-                .buildUpon()
-                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
-                .build()
-        }
+        closeArusStore()
+        clearQualityOverride()
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(channelName.takeIf { it.isNotEmpty() })
@@ -122,9 +117,58 @@ class PlaybackManager @Inject constructor(
     }
 
     fun stop() {
+        closeArusStore()
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
+    }
+
+    // ------------------------------------------------------------ Arus (SABR)
+
+    private var arusStore: ArusStreamStore? = null
+
+    private fun closeArusStore() {
+        arusStore?.close()
+        arusStore = null
+    }
+
+    private fun clearQualityOverride() {
+        // A manual quality override names track groups of the PREVIOUS
+        // video's manifest; it must never leak into a new video.
+        if (selectedQualityHeight != null) {
+            selectedQualityHeight = null
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .build()
+        }
+    }
+
+    /**
+     * Arus Fase A2: plays ONE video through a SABR conversation. The
+     * store is owned here and closed by the next play/stop — a SABR
+     * conversation must never outlive the playback it feeds. Falls
+     * back through [playChain]'s error path like any other source:
+     * if the conversation dies, the player's error is the report.
+     */
+    fun playArus(
+        store: ArusStreamStore,
+        video: ArusFormat,
+        audio: ArusFormat,
+        title: String,
+        channelName: String = "",
+        artworkUrl: String? = null,
+    ) {
+        closeArusStore()
+        arusStore = store
+        clearQualityOverride()
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(channelName.takeIf { it.isNotEmpty() })
+            .setArtworkUri(artworkUrl?.let { Uri.parse(it) })
+            .build()
+        val source = ArusPlayback.createMediaSource(store, video, audio, metadata)
+        playChain(listOf("SABR (Arus)" to source), title)
     }
 
     // ------------------------------------------------- kontrol pemutar
