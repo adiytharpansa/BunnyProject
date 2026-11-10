@@ -32,6 +32,8 @@ object EngineConfig {
         /** Remotely updatable client versions for the ladder's personas. */
         val androidClientVersion: String = "20.10.38",
         val iosClientVersion: String = "20.10.4",
+        /** visionOS persona version (Arus A1; probed 2026-11-10, see PlayerPersonas.VISIONOS). */
+        val visionOsClientVersion: String = "1.02",
     )
 
     val DEFAULTS = Values(
@@ -77,6 +79,8 @@ object EngineConfig {
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.androidClientVersion,
             iosClientVersion = json.optString("iosClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.iosClientVersion,
+            visionOsClientVersion = json.optString("visionOsClientVersion")
+                .takeIf { it.isNotBlank() } ?: DEFAULTS.visionOsClientVersion,
         )
     }
 }

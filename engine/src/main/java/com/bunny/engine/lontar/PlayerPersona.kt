@@ -132,6 +132,37 @@ object PlayerPersonas {
         ),
     )
 
+    /**
+     * The Vision Pro client (visionOS) of the official YouTube app.
+     * Probed 2026-11-10 (Fase A0, Arus): the only persona whose media
+     * bytes survived past the cold-start allowance from the project
+     * VM — app personas ANDROID_VR/ANDROID/IOS all answered the player
+     * OK and then HTTP 403 at the 3 MB mark, while VISIONOS read clean
+     * at both offsets; and its SABR conversation ran end-to-end with
+     * stream protection status 1 (no token). Shares the iOS family's
+     * public API key. Whether it joins the classic ladder by default
+     * is the Lontar Hidup decision; it is available to the chain (and
+     * required by Arus) from here.
+     */
+    val VISIONOS = PlayerPersona(
+        name = "VISIONOS",
+        host = "https://youtubei.googleapis.com",
+        apiKey = "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
+        clientNameId = "101",
+        userAgent = "com.google.ios.youtube/1.02 " +
+            "(RealityDevice14,1; U; CPU visionOS 2_0 like Mac OS X; id_ID)",
+        clientFields = mapOf(
+            "clientName" to "VISIONOS",
+            "clientVersion" to "1.02",
+            "deviceMake" to "Apple",
+            "deviceModel" to "RealityDevice14,1",
+            "osName" to "visionOS",
+            "osVersion" to "2.0",
+            "hl" to LontarPersona.HL,
+            "gl" to LontarPersona.GL,
+        ),
+    )
+
     /** Personas are tried in order until one returns playable streams. */
     val CHAIN: List<PlayerPersona> = listOf(ANDROID_VR, ANDROID, IOS)
 
@@ -168,6 +199,10 @@ object PlayerPersonas {
     fun ios(clientVersion: String): PlayerPersona =
         withVersion(IOS, clientVersion)
 
+    /** The visionOS persona with a remotely configured version applied. */
+    fun visionOs(clientVersion: String): PlayerPersona =
+        withVersion(VISIONOS, clientVersion)
+
     /**
      * The persona chain for a (possibly remote-configured) engine
      * config: the config's persona names, in order, each with its
@@ -181,6 +216,7 @@ object PlayerPersonas {
                 "ANDROID_VR" -> androidVr(config.androidVrClientVersion)
                 "ANDROID" -> android(config.androidClientVersion)
                 "IOS" -> ios(config.iosClientVersion)
+                "VISIONOS" -> visionOs(config.visionOsClientVersion)
                 else -> null
             }
         }

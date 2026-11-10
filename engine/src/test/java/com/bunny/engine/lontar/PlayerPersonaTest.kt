@@ -54,4 +54,25 @@ class PlayerPersonaTest {
         )
         assertEquals(listOf("ANDROID"), PlayerPersonas.chain(mixed).map { it.name })
     }
+
+    @Test
+    fun visionOs_probedShape_notInDefaultChain() {
+        // Arus A1: the persona exists and resolves through config, but
+        // the shipped ladder is unchanged until the Lontar Hidup call.
+        assertEquals("101", PlayerPersonas.VISIONOS.clientNameId)
+        assertEquals("1.02", PlayerPersonas.VISIONOS.clientVersion)
+        assertFalse(PlayerPersonas.CHAIN.contains(PlayerPersonas.VISIONOS))
+        val chain = PlayerPersonas.chain(
+            EngineConfig.DEFAULTS.copy(playerPersonas = listOf("VISIONOS", "ANDROID_VR")),
+        )
+        assertEquals(listOf("VISIONOS", "ANDROID_VR"), chain.map { it.name })
+        val bumped = PlayerPersonas.chain(
+            EngineConfig.DEFAULTS.copy(
+                playerPersonas = listOf("VISIONOS"),
+                visionOsClientVersion = "1.03",
+            ),
+        )
+        assertEquals("1.03", bumped.single().clientVersion)
+        assertTrue(bumped.single().userAgent.contains("/1.03"))
+    }
 }

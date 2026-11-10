@@ -80,6 +80,14 @@ class EngineConfigTest {
     }
 
     @Test
+    fun parse_visionOsClientVersion_remoteWinsDefaultOtherwise() {
+        val remote = EngineConfig.parse(JSONObject("""{"visionOsClientVersion":"1.03"}"""))
+        assertEquals("1.03", remote.visionOsClientVersion)
+        val absent = EngineConfig.parse(JSONObject("""{}"""))
+        assertEquals("1.02", absent.visionOsClientVersion)
+    }
+
+    @Test
     fun session_remoteFallback_usedWhenHomepageHasNoVersion() {
         val html = """<script>ytcfg.set({"INNERTUBE_API_KEY":"AIzaTEST",
             "INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtTEST123"}}});</script>"""
