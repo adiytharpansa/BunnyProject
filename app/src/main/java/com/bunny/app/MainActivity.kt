@@ -13,9 +13,16 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +39,7 @@ import com.bunny.app.playback.CrashRecorder
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
+import com.bunny.app.presentation.screens.terbit.TerbitScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
@@ -45,35 +53,74 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
-                // Fase 2 navigation is deliberately a single state: home, or
-                // one open video. A nav graph earns its place in Fase 3 when
-                // Terbit and channel pages exist.
+                // Fase 3 navigation: two tabs (Beranda, Terbit) under one
+                // optional open video. Still a plain state machine — the
+                // screens own their scaffolds, this one only owns the tab
+                // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
+                var selectedTab by remember { mutableStateOf(0) }
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
                 val videoId = openVideoId
-                Box(modifier = Modifier.fillMaxSize()) {
-                    if (videoId == null) {
-                        HomeScreen(onVideoClick = { openVideoId = it })
-                        val report = crashReport
-                        if (report != null) {
-                            CrashReportBlock(
-                                report = report,
-                                onDismiss = {
-                                    CrashRecorder.clear(this@MainActivity)
-                                    crashReport = null
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(horizontal = 8.dp, vertical = 56.dp),
-                            )
+                Scaffold(
+                    bottomBar = {
+                        if (videoId == null) {
+                            NavigationBar {
+                                NavigationBarItem(
+                                    selected = selectedTab == 0,
+                                    onClick = { selectedTab = 0 },
+                                    icon = {
+                                        Icon(
+                                            Icons.Filled.Home,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    label = { Text(stringResource(R.string.nav_home)) },
+                                )
+                                NavigationBarItem(
+                                    selected = selectedTab == 1,
+                                    onClick = { selectedTab = 1 },
+                                    icon = {
+                                        Icon(
+                                            Icons.Filled.Article,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    label = { Text(stringResource(R.string.nav_terbit)) },
+                                )
+                            }
                         }
-                    } else {
-                        PlayerScreen(
-                            videoId = videoId,
-                            onBack = { openVideoId = null },
-                        )
+                    },
+                ) { scaffoldPadding ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(scaffoldPadding),
+                    ) {
+                        if (videoId != null) {
+                            PlayerScreen(
+                                videoId = videoId,
+                                onBack = { openVideoId = null },
+                            )
+                        } else if (selectedTab == 0) {
+                            HomeScreen(onVideoClick = { openVideoId = it })
+                            val report = crashReport
+                            if (report != null) {
+                                CrashReportBlock(
+                                    report = report,
+                                    onDismiss = {
+                                        CrashRecorder.clear(this@MainActivity)
+                                        crashReport = null
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopCenter)
+                                        .padding(horizontal = 8.dp, vertical = 56.dp),
+                                )
+                            }
+                        } else {
+                            TerbitScreen(onVideoClick = { openVideoId = it })
+                        }
                     }
                 }
             }

@@ -90,10 +90,14 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   detail video. ✅ *(CI hijau; Beranda terverifikasi hidup di perangkat.)*
 - **Fase 2** — Bidang putar: rantai persona player (ANDROID_VR), manifest
   DASH buatan Lontar, rantai putar DASH → HLS → progresif, layanan Media3
-  dengan kontrak foreground yang benar, diagnostik pemutaran bawaan.
-  *(Dalam pengerjaan — pemecah cipher tidak diperlukan di jalur ini.)*
+  dengan kontrak foreground yang benar, diagnostik pemutaran bawaan. ✅
+  *(Terbukti di perangkat 2026-11-10, termasuk putar latar + notifikasi
+  lewat MediaController; pemecah cipher tidak diperlukan di jalur ini.)*
 - **Fase 3** — Fitur khas: Timbangan + Jatah, Terbit, Chip Alasan,
   langganan lokal + grup, Panen Bertingkat.
+  *(Dalam pengerjaan — Timbangan + Jatah, Chip Alasan, langganan lokal,
+  dan Terbit masuk lebih dulu; grup langganan dan Panen Bertingkat
+  menyusul dalam fase yang sama.)*
 - **Fase 4** — Ketahanan: persona bergilir, konfigurasi mesin yang dapat
   diperbarui jarak jauh, telemetri kegagalan putar di perangkat.
 
