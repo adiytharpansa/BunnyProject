@@ -7,6 +7,9 @@ import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -86,14 +89,22 @@ class LontarEngine(
         // the LIVE badge (the plain videos-only param returned 1 of
         // 20), and the parser flags them via that badge. A channel-hub
         // browse was probed too and rejected: its rows carry no badges.
-        val pages = LIVE_SEED_QUERIES.map { (query, label) ->
-            try {
-                searchLive(query).map { item -> item.copy(reason = "Topik: $label") }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                emptyList()
-            }
+        // The topic searches are independent: run them in parallel so
+        // the tab costs one round trip, not five in a row.
+        val pages = coroutineScope {
+            LIVE_SEED_QUERIES.map { (query, label) ->
+                async {
+                    try {
+                        searchLive(query).map { item ->
+                            item.copy(reason = "Topik: $label")
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+            }.awaitAll()
         }
         return Page(items = roundRobin(pages, MAX_LIVE_ITEMS), nextPage = null)
     }
@@ -174,16 +185,22 @@ class LontarEngine(
         // the topic whose seed search surfaced it. The tag is a fact about
         // how the list was composed, so it is attached here, not guessed
         // by the UI. The seed set itself is remotely updatable (Fase 4).
-        val pages = config.seedQueries.map { (query, label) ->
-            try {
-                search(query, null).items
-                    .filter { !it.isLive }
-                    .map { item -> item.copy(reason = "Topik: $label") }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                emptyList()
-            }
+        // The topic searches are independent: run them in parallel so
+        // the home feed costs one round trip, not five in a row.
+        val pages = coroutineScope {
+            config.seedQueries.map { (query, label) ->
+                async {
+                    try {
+                        search(query, null).items
+                            .filter { !it.isLive }
+                            .map { item -> item.copy(reason = "Topik: $label") }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+            }.awaitAll()
         }
         return Page(items = roundRobin(pages, MAX_SEED_ITEMS), nextPage = null)
     }
@@ -363,15 +380,29 @@ class LontarEngine(
     private suspend fun ensureSession(): InnertubeSession {
         session?.let { return it }
         return sessionMutex.withLock {
-            // The remote config is fetched once per process, before the
-            // session, because the session bootstrap itself consumes it
-            // (the fallback client version). Best-effort by design: the
-            // defaults are always serviceable.
-            if (!configFetched) {
-                configFetched = true
-                config = fetchRemoteConfig()
+            session ?: coroutineScope {
+                // The remote config and the session bootstrap are two
+                // independent fetches; running them together saves a
+                // full round trip on cold start. The session only borrows
+                // the config's fallback client version, and only when the
+                // homepage lacks a version marker — so while the config
+                // is still in flight the built-in default serves, and the
+                // fetched config applies to everything after (seed
+                // queries, player personas). Best-effort by design: the
+                // defaults are always serviceable.
+                val configJob = async {
+                    if (!configFetched) {
+                        configFetched = true
+                        config = fetchRemoteConfig()
+                    }
+                }
+                // Whatever config is already in hand (the defaults on a
+                // cold start, the fetched values on a session refresh).
+                val fallback = config.fallbackClientVersion
+                val newSession = async { fetchSession(fallback) }
+                configJob.await()
+                newSession.await().also { session = it }
             }
-            session ?: fetchSession().also { session = it }
         }
     }
 
@@ -395,7 +426,9 @@ class LontarEngine(
         EngineConfig.DEFAULTS
     }
 
-    private suspend fun fetchSession(): InnertubeSession = withContext(Dispatchers.IO) {
+    private suspend fun fetchSession(
+        fallbackClientVersion: String,
+    ): InnertubeSession = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://www.youtube.com/")
             .header("User-Agent", LontarPersona.USER_AGENT)
@@ -403,7 +436,7 @@ class LontarEngine(
             .build()
         httpClient.newCall(request).execute().use { response ->
             val html = response.body?.string().orEmpty()
-            InnertubeSession.fromHomepageHtml(html, config.fallbackClientVersion)
+            InnertubeSession.fromHomepageHtml(html, fallbackClientVersion)
                 ?: throw LontarException("Gagal memperoleh sesi InnerTube dari beranda YouTube")
         }
     }
