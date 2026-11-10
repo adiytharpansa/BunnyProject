@@ -1,6 +1,8 @@
 package com.bunny.app.playback
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -19,6 +21,7 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.MediaSession
+import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -52,7 +55,24 @@ class PlaybackManager @Inject constructor(
 
     /** The session for [PlaybackService]; built once, with the player. */
     fun session(): MediaSession {
-        return _session ?: MediaSession.Builder(context, player).build().also { _session = it }
+        return _session ?: MediaSession.Builder(context, player)
+            // Tapping the notification (or lock-screen card) brings the
+            // running app back to the front instead of doing nothing.
+            .setSessionActivity(openAppIntent())
+            .build()
+            .also { _session = it }
+    }
+
+    private fun openAppIntent(): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
     }
 
     /**

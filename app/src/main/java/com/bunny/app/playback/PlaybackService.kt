@@ -30,13 +30,14 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        setMediaNotificationProvider(
-            DefaultMediaNotificationProvider.Builder(this)
-                .setChannelId(CHANNEL_ID)
-                .setNotificationId(NOTIFICATION_ID)
-                .setChannelName(CHANNEL_NAME_RES)
-                .build(),
-        )
+        val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
+            .setChannelId(CHANNEL_ID)
+            .setNotificationId(NOTIFICATION_ID)
+            .setChannelName(CHANNEL_NAME_RES)
+            .build()
+        // Bunny's own monochrome icon instead of the Media3 default.
+        notificationProvider.setSmallIcon(com.bunny.app.R.drawable.ic_notification)
+        setMediaNotificationProvider(notificationProvider)
         // Materialise the session NOW, not on first controller demand:
         // the notification provider can only promote this service to the
         // foreground for a session that exists (field finding 2026-11-10:
