@@ -72,6 +72,7 @@ import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
 import com.bunny.app.presentation.screens.live.LiveScreen
+import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
@@ -101,6 +102,7 @@ class MainActivity : ComponentActivity() {
                 // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
                 var openSearch by remember { mutableStateOf(false) }
+                var openNotifications by remember { mutableStateOf(false) }
                 var openChannel by remember {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
@@ -118,7 +120,7 @@ class MainActivity : ComponentActivity() {
                 val videoId = openVideoId
                 SideEffect { pipEligible = videoId != null }
                 val barVisible =
-                    videoId == null && !openSearch && openChannel == null
+                    videoId == null && !openSearch && !openNotifications && openChannel == null
                 Scaffold { scaffoldPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         // While the bottom bar is on screen it overlays the
@@ -159,10 +161,16 @@ class MainActivity : ComponentActivity() {
                                     onBack = { openSearch = false },
                                     onVideoClick = { openVideoId = it },
                                 )
+                            } else if (openNotifications) {
+                                NotificationsScreen(
+                                    onBack = { openNotifications = false },
+                                    onVideoClick = { openVideoId = it },
+                                )
                             } else if (selectedTab == 0) {
                                 HomeScreen(
                                     onVideoClick = { openVideoId = it },
                                     onSearchClick = { openSearch = true },
+                                    onNotificationsClick = { openNotifications = true },
                                     onBarsFraction = {
                                         barsFraction.floatValue = it
                                     },

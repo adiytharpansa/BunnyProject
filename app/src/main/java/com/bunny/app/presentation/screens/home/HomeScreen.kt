@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,6 +91,7 @@ import com.bunny.core.model.DataCost
 fun HomeScreen(
     onVideoClick: (String) -> Unit = {},
     onSearchClick: () -> Unit = {},
+    onNotificationsClick: () -> Unit = {},
     /** Reports how hidden the header is (0 = shown, 1 = hidden) so the host can hide the bottom bar in sync. */
     onBarsFraction: (Float) -> Unit = {},
     /** Height of the host's bottom bar, so the last card is not covered by it. */
@@ -362,6 +364,12 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNotificationsClick) {
+                        Icon(
+                            Icons.Outlined.Notifications,
+                            contentDescription = stringResource(R.string.notif_title),
+                        )
+                    }
                     IconButton(onClick = onSearchClick) {
                         Icon(
                             Icons.Filled.Search,

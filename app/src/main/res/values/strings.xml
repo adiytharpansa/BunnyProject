@@ -69,4 +69,9 @@
     <string name="player_more">…selengkapnya</string>
     <string name="player_less">Lebih sedikit</string>
     <string name="player_enable_short">Aktifkan</string>
+    <string name="notif_title">Notifikasi</string>
+    <string name="notif_back">Kembali</string>
+    <string name="notif_subtitle">Video terbaru dari kanal langgananmu</string>
+    <string name="notif_loading">Memeriksa video baru…</string>
+    <string name="notif_empty">Belum ada notifikasi. Langganan sebuah kanal, lalu video terbarunya akan muncul di sini.</string>
 </resources>
