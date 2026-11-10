@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Bunny</string>
+    <string name="home_title">Bunny</string>
+    <string name="error_generic">Terjadi kesalahan. Coba lagi.</string>
+    <string name="retry">Coba lagi</string>
+</resources>
