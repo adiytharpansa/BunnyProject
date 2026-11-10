@@ -67,6 +67,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.bunny.app.playback.CrashRecorder
+import com.bunny.core.model.VideoItem
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.presentation.screens.channel.ChannelScreen
@@ -108,6 +109,12 @@ class MainActivity : ComponentActivity() {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
                 var selectedTab by remember { mutableStateOf(0) }
+                // Isi feed Beranda yang dilaporkan HomeScreen; Live dan Kanal
+                // memakainya untuk daftar tab dan (di Kanal) untuk isi video.
+                var feedItems by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+                val topics = remember(feedItems) {
+                    feedItems.mapNotNull { it.reason }.distinct()
+                }
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
@@ -186,6 +193,7 @@ class MainActivity : ComponentActivity() {
                                     onVideoClick = { openVideoId = it },
                                     onSearchClick = { openSearch = true },
                                     onNotificationsClick = { openNotifications = true },
+                                    onFeedChanged = { feedItems = it },
                                     onBarsFraction = {
                                         barsFraction.floatValue = it
                                     },
@@ -213,6 +221,8 @@ class MainActivity : ComponentActivity() {
                                     LiveScreen(
                                         onVideoClick = { openVideoId = it },
                                         onSearchClick = { openSearch = true },
+                                        onNotificationsClick = { openNotifications = true },
+                                        topics = topics,
                                     )
                                 }
                             } else if (selectedTab == 2) {
@@ -225,7 +235,11 @@ class MainActivity : ComponentActivity() {
                                         onChannelClick = { id, name ->
                                             openChannel = id to name
                                         },
+                                        onVideoClick = { openVideoId = it },
                                         onSearchClick = { openSearch = true },
+                                        onNotificationsClick = { openNotifications = true },
+                                        topics = topics,
+                                        feedItems = feedItems,
                                     )
                                 }
                             } else {

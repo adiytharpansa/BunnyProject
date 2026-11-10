@@ -78,4 +78,6 @@
     <string name="related_from_channel">Dari %1$s</string>
     <string name="related_similar">Terkait</string>
     <string name="related_empty">Belum ada video rekomendasi.</string>
+    <string name="live_empty_topic">Tidak ada siaran langsung untuk topik %1$s saat ini.</string>
+    <string name="kanal_empty_topic">Belum ada video topik %1$s dari kanal langgananmu.</string>
 </resources>

@@ -90,8 +90,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.bunny.app.R
+import com.bunny.app.presentation.components.BunnyHeader
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.DataCost
+import com.bunny.core.model.VideoItem
 
 /** How long a card must stay the best candidate before its preview starts. */
 private const val PREVIEW_DWELL_MS = 700L
@@ -115,6 +117,8 @@ fun HomeScreen(
     onVideoClick: (String) -> Unit = {},
     onSearchClick: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
+    /** Melaporkan isi feed ke host, agar Live/Kanal bisa memakai daftar topik dan video yang sama. */
+    onFeedChanged: (List<VideoItem>) -> Unit = {},
     /** Reports how hidden the header is (0 = shown, 1 = hidden) so the host can hide the bottom bar in sync. */
     onBarsFraction: (Float) -> Unit = {},
     /** Height of the host's bottom bar, so the last card is not covered by it. */
@@ -133,6 +137,8 @@ fun HomeScreen(
     } else {
         state.items.filter { it.reason == topicFilter }
     }
+
+    LaunchedEffect(state.items) { onFeedChanged(state.items) }
 
     // Inline previews (the official app's feed playback): the topmost card
     // showing most of its area starts a muted preview after a short dwell;
@@ -397,57 +403,13 @@ fun HomeScreen(
                 }
                 .background(MaterialTheme.colorScheme.background),
         ) {
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    scrolledContainerColor = MaterialTheme.colorScheme.background,
-                ),
-                title = {
-                    // Wordmark: ikon aplikasi (kelinci) + "Bunny" tebal rapat.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Image(
-                            painter = painterResource(R.drawable.ic_bunny_logo),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(RoundedCornerShape(10.dp)),
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            stringResource(R.string.home_title),
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-0.8).sp,
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = onNotificationsClick) {
-                        Icon(
-                            Icons.Outlined.Notifications,
-                            contentDescription = stringResource(R.string.notif_title),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    IconButton(onClick = onSearchClick) {
-                        Icon(
-                            Icons.Filled.Search,
-                            contentDescription = stringResource(R.string.search_open),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Spacer(Modifier.width(4.dp))
-                },
+            BunnyHeader(
+                topics = topics,
+                selectedTopic = topicFilter,
+                onTopicSelect = { topicFilter = it },
+                onNotificationsClick = onNotificationsClick,
+                onSearchClick = onSearchClick,
             )
-            if (topics.size > 1) {
-                HomeTabs(
-                    topics = topics,
-                    selected = topicFilter,
-                    onSelect = { topicFilter = it },
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
-            }
         }
     }
 }
@@ -809,71 +771,4 @@ private fun JatahQuotaDialog(
             }
         },
     )
-}
-
-/**
- * Topic pills under the app bar (Beranda / Podcast / Berita …). The
- * selected pill is filled with the primary color, the others sit on a
- * muted surface; the color change is animated. The topics are Bunny's
- * Chip Alasan reasons, so selecting one filters the feed already on
- * screen.
- */
-@Composable
-private fun HomeTabs(
-    topics: List<String>,
-    selected: String?,
-    onSelect: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val all = listOf<String?>(null) + topics
-    LazyRow(
-        modifier = modifier,
-        contentPadding = PaddingValues(horizontal = FeedHorizontalPadding, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        items(all, key = { it ?: "__all__" }) { topic ->
-            val isSelected = topic == selected
-            val label = topic?.removePrefix("Topik: ")
-                ?: stringResource(R.string.nav_home)
-            val container by animateColorAsState(
-                targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.surface
-                },
-                animationSpec = tween(180),
-                label = "tabContainer",
-            )
-            val content by animateColorAsState(
-                targetValue = if (isSelected) {
-                    MaterialTheme.colorScheme.onPrimary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                animationSpec = tween(180),
-                label = "tabContent",
-            )
-            Box(
-                modifier = Modifier
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(container)
-                    .selectable(
-                        selected = isSelected,
-                        role = Role.Tab,
-                        onClick = { onSelect(topic) },
-                    )
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    fontSize = 14.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                    color = content,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
 }
