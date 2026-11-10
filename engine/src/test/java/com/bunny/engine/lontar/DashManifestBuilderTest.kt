@@ -17,7 +17,10 @@ class DashManifestBuilderTest {
         extra: String = "",
     ): String {
         val urlPart = if (url != null) """"url":"$url",""" else """"signatureCipher":"s=abc&sp=sig","""
-        return """{"itag":$itag,$urlPart"mimeType":"$mime","bitrate":$bitrate,
+        // The mime value carries real quotes (codecs="..."); in JSON text
+        // they must appear escaped, exactly as InnerTube sends them.
+        val mimeJson = mime.replace("\"", "\\\"")
+        return """{"itag":$itag,$urlPart"mimeType":"$mimeJson","bitrate":$bitrate,
             "initRange":{"start":"0","end":"100"},"indexRange":{"start":"101","end":"200"}$extra}"""
     }
 
