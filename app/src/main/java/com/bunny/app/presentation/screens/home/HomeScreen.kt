@@ -216,6 +216,17 @@ fun HomeScreen(
     var headerHeightPx by remember { mutableFloatStateOf(0f) }
     var headerOffsetPx by remember { mutableFloatStateOf(0f) } // -height..0
     val headerPadDp = with(density) { headerHeightPx.toDp() }
+    // A refresh must never start under a half-collapsed header: bring the
+    // header (and, through onBarsFraction, the bottom bar) back first.
+    LaunchedEffect(state.isLoading) {
+        if (state.isLoading && headerOffsetPx != 0f) {
+            animate(
+                initialValue = headerOffsetPx,
+                targetValue = 0f,
+                animationSpec = tween(180),
+            ) { value, _ -> headerOffsetPx = value }
+        }
+    }
     val headerConnection = remember(listState) {
         object : NestedScrollConnection {
             override fun onPreScroll(
@@ -304,7 +315,9 @@ fun HomeScreen(
             else -> PullToRefreshBox(
                 isRefreshing = state.isLoading,
                 onRefresh = { viewModel.load() },
-                topInsetPx = headerHeightPx,
+                // Bottom edge of the header as it is RIGHT NOW (full
+                // height minus however much it has collapsed).
+                headerBottomPx = { headerHeightPx + headerOffsetPx },
             ) {
                 LazyColumn(
                     state = listState,
@@ -427,18 +440,24 @@ fun HomeScreen(
  * BOM bump just for this was not worth the churn. Downward overscroll
  * the list cannot consume accumulates as pull distance; releasing
  * past the threshold refreshes. The indicator is a small circular
- * badge that follows the pull.
+ * badge that emerges from behind the header's bottom edge, follows the
+ * pull, and rests [INDICATOR_REST_GAP] below the header — like the
+ * official app.
+ *
+ * [headerBottomPx] is read at layout time (a lambda) so the badge
+ * tracks the collapsing header without recomposing.
  */
 @Composable
 private fun PullToRefreshBox(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    topInsetPx: Float = 0f,
+    headerBottomPx: () -> Float = { 0f },
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
     val thresholdPx = with(density) { 72.dp.toPx() }
     val badgePx = with(density) { 36.dp.toPx() }
+    val restGapPx = with(density) { INDICATOR_REST_GAP.toPx() }
     var pullPx by remember { mutableFloatStateOf(0f) }
     val connection = remember(isRefreshing) {
         object : NestedScrollConnection {
@@ -487,12 +506,18 @@ private fun PullToRefreshBox(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .offset {
-                        val travel = if (isRefreshing) {
-                            badgePx * 0.75f
+                        // Offset from the header's bottom edge:
+                        //   -badgePx          hidden right behind the header
+                        //   restGapPx         resting spot while refreshing
+                        // While pulling the badge travels between the two
+                        // (a little overshoot past the threshold is fine).
+                        val fromHeader = if (isRefreshing) {
+                            restGapPx
                         } else {
-                            pullPx - badgePx
+                            val f = pullPx / thresholdPx
+                            -badgePx + f * (badgePx + restGapPx)
                         }
-                        IntOffset(0, (travel + topInsetPx).toInt())
+                        IntOffset(0, (headerBottomPx() + fromHeader).toInt())
                     }
                     .size(36.dp)
                     .clip(CircleShape)
@@ -515,6 +540,9 @@ private fun PullToRefreshBox(
         }
     }
 }
+
+/** Gap between the header's bottom edge and the resting refresh badge. */
+private val INDICATOR_REST_GAP = 12.dp
 
 /** First-load placeholder: three ghost cards in the feed's geometry. */
 @Composable
