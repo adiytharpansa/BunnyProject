@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
@@ -17,6 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -51,6 +53,16 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsState()
     val jatah by viewModel.jatah.collectAsState()
     var showQuotaDialog by remember { mutableStateOf(false) }
+    // Topic chips, like the official app's home tab bar (REA dissection
+    // 2026-11-10): they filter the mixture already on screen — Bunny's
+    // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
+    var topicFilter by remember { mutableStateOf<String?>(null) }
+    val topics = state.items.mapNotNull { it.reason }.distinct()
+    val visibleItems = if (topicFilter == null) {
+        state.items
+    } else {
+        state.items.filter { it.reason == topicFilter }
+    }
 
     if (showQuotaDialog) {
         JatahQuotaDialog(
@@ -121,7 +133,33 @@ fun HomeScreen(
                             onSetQuota = { showQuotaDialog = true },
                         )
                     }
-                    items(state.items, key = { it.id }) { item ->
+                    if (topics.size > 1) {
+                        item {
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                item {
+                                    FilterChip(
+                                        selected = topicFilter == null,
+                                        onClick = { topicFilter = null },
+                                        label = {
+                                            Text(stringResource(R.string.topic_all))
+                                        },
+                                    )
+                                }
+                                items(topics) { topic ->
+                                    FilterChip(
+                                        selected = topicFilter == topic,
+                                        onClick = { topicFilter = topic },
+                                        label = {
+                                            Text(topic.removePrefix("Topik: "))
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    items(visibleItems, key = { it.id }) { item ->
                         VideoCard(item = item, onClick = { onVideoClick(item.id) })
                     }
                 }

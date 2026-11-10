@@ -31,6 +31,10 @@
     <string name="search_recent">Pencarian terakhir</string>
     <string name="search_clear_history">Hapus riwayat pencarian</string>
     <string name="search_clear_query">Hapus teks</string>
+    <string name="topic_all">Semua</string>
+    <string name="channel_open">Lihat kanal %1$s</string>
+    <string name="channel_video_count">%1$d video</string>
+    <string name="channel_empty">Kanal ini belum punya video yang bisa ditampilkan.</string>
     <string name="search_more">Muat lebih banyak</string>
     <string name="search_empty">Tidak ada hasil untuk “%1$s”</string>
     <string name="search_error">Pencarian gagal. Periksa koneksi lalu coba lagi.</string>

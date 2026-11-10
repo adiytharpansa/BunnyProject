@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.bunny.app.playback.CrashRecorder
 import com.bunny.app.playback.PlaybackDiagnostics
+import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
@@ -60,6 +61,9 @@ class MainActivity : ComponentActivity() {
                 // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
                 var openSearch by remember { mutableStateOf(false) }
+                var openChannel by remember {
+                    mutableStateOf<Pair<String, String>?>(null)
+                }
                 var selectedTab by remember { mutableStateOf(0) }
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
@@ -67,7 +71,7 @@ class MainActivity : ComponentActivity() {
                 val videoId = openVideoId
                 Scaffold(
                     bottomBar = {
-                        if (videoId == null && !openSearch) {
+                        if (videoId == null && !openSearch && openChannel == null) {
                             NavigationBar {
                                 NavigationBarItem(
                                     selected = selectedTab == 0,
@@ -104,6 +108,17 @@ class MainActivity : ComponentActivity() {
                             PlayerScreen(
                                 videoId = videoId,
                                 onBack = { openVideoId = null },
+                                onChannelClick = { id, name ->
+                                    openChannel = id to name
+                                },
+                            )
+                        } else if (openChannel != null) {
+                            val (channelId, channelName) = openChannel!!
+                            ChannelScreen(
+                                channelId = channelId,
+                                channelName = channelName,
+                                onBack = { openChannel = null },
+                                onVideoClick = { openVideoId = it },
                             )
                         } else if (openSearch) {
                             SearchScreen(

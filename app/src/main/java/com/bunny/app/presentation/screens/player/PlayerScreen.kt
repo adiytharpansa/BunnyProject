@@ -55,6 +55,7 @@ import com.bunny.core.model.DataCost
 fun PlayerScreen(
     videoId: String,
     onBack: () -> Unit,
+    onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -229,6 +230,16 @@ fun PlayerScreen(
                                     } else {
                                         R.string.player_subscribe
                                     },
+                                ),
+                            )
+                        }
+                        TextButton(onClick = {
+                            onChannelClick(channelId, current.details.channelName)
+                        }) {
+                            Text(
+                                stringResource(
+                                    R.string.channel_open,
+                                    current.details.channelName,
                                 ),
                             )
                         }
