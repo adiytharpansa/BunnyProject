@@ -4,22 +4,24 @@ import android.content.Intent
 import android.view.TextureView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -52,13 +55,13 @@ import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
 
 /**
- * One feed item, laid out the way the official app lays out its feed
- * (owner instruction 2026-11-10, from the REA dissection): a
- * full-bleed 16:9 thumbnail, then a row with the channel's avatar on
- * the left and title + two-line meta on the right. Bunny's two
- * signatures stay: the Timbangan ≈MB badge on the thumbnail and the
- * Chip Alasan pill under the meta. The engine supplies no channel
- * avatars, so the avatar is an honest letter tile.
+ * One feed item, laid out like the official app's feed card: a
+ * full-bleed 16:9 thumbnail, then a rounded panel holding the title
+ * (full width, up to two lines) and a row with the channel avatar,
+ * channel + meta lines and the ⋮ menu. Bunny's signatures stay: the
+ * Timbangan ≈MB badge on the thumbnail and the Chip Alasan pill.
+ * The engine supplies no channel avatars, so the avatar is an honest
+ * letter tile.
  */
 @UnstableApi
 @Composable
@@ -77,13 +80,15 @@ fun VideoCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+            .background(MaterialTheme.colorScheme.surface)
             .clickable { onClick() },
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .background(MaterialTheme.colorScheme.surface),
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             if (isPreviewing && previewPlayer != null) {
                 // A TextureView, not a SurfaceView: surfaces punch
@@ -95,17 +100,24 @@ fun VideoCard(
                     onRelease = { view -> previewPlayer.clearVideoTextureView(view) },
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
                 )
-                Text(
-                    text = "Pratinjau",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                // The preview is always muted: show that, like the
+                // official app's inline playback.
+                Box(
                     modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                )
+                        .align(Alignment.TopEnd)
+                        .padding(10.dp)
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.55f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Filled.VolumeOff,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             } else if (item.thumbnailUrl != null) {
                 AsyncImage(
                     model = item.thumbnailUrl,
@@ -122,17 +134,7 @@ fun VideoCard(
                 else -> item.durationSeconds?.let { formatDuration(it) }
             }
             if (badge != null) {
-                Text(
-                    text = badge,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                )
+                ThumbBadge(badge, Modifier.align(Alignment.BottomEnd))
             }
             // Timbangan: the estimated data cost of watching, visible
             // BEFORE the tap. Ladder-based estimate (see DataCost); the
@@ -145,20 +147,9 @@ fun VideoCard(
                 }
             }
             if (sizeBadge != null) {
-                Text(
-                    text = sizeBadge,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                )
+                ThumbBadge(sizeBadge, Modifier.align(Alignment.BottomStart))
             }
-            // Preview progress hairline, like the official app's
-            // inline playback: a thin track with an orange fill.
+            // Preview progress hairline: a thin track with an accent fill.
             if (isPreviewing && previewProgress != null) {
                 Box(
                     modifier = Modifier
@@ -176,71 +167,99 @@ fun VideoCard(
                 }
             }
         }
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         ) {
-            Box(
+            Text(
+                text = item.title,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(avatarColor(item.channelName)),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    item.channelName.firstOrNull()?.uppercase() ?: "?",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color(0xFFF5F1EA),
-                )
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    text = item.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                // One meta line, the official feed's rhythm:
-                // channel • views • age on a single ellipsized line.
-                val meta = listOfNotNull(
-                    item.channelName.ifEmpty { null },
-                    item.viewCount?.let { "${formatCount(it)} x ditonton" },
-                    item.uploadedText,
-                ).joinToString(" • ")
-                if (meta.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(avatarColor(item.channelName)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        text = meta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        item.channelName.firstOrNull()?.uppercase() ?: "?",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFFF5F1EA),
                     )
                 }
-                // Chip Alasan: why this video is on the list, stated plainly.
-                if (showReason) {
-                    item.reason?.let { reason ->
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    if (item.channelName.isNotEmpty()) {
                         Text(
-                            text = reason,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier
-                                .padding(top = 4.dp)
-                                .clip(RoundedCornerShape(50))
-                                .background(MaterialTheme.colorScheme.secondaryContainer)
-                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                            text = item.channelName,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    val meta = listOfNotNull(
+                        item.viewCount?.let { "${formatCount(it)} x ditonton" },
+                        item.uploadedText,
+                    ).joinToString(" • ")
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            text = meta,
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
+                CardMenu(videoId = item.id)
             }
-            CardMenu(videoId = item.id)
+            // Chip Alasan: why this video is on the list, stated plainly.
+            if (showReason) {
+                item.reason?.let { reason ->
+                    Text(
+                        text = reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier
+                            .padding(top = 10.dp, start = 52.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
         }
     }
+}
+
+/** Duration / size badge on the thumbnail: black pill, white text. */
+@Composable
+private fun ThumbBadge(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        color = Color.White,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = modifier
+            .padding(8.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.8f))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 /**
@@ -262,7 +281,7 @@ private fun CardMenu(videoId: String) {
             Icon(
                 Icons.Filled.MoreVert,
                 contentDescription = stringResource(R.string.menu_more),
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(22.dp),
             )
         }
         DropdownMenu(
@@ -295,10 +314,10 @@ private fun CardMenu(videoId: String) {
     }
 }
 
-// Avatar tile colors: a stable per-channel pick from muted tones, so
-// the feed reads as many channels (the official app's avatars are all
-// different) instead of one repeated brand block. The letter stays
-// near-white for contrast on every tone.
+// Avatar tile colors: a stable per-channel pick from warm tones taken
+// from the app icon's browns, so the feed reads as many channels
+// instead of one repeated brand block. The letter stays near-white
+// for contrast on every tone.
 private val AvatarPalette = listOf(
     Color(0xFF8F481C),
     Color(0xFF6B3A1E),

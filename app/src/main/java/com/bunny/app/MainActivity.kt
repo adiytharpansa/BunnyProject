@@ -11,11 +11,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
@@ -26,9 +34,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,8 +46,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
@@ -177,21 +183,10 @@ class MainActivity : ComponentActivity() {
                         }
 
                         if (barVisible) {
-                            // YouTube-style bar: flat, outline icon when idle,
-                            // filled when selected, no indicator pill. It
-                            // slides down and fades with Home's header.
-                            val navItemColors = NavigationBarItemDefaults.colors(
-                                selectedIconColor =
-                                    MaterialTheme.colorScheme.onBackground,
-                                selectedTextColor =
-                                    MaterialTheme.colorScheme.onBackground,
-                                unselectedIconColor =
-                                    MaterialTheme.colorScheme.onBackground,
-                                unselectedTextColor =
-                                    MaterialTheme.colorScheme.onBackground,
-                                indicatorColor = Color.Transparent,
-                            )
-                            NavigationBar(
+                            // Slides down and fades with Home's header.
+                            BunnyBottomBar(
+                                selectedTab = selectedTab,
+                                onSelect = { selectedTab = it },
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .onSizeChanged { barHeightPx = it.height.toFloat() }
@@ -200,43 +195,7 @@ class MainActivity : ComponentActivity() {
                                         translationY = f * size.height
                                         alpha = 1f - f
                                     },
-                                containerColor =
-                                    MaterialTheme.colorScheme.background,
-                                tonalElevation = 0.dp,
-                            ) {
-                                NavigationBarItem(
-                                    selected = selectedTab == 0,
-                                    onClick = { selectedTab = 0 },
-                                    icon = {
-                                        Icon(
-                                            if (selectedTab == 0) {
-                                                Icons.Filled.Home
-                                            } else {
-                                                Icons.Outlined.Home
-                                            },
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    label = { Text(stringResource(R.string.nav_home)) },
-                                    colors = navItemColors,
-                                )
-                                NavigationBarItem(
-                                    selected = selectedTab == 1,
-                                    onClick = { selectedTab = 1 },
-                                    icon = {
-                                        Icon(
-                                            if (selectedTab == 1) {
-                                                Icons.Filled.Article
-                                            } else {
-                                                Icons.Outlined.Article
-                                            },
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    label = { Text(stringResource(R.string.nav_terbit)) },
-                                    colors = navItemColors,
-                                )
-                            }
+                            )
                         }
                     }
                 }
@@ -331,5 +290,84 @@ private fun CrashReportBlock(
                 Text(stringResource(R.string.crash_dismiss))
             }
         }
+    }
+}
+
+/**
+ * Bottom bar in the official app's style: flat, icon-only, a hairline on
+ * top, outline icon when idle and filled when selected. Built by hand
+ * because the Material NavigationBar has a fixed 80dp height.
+ */
+@Composable
+private fun BunnyBottomBar(
+    selectedTab: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(0.5.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(52.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BottomBarItem(
+                selected = selectedTab == 0,
+                onClick = { onSelect(0) },
+                filled = Icons.Filled.Home,
+                outlined = Icons.Outlined.Home,
+                description = stringResource(R.string.nav_home),
+                modifier = Modifier.weight(1f),
+            )
+            BottomBarItem(
+                selected = selectedTab == 1,
+                onClick = { onSelect(1) },
+                filled = Icons.Filled.Article,
+                outlined = Icons.Outlined.Article,
+                description = stringResource(R.string.nav_terbit),
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun BottomBarItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    filled: ImageVector,
+    outlined: ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = Role.Tab,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (selected) filled else outlined,
+            contentDescription = description,
+            tint = MaterialTheme.colorScheme.onBackground,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }

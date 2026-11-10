@@ -7,7 +7,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -35,8 +38,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -180,15 +181,6 @@ fun HomeScreen(
         )
     }
 
-    // YouTube-style chips: unselected = flat grey pill, no outline;
-    // selected = solid light pill with dark text. 8dp corners.
-    val chipColors = FilterChipDefaults.filterChipColors(
-        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        selectedContainerColor = MaterialTheme.colorScheme.onBackground,
-        selectedLabelColor = MaterialTheme.colorScheme.background,
-    )
-    val chipShape = RoundedCornerShape(8.dp)
     // Collapsing header (app bar + topic chips): hides while the feed
     // scrolls down (finger moves up) and slides back in as soon as the
     // user scrolls up, like the official home tab. The offset follows
@@ -296,7 +288,7 @@ fun HomeScreen(
                         top = headerPadDp + 8.dp,
                         bottom = 12.dp + bottomPadding,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     item {
                         JatahBar(
@@ -347,6 +339,7 @@ fun HomeScreen(
                 .background(MaterialTheme.colorScheme.background),
         ) {
             TopAppBar(
+                windowInsets = WindowInsets(0, 0, 0, 0),
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     scrolledContainerColor = MaterialTheme.colorScheme.background,
@@ -386,32 +379,12 @@ fun HomeScreen(
                 },
             )
             if (topics.size > 1) {
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(bottom = 8.dp),
-                ) {
-                    item {
-                        FilterChip(
-                            selected = topicFilter == null,
-                            onClick = { topicFilter = null },
-                            label = { Text(stringResource(R.string.topic_all)) },
-                            colors = chipColors,
-                            shape = chipShape,
-                            border = null,
-                        )
-                    }
-                    items(topics) { topic ->
-                        FilterChip(
-                            selected = topicFilter == topic,
-                            onClick = { topicFilter = topic },
-                            label = { Text(topic.removePrefix("Topik: ")) },
-                            colors = chipColors,
-                            shape = chipShape,
-                            border = null,
-                        )
-                    }
-                }
+                HomeTabs(
+                    topics = topics,
+                    selected = topicFilter,
+                    onSelect = { topicFilter = it },
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
             }
         }
     }
@@ -517,7 +490,7 @@ private fun PullToRefreshBox(
 private fun SkeletonFeed(topPadding: Dp = 0.dp) {
     LazyColumn(
         contentPadding = PaddingValues(top = topPadding + 12.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         items(3) { SkeletonCard() }
     }
@@ -591,7 +564,11 @@ private fun JatahBar(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Row(
@@ -638,7 +615,9 @@ private fun JatahBar(
                 .coerceIn(0f, 1f)
             LinearProgressIndicator(
                 progress = { fraction },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 10.dp, bottom = 4.dp),
             )
         }
     }
@@ -694,4 +673,62 @@ private fun JatahQuotaDialog(
             }
         },
     )
+}
+
+/**
+ * Text tabs like the official home row (Beranda / Musik / Live …):
+ * medium-weight labels, the selected one bold with a rounded accent
+ * underline. The topics are Bunny's Chip Alasan reasons, so selecting
+ * one filters the feed already on screen.
+ */
+@Composable
+private fun HomeTabs(
+    topics: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val all = listOf<String?>(null) + topics
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        items(all) { topic ->
+            val isSelected = topic == selected
+            val label = topic?.removePrefix("Topik: ")
+                ?: stringResource(R.string.nav_home)
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onSelect(topic) }
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .width(IntrinsicSize.Max),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 17.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground
+                        .copy(alpha = if (isSelected) 1f else 0.72f),
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                Color.Transparent
+                            },
+                        ),
+                )
+            }
+        }
+    }
 }
