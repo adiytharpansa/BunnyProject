@@ -9,33 +9,125 @@ import org.junit.Test
 class InnertubeParserTest {
 
     private val feedJson = """
-        {"contents":{"twoColumnBrowseResultsRenderer":{"tabs":[{"tabRenderer":{
-          "content":{"richGridRenderer":{"contents":[
-            {"richItemRenderer":{"content":{"videoRenderer":{
-              "videoId":"aqz-KE-bpKQ",
-              "title":{"runs":[{"text":"Big Buck Bunny 4K"}]},
-              "longBylineText":{"runs":[{"text":"Blender Foundation",
-                "navigationEndpoint":{"browseEndpoint":{"browseId":"UCtC9L7g"}}}]},
-              "thumbnail":{"thumbnails":[
-                {"url":"https://i.ytimg.com/small.jpg","width":120},
-                {"url":"https://i.ytimg.com/big.jpg","width":480}]},
-              "lengthText":{"simpleText":"10:35"},
-              "viewCountText":{"simpleText":"28,123,456 views"},
-              "publishedTimeText":{"simpleText":"9 years ago"}
-            }}},
-            {"richItemRenderer":{"content":{"videoRenderer":{
-              "videoId":"live42",
-              "title":{"simpleText":"Siaran Langsung Pagi"},
-              "shortBylineText":{"runs":[{"text":"Bunny TV"}]},
-              "thumbnail":{"thumbnails":[{"url":"https://i.ytimg.com/live.jpg"}]},
-              "viewCountText":{"runs":[{"text":"1.3K watching"}]},
-              "badges":[{"metadataBadgeRenderer":{"label":"LIVE",
-                "icon":{"iconType":"LIVE"}}}]
-            }}},
-            {"continuationItemRenderer":{
-              "continuationEndpoint":{"continuationCommand":{"token":"TOK_NEXT"}}}}
-          ]}}}}
-        ]}}}}
+        {
+          "contents": {
+            "twoColumnBrowseResultsRenderer": {
+              "tabs": [
+                {
+                  "tabRenderer": {
+                    "content": {
+                      "richGridRenderer": {
+                        "contents": [
+                          {
+                            "richItemRenderer": {
+                              "content": {
+                                "videoRenderer": {
+                                  "videoId": "aqz-KE-bpKQ",
+                                  "title": {
+                                    "runs": [
+                                      {
+                                        "text": "Big Buck Bunny 4K"
+                                      }
+                                    ]
+                                  },
+                                  "longBylineText": {
+                                    "runs": [
+                                      {
+                                        "text": "Blender Foundation",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCtC9L7g"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "thumbnail": {
+                                    "thumbnails": [
+                                      {
+                                        "url": "https://i.ytimg.com/small.jpg",
+                                        "width": 120
+                                      },
+                                      {
+                                        "url": "https://i.ytimg.com/big.jpg",
+                                        "width": 480
+                                      }
+                                    ]
+                                  },
+                                  "lengthText": {
+                                    "simpleText": "10:35"
+                                  },
+                                  "viewCountText": {
+                                    "simpleText": "28,123,456 views"
+                                  },
+                                  "publishedTimeText": {
+                                    "simpleText": "9 years ago"
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "richItemRenderer": {
+                              "content": {
+                                "videoRenderer": {
+                                  "videoId": "live42",
+                                  "title": {
+                                    "simpleText": "Siaran Langsung Pagi"
+                                  },
+                                  "shortBylineText": {
+                                    "runs": [
+                                      {
+                                        "text": "Bunny TV"
+                                      }
+                                    ]
+                                  },
+                                  "thumbnail": {
+                                    "thumbnails": [
+                                      {
+                                        "url": "https://i.ytimg.com/live.jpg"
+                                      }
+                                    ]
+                                  },
+                                  "viewCountText": {
+                                    "runs": [
+                                      {
+                                        "text": "1.3K watching"
+                                      }
+                                    ]
+                                  },
+                                  "badges": [
+                                    {
+                                      "metadataBadgeRenderer": {
+                                        "label": "LIVE",
+                                        "icon": {
+                                          "iconType": "LIVE"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "continuationItemRenderer": {
+                              "continuationEndpoint": {
+                                "continuationCommand": {
+                                  "token": "TOK_NEXT"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
     """.trimIndent()
 
     @Test

@@ -162,8 +162,11 @@ object InnertubeParser {
         }
         val streaming = player.optJSONObject("streamingData")
             ?: return PlaybackStreams(null, null, null, null)
-        val expiresAt = streaming.optLong("expiresInSeconds", 0)
-            .takeIf { it > 0 }
+        // InnerTube sends expiresInSeconds as a JSON string, and org.json's
+        // optLong does not coerce strings — read it flexibly (CI run #1
+        // caught this: expiry silently came back null).
+        val expiresAt = streaming.opt("expiresInSeconds")?.toString()?.toLongOrNull()
+            ?.takeIf { it > 0 }
             ?.let { nowEpochMs + it * 1000 }
 
         // Progressive (muxed) formats carrying a direct URL can play as-is.

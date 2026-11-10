@@ -40,10 +40,11 @@ fun VideoCard(
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
                 )
             }
+            // durationSeconds lives in :core, so no smart cast across modules:
+            // bind it with let instead.
             val badge = when {
                 item.isLive -> "LIVE"
-                item.durationSeconds != null -> formatDuration(item.durationSeconds)
-                else -> null
+                else -> item.durationSeconds?.let { formatDuration(it) }
             }
             if (badge != null) {
                 Text(
