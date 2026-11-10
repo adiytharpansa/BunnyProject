@@ -23,7 +23,7 @@ class PlayerPersonaTest {
     @Test
     fun chain_defaultConfig_shipsProbedLadder() {
         val names = PlayerPersonas.chain(EngineConfig.DEFAULTS).map { it.name }
-        assertEquals(listOf("ANDROID_VR", "ANDROID", "IOS"), names)
+        assertEquals(listOf("VISIONOS", "ANDROID_VR"), names)
     }
 
     @Test
@@ -56,12 +56,14 @@ class PlayerPersonaTest {
     }
 
     @Test
-    fun visionOs_probedShape_notInDefaultChain() {
-        // Arus A1: the persona exists and resolves through config, but
-        // the shipped ladder is unchanged until the Lontar Hidup call.
+    fun visionOs_probedShape_headsDefaultChain() {
+        // Re-persona 2026-11-11: VISIONOS (1.04 / RealityDevice17,1,
+        // re-probed that day) heads the shipped ladder; ANDROID_VR is
+        // the last resort.
         assertEquals("101", PlayerPersonas.VISIONOS.clientNameId)
-        assertEquals("1.02", PlayerPersonas.VISIONOS.clientVersion)
-        assertFalse(PlayerPersonas.CHAIN.contains(PlayerPersonas.VISIONOS))
+        assertEquals("1.04", PlayerPersonas.VISIONOS.clientVersion)
+        assertEquals(PlayerPersonas.VISIONOS, PlayerPersonas.CHAIN.first())
+        assertEquals(PlayerPersonas.ANDROID_VR, PlayerPersonas.CHAIN.last())
         val chain = PlayerPersonas.chain(
             EngineConfig.DEFAULTS.copy(playerPersonas = listOf("VISIONOS", "ANDROID_VR")),
         )
@@ -69,10 +71,10 @@ class PlayerPersonaTest {
         val bumped = PlayerPersonas.chain(
             EngineConfig.DEFAULTS.copy(
                 playerPersonas = listOf("VISIONOS"),
-                visionOsClientVersion = "1.03",
+                visionOsClientVersion = "1.05",
             ),
         )
-        assertEquals("1.03", bumped.single().clientVersion)
-        assertTrue(bumped.single().userAgent.contains("/1.03"))
+        assertEquals("1.05", bumped.single().clientVersion)
+        assertTrue(bumped.single().userAgent.contains("/1.05"))
     }
 }

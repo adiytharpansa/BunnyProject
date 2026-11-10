@@ -28,12 +28,12 @@ object EngineConfig {
          * remotely reorderable so a retired persona can be demoted or
          * dropped without an app update).
          */
-        val playerPersonas: List<String> = listOf("ANDROID_VR", "ANDROID", "IOS"),
+        val playerPersonas: List<String> = listOf("VISIONOS", "ANDROID_VR"),
         /** Remotely updatable client versions for the ladder's personas. */
         val androidClientVersion: String = "20.10.38",
         val iosClientVersion: String = "20.10.4",
-        /** visionOS persona version (Arus A1; probed 2026-11-10, see PlayerPersonas.VISIONOS). */
-        val visionOsClientVersion: String = "1.02",
+        /** visionOS persona version (probed 2026-11-10; re-probed at 1.04 on 2026-11-11, see PlayerPersonas.VISIONOS). */
+        val visionOsClientVersion: String = "1.04",
     )
 
     val DEFAULTS = Values(

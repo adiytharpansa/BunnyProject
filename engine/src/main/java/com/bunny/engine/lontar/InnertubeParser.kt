@@ -199,8 +199,8 @@ object InnertubeParser {
 
         // Progressive (muxed) formats carrying a direct URL can play as-is.
         // Ciphered formats (signatureCipher) are skipped rather than faked:
-        // the VR player persona returns direct URLs, so no cipher solver is
-        // on the playback path (see PlayerPersona).
+        // the ladder's player personas return direct URLs, so no cipher
+        // solver is on the playback path (see PlayerPersona).
         var progressive: String? = null
         var bestBitrate = -1L
         val formats = streaming.optJSONArray("formats") ?: JSONArray()

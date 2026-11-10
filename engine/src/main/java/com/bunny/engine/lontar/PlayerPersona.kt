@@ -133,27 +133,33 @@ object PlayerPersonas {
     )
 
     /**
-     * The Vision Pro client (visionOS) of the official YouTube app.
-     * Probed 2026-11-10 (Fase A0, Arus): the only persona whose media
-     * bytes survived past the cold-start allowance from the project
-     * VM — app personas ANDROID_VR/ANDROID/IOS all answered the player
-     * OK and then HTTP 403 at the 3 MB mark, while VISIONOS read clean
-     * at both offsets. Shares the iOS family's public API key. Whether
-     * it joins the classic ladder by default is the Lontar Hidup
-     * decision; it is available to the chain from here.
+     * The Vision Pro client (visionOS) of the official YouTube app —
+     * since the 2026-11-11 re-persona, the HEAD of the classic ladder.
+     * Probed 2026-11-10: the only persona whose media bytes survived
+     * past the cold-start allowance from the project VM — the app
+     * personas answered the player OK and then HTTP 403 at the 3 MB
+     * mark, while VISIONOS read clean at both offsets. The ecosystem
+     * converged on the same answer in Aug 2026 (yt-dlp's signed-out
+     * defaults became visionos+web; NewPipeExtractor went
+     * VISIONOS-only for streams) after ANDROID_VR began requiring a
+     * GVS token. Re-probed 2026-11-11 at this shape (1.04 /
+     * RealityDevice17,1, tracking NewPipe's dev line): 27 adaptive
+     * formats with direct URLs (the 1.02 shape offered 19), HLS
+     * manifest present, bytes HTTP 206 at 0 and at 3 MB. Shares the
+     * iOS family's public API key.
      */
     val VISIONOS = PlayerPersona(
         name = "VISIONOS",
         host = "https://youtubei.googleapis.com",
         apiKey = "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc",
         clientNameId = "101",
-        userAgent = "com.google.ios.youtube/1.02 " +
-            "(RealityDevice14,1; U; CPU visionOS 2_0 like Mac OS X; id_ID)",
+        userAgent = "com.google.ios.youtube/1.04 " +
+            "(RealityDevice17,1; U; CPU visionOS 2_0 like Mac OS X; id_ID)",
         clientFields = mapOf(
             "clientName" to "VISIONOS",
-            "clientVersion" to "1.02",
+            "clientVersion" to "1.04",
             "deviceMake" to "Apple",
-            "deviceModel" to "RealityDevice14,1",
+            "deviceModel" to "RealityDevice17,1",
             "osName" to "visionOS",
             "osVersion" to "2.0",
             "hl" to LontarPersona.HL,
@@ -161,8 +167,15 @@ object PlayerPersonas {
         ),
     )
 
-    /** Personas are tried in order until one returns playable streams. */
-    val CHAIN: List<PlayerPersona> = listOf(ANDROID_VR, ANDROID, IOS)
+    /**
+     * Personas are tried in order until one returns playable streams.
+     * VISIONOS heads the ladder (see its doc); ANDROID_VR remains as
+     * the last resort — token-gated since Aug 2026 but selectively
+     * enforced, so it still rescues some videos on some networks.
+     * ANDROID and IOS stay defined for remote-config use but left the
+     * shipped ladder in the re-persona.
+     */
+    val CHAIN: List<PlayerPersona> = listOf(VISIONOS, ANDROID_VR)
 
     /**
      * A persona with a remotely configured client version applied
