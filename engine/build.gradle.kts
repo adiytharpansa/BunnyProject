@@ -30,12 +30,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Arus (SABR) enters Media3 only through its byte door: the
-    // DataSource that serves a live conversation's bytes to the player
-    // in :app. The player itself stays in :app; :engine stays protocol.
-    implementation("androidx.media3:media3-common:1.4.0")
-    implementation("androidx.media3:media3-datasource:1.4.0")
-
     testImplementation("junit:junit:4.13.2")
     // Real org.json on the JVM so parser tests exercise the same API the
     // Android runtime provides on device.
