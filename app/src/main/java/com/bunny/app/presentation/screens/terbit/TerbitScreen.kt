@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -91,13 +93,21 @@ fun TerbitScreen(
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        // The edition masthead: Terbit's newspaper
+                        // identity. Padded like every other block (it
+                        // used to hug the screen edge) and closed by a
+                        // rule line, the way a printed edition opens.
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             Text(
                                 text = stringResource(
                                     R.string.terbit_edition,
                                     state.editionLabel,
                                 ),
                                 style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.SemiBold,
                             )
                             Text(
                                 text = stringResource(
@@ -107,6 +117,10 @@ fun TerbitScreen(
                                 ),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            HorizontalDivider(
+                                modifier = Modifier.padding(top = 8.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
                             )
                         }
                     }

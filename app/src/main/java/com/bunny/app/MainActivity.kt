@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -85,7 +86,25 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = {
                         if (videoId == null && !openSearch && openChannel == null) {
-                            NavigationBar {
+                            // The bar melts into the page background
+                            // (design pass 2026-11-10): no separate
+                            // tinted band; the selection speaks through
+                            // the orange indicator alone.
+                            val navItemColors =
+                                NavigationBarItemDefaults.colors(
+                                    selectedIconColor =
+                                        MaterialTheme.colorScheme.primary,
+                                    selectedTextColor =
+                                        MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme
+                                        .colorScheme.primary
+                                        .copy(alpha = 0.15f),
+                                )
+                            NavigationBar(
+                                containerColor =
+                                    MaterialTheme.colorScheme.background,
+                                tonalElevation = 0.dp,
+                            ) {
                                 NavigationBarItem(
                                     selected = selectedTab == 0,
                                     onClick = { selectedTab = 0 },
@@ -96,6 +115,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     },
                                     label = { Text(stringResource(R.string.nav_home)) },
+                                    colors = navItemColors,
                                 )
                                 NavigationBarItem(
                                     selected = selectedTab == 1,
@@ -107,6 +127,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     },
                                     label = { Text(stringResource(R.string.nav_terbit)) },
+                                    colors = navItemColors,
                                 )
                             }
                         }

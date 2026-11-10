@@ -14,6 +14,10 @@
     <string name="crash_dismiss">Tutup &amp; hapus catatan</string>
     <string name="close">Tutup</string>
     <string name="home_jatah_title">Jatah bulan ini</string>
+    <string name="home_jatah_empty">Belum ada pemakaian bulan ini</string>
+    <string name="menu_more">Opsi lainnya</string>
+    <string name="menu_share">Bagikan</string>
+    <string name="menu_copy_link">Salin tautan</string>
     <string name="home_jatah_used">Terpakai ≈ %1$s</string>
     <string name="home_jatah_of">dari %1$s</string>
     <string name="home_jatah_set">Atur</string>
