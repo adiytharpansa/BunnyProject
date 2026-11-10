@@ -71,4 +71,26 @@ object PlayerPersonas {
 
     /** Personas are tried in order until one returns playable streams. */
     val CHAIN: List<PlayerPersona> = listOf(ANDROID_VR)
+
+    /**
+     * The VR persona with a remotely configured client version applied
+     * (Fase 4): the version appears both in the client context and in the
+     * user agent, and both are substituted together — a mismatch between
+     * them is exactly the kind of inconsistency the bot gate notices.
+     */
+    fun androidVr(clientVersion: String): PlayerPersona {
+        if (clientVersion.isBlank() || clientVersion == ANDROID_VR.clientVersion) {
+            return ANDROID_VR
+        }
+        return ANDROID_VR.copy(
+            userAgent = ANDROID_VR.userAgent.replace(
+                "oculus/${ANDROID_VR.clientVersion}",
+                "oculus/$clientVersion",
+            ),
+            clientFields = ANDROID_VR.clientFields + ("clientVersion" to clientVersion),
+        )
+    }
+
+    /** The persona chain for a (possibly remote-configured) VR version. */
+    fun chain(clientVersion: String): List<PlayerPersona> = listOf(androidVr(clientVersion))
 }

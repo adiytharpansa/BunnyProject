@@ -26,12 +26,19 @@ data class InnertubeSession(
          */
         const val FALLBACK_CLIENT_VERSION = "2.20241126.01.00"
 
-        /** Extracts a session from homepage HTML; null when key markers are absent. */
-        fun fromHomepageHtml(html: String): InnertubeSession? {
+        /**
+         * Extracts a session from homepage HTML; null when key markers are
+         * absent. [fallbackClientVersion] is remotely updatable (Fase 4,
+         * see EngineConfig); the built-in constant is only its default.
+         */
+        fun fromHomepageHtml(
+            html: String,
+            fallbackClientVersion: String = FALLBACK_CLIENT_VERSION,
+        ): InnertubeSession? {
             val apiKey = API_KEY_REGEX.find(html)?.groupValues?.get(1) ?: return null
             val visitorData = VISITOR_DATA_REGEX.find(html)?.groupValues?.get(1) ?: return null
             val clientVersion = CLIENT_VERSION_REGEX.find(html)?.groupValues?.get(1)
-                ?: FALLBACK_CLIENT_VERSION
+                ?: fallbackClientVersion
             return InnertubeSession(
                 apiKey = apiKey,
                 clientVersion = clientVersion,

@@ -37,6 +37,10 @@ class LontarEngine(
     private val sessionMutex = Mutex()
     @Volatile private var session: InnertubeSession? = null
 
+    /** Fase 4 remote configuration; defaults until the fetch lands. */
+    @Volatile private var config: EngineConfig.Values = EngineConfig.DEFAULTS
+    @Volatile private var configFetched = false
+
     /** Player responses are shared by details + streams calls for one video. */
     private val playerCache = ConcurrentHashMap<String, Pair<JSONObject, PlayerPersona>>()
 
@@ -114,8 +118,8 @@ class LontarEngine(
         // Every mixture item is tagged with its Chip Alasan as it enters:
         // the topic whose seed search surfaced it. The tag is a fact about
         // how the list was composed, so it is attached here, not guessed
-        // by the UI.
-        val pages = SEED_QUERIES.map { (query, label) ->
+        // by the UI. The seed set itself is remotely updatable (Fase 4).
+        val pages = config.seedQueries.map { (query, label) ->
             try {
                 search(query, null).items.map { item -> item.copy(reason = "Topik: $label") }
             } catch (e: CancellationException) {
@@ -150,26 +154,52 @@ class LontarEngine(
      */
     private suspend fun playerResponse(videoId: String): Pair<JSONObject, PlayerPersona> {
         playerCache[videoId]?.let { return it }
-        // The session's visitorData is what separates a playable answer
-        // from the LOGIN_REQUIRED bot gate (see PlayerPersona): fetch it
-        // best-effort — a session failure must not mask a player answer
-        // that might still succeed bare.
-        val visitorData = try {
-            ensureSession().visitorData
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
+        val firstPass = attemptPlayerChain(videoId, sessionVisitorData())
+        if (firstPass.accepted != null) return firstPass.accepted
+        // Fase 4 resilience: the bot gate is bound to the session (see
+        // PlayerPersona), so when the whole chain refuses, one FRESH
+        // session earns one more pass before the refusal reaches the
+        // user. Exactly one refresh — no retry loops against a gate
+        // that may be answering deliberately.
+        session = null
+        val secondPass = attemptPlayerChain(videoId, sessionVisitorData())
+        if (secondPass.accepted != null) return secondPass.accepted
+        throw secondPass.error ?: firstPass.error
+            ?: LontarException("Tidak ada persona player yang berhasil")
+    }
+
+    /**
+     * The session's visitorData is what separates a playable answer from
+     * the LOGIN_REQUIRED bot gate (see PlayerPersona): fetched
+     * best-effort — a session failure must not mask a player answer that
+     * might still succeed bare.
+     */
+    private suspend fun sessionVisitorData(): String? = try {
+        ensureSession().visitorData
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
+
+    private class ChainOutcome(
+        val accepted: Pair<JSONObject, PlayerPersona>?,
+        val error: LontarException?,
+    )
+
+    private suspend fun attemptPlayerChain(
+        videoId: String,
+        visitorData: String?,
+    ): ChainOutcome {
         var lastError: LontarException? = null
-        for (persona in PlayerPersonas.CHAIN) {
+        for (persona in PlayerPersonas.chain(config.androidVrClientVersion)) {
             repeat(2) {
                 val response = postPlayer(persona, videoId, visitorData)
                 val playability = response.optJSONObject("playabilityStatus")
                 if (playability?.optString("status") == "OK") {
                     val accepted = response to persona
                     playerCache[videoId] = accepted
-                    return accepted
+                    return ChainOutcome(accepted, null)
                 }
                 lastError = LontarException(
                     "YouTube menolak memutar video ini: " +
@@ -179,7 +209,7 @@ class LontarEngine(
                 )
             }
         }
-        throw lastError ?: LontarException("Tidak ada persona player yang berhasil")
+        return ChainOutcome(null, lastError)
     }
 
     private suspend fun postPlayer(
@@ -268,8 +298,36 @@ class LontarEngine(
     private suspend fun ensureSession(): InnertubeSession {
         session?.let { return it }
         return sessionMutex.withLock {
+            // The remote config is fetched once per process, before the
+            // session, because the session bootstrap itself consumes it
+            // (the fallback client version). Best-effort by design: the
+            // defaults are always serviceable.
+            if (!configFetched) {
+                configFetched = true
+                config = fetchRemoteConfig()
+            }
             session ?: fetchSession().also { session = it }
         }
+    }
+
+    private suspend fun fetchRemoteConfig(): EngineConfig.Values = try {
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url(EngineConfig.REMOTE_URL)
+                .header("User-Agent", LontarPersona.USER_AGENT)
+                .build()
+            httpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    EngineConfig.parse(JSONObject(response.body?.string().orEmpty()))
+                } else {
+                    EngineConfig.DEFAULTS
+                }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        EngineConfig.DEFAULTS
     }
 
     private suspend fun fetchSession(): InnertubeSession = withContext(Dispatchers.IO) {
@@ -280,7 +338,7 @@ class LontarEngine(
             .build()
         httpClient.newCall(request).execute().use { response ->
             val html = response.body?.string().orEmpty()
-            InnertubeSession.fromHomepageHtml(html)
+            InnertubeSession.fromHomepageHtml(html, config.fallbackClientVersion)
                 ?: throw LontarException("Gagal memperoleh sesi InnerTube dari beranda YouTube")
         }
     }
@@ -292,14 +350,5 @@ class LontarEngine(
         private const val SEARCH_PARAMS_VIDEO_ONLY = "EgIQAQ%3D%3D"
 
         private const val MAX_SEED_ITEMS = 60
-
-        /** Seed searches for the home mixture, with their Chip Alasan labels. */
-        private val SEED_QUERIES = listOf(
-            "berita hari ini" to "Berita",
-            "musik indonesia terbaru" to "Musik",
-            "gaming" to "Gaming",
-            "film pendek" to "Film",
-            "podcast indonesia" to "Podcast",
-        )
     }
 }
