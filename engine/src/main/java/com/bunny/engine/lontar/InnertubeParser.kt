@@ -36,6 +36,10 @@ object InnertubeParser {
                 if (node.has("videoRenderer")) {
                     parseVideoRenderer(node.getJSONObject("videoRenderer"))?.let(out::add)
                 }
+                if (node.has("playlistVideoRenderer")) {
+                    parsePlaylistVideoRenderer(node.getJSONObject("playlistVideoRenderer"))
+                        ?.let(out::add)
+                }
                 val keys = node.keys()
                 while (keys.hasNext()) {
                     collectVideos(node.opt(keys.next()), out)
@@ -70,6 +74,29 @@ object InnertubeParser {
                 ?.let { textOf(it) }
                 ?.takeIf { it.isNotEmpty() },
             isLive = isLive,
+        )
+    }
+
+    /**
+     * Playlist rows (a channel's uploads playlist, used by Terbit) carry a
+     * slimmer renderer than search/browse video rows: no publishedTimeText,
+     * views and age are combined in "videoInfo".
+     */
+    private fun parsePlaylistVideoRenderer(renderer: JSONObject): VideoItem? {
+        val videoId = renderer.optString("videoId").takeIf { it.isNotEmpty() } ?: return null
+        val infoText = textOf(renderer.optJSONObject("videoInfo"))
+        return VideoItem(
+            id = videoId,
+            title = textOf(renderer.optJSONObject("title")),
+            channelId = channelBrowseId(renderer),
+            channelName = textOf(renderer.optJSONObject("shortBylineText")),
+            thumbnailUrl = bestThumbnail(renderer.optJSONObject("thumbnail")),
+            durationSeconds = renderer.optJSONObject("lengthText")
+                ?.let { parseDuration(textOf(it)) },
+            viewCount = infoText.takeIf { it.isNotEmpty() }?.let { parseCount(it) },
+            uploadedText = infoText.takeIf { it.contains("•") }
+                ?.substringAfter("•")?.trim()?.takeIf { it.isNotEmpty() },
+            isLive = false,
         )
     }
 
@@ -202,7 +229,53 @@ object InnertubeParser {
             progressiveUrl = progressive,
             expiresAtEpochMs = expiresAt,
             dashManifestContent = dashContent,
+            estimatedSizeBytes = estimateAdaptiveSize(
+                streaming.optJSONArray("adaptiveFormats"),
+                durationSeconds,
+            ),
         )
+    }
+
+    /**
+     * Timbangan at the player: what watching this video costs at the
+     * reference quality, from the REAL adaptive formats on offer — the
+     * richest video format at or below 480p (or the leanest above it)
+     * plus the richest audio format, bitrates times duration. Null when
+     * the inputs are missing; a wrong number is worse than none.
+     */
+    private fun estimateAdaptiveSize(
+        adaptiveFormats: JSONArray?,
+        durationSeconds: Long?,
+    ): Long? {
+        if (adaptiveFormats == null || durationSeconds == null || durationSeconds <= 0) {
+            return null
+        }
+        var bestAtOrBelow480 = 0L
+        var leanestVideo = Long.MAX_VALUE
+        var bestAudio = 0L
+        for (i in 0 until adaptiveFormats.length()) {
+            val format = adaptiveFormats.optJSONObject(i) ?: continue
+            val bitrate = format.optLong("bitrate", 0)
+            if (bitrate <= 0) continue
+            val mimeType = format.optString("mimeType")
+            when {
+                mimeType.startsWith("audio/") -> {
+                    if (bitrate > bestAudio) bestAudio = bitrate
+                }
+                mimeType.startsWith("video/") -> {
+                    if (bitrate < leanestVideo) leanestVideo = bitrate
+                    if (format.optInt("height", 0) in 1..480 && bitrate > bestAtOrBelow480) {
+                        bestAtOrBelow480 = bitrate
+                    }
+                }
+            }
+        }
+        val videoBitrate = when {
+            bestAtOrBelow480 > 0 -> bestAtOrBelow480
+            leanestVideo != Long.MAX_VALUE -> leanestVideo
+            else -> return null
+        }
+        return (videoBitrate + bestAudio) * durationSeconds / 8
     }
 
     // ---------------------------------------------------------------- helpers

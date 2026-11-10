@@ -73,6 +73,30 @@ class LontarEngine(
         return InnertubeParser.parseFeedPage(post("search", body))
     }
 
+    override suspend fun getChannelVideos(channelId: String): Page<VideoItem> {
+        // A channel's uploads playlist is a system playlist whose id is
+        // the channel id with UC swapped for UU; browsing it returns the
+        // channel's videos newest first. Two browseId spellings exist in
+        // the wild ("VL" + playlist id, or the playlist id itself), so
+        // both are tried before the channel is declared empty.
+        if (!channelId.startsWith("UC") || channelId.length < 4) {
+            throw LontarException("ID kanal tidak dikenal: $channelId")
+        }
+        val uploadsPlaylist = "UU" + channelId.substring(2)
+        for (browseId in listOf("VL$uploadsPlaylist", uploadsPlaylist)) {
+            try {
+                val body = baseBody().put("browseId", browseId)
+                val page = InnertubeParser.parseFeedPage(post("browse", body))
+                if (page.items.isNotEmpty()) return Page(items = page.items, nextPage = null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Fall through to the other spelling.
+            }
+        }
+        return Page(items = emptyList(), nextPage = null)
+    }
+
     override suspend fun getVideoDetails(videoId: String): VideoDetails =
         InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
 
@@ -87,9 +111,13 @@ class LontarEngine(
     // -------------------------------------------------------------- internals
 
     private suspend fun seedMixture(): Page<VideoItem> {
-        val pages = SEED_QUERIES.map { query ->
+        // Every mixture item is tagged with its Chip Alasan as it enters:
+        // the topic whose seed search surfaced it. The tag is a fact about
+        // how the list was composed, so it is attached here, not guessed
+        // by the UI.
+        val pages = SEED_QUERIES.map { (query, label) ->
             try {
-                search(query, null).items
+                search(query, null).items.map { item -> item.copy(reason = "Topik: $label") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -265,12 +293,13 @@ class LontarEngine(
 
         private const val MAX_SEED_ITEMS = 60
 
+        /** Seed searches for the home mixture, with their Chip Alasan labels. */
         private val SEED_QUERIES = listOf(
-            "berita hari ini",
-            "musik indonesia terbaru",
-            "gaming",
-            "film pendek",
-            "podcast indonesia",
+            "berita hari ini" to "Berita",
+            "musik indonesia terbaru" to "Musik",
+            "gaming" to "Gaming",
+            "film pendek" to "Film",
+            "podcast indonesia" to "Podcast",
         )
     }
 }

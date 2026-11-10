@@ -33,4 +33,11 @@ interface ExtractionBackend {
     suspend fun getVideoDetails(videoId: String): VideoDetails
 
     suspend fun getPlaybackStreams(videoId: String): PlaybackStreams
+
+    /**
+     * The newest uploads of one channel, newest first — the raw material
+     * of Terbit (Fase 3). [channelId] is the UC… id from [VideoItem] or
+     * [VideoDetails]. Pagination is not offered; an edition is finite.
+     */
+    suspend fun getChannelVideos(channelId: String): Page<VideoItem>
 }

@@ -26,4 +26,11 @@ data class PlaybackStreams(
      * same agent; the UI layer stays engine-agnostic by receiving it here.
      */
     val playbackUserAgent: String? = null,
+    /**
+     * Timbangan at the player: estimated bytes for watching this video at
+     * the reference quality, computed by the backend from the real format
+     * bitrates it was offered (video + audio) times the duration. Null
+     * when the backend could not estimate honestly.
+     */
+    val estimatedSizeBytes: Long? = null,
 )

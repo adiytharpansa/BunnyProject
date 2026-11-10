@@ -14,4 +14,10 @@ data class VideoItem(
     val viewCount: Long?,
     val uploadedText: String?,
     val isLive: Boolean = false,
+    /**
+     * Chip Alasan: why this item is being shown, in the user's language
+     * ("Topik: Musik", "Dari langganan: Blender Foundation"). Computed
+     * locally by whoever composed the list; null means no claim is made.
+     */
+    val reason: String? = null,
 )
