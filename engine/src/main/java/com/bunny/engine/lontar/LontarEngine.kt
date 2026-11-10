@@ -101,6 +101,31 @@ class LontarEngine(
         return Page(items = emptyList(), nextPage = null)
     }
 
+    override suspend fun getSearchSuggestions(query: String): List<String> {
+        // Best-effort decoration for the search box (see SearchSuggestions):
+        // a failed suggestion fetch must never surface as a search error.
+        if (query.isBlank()) return emptyList()
+        return try {
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url(SearchSuggestions.urlFor(query))
+                    .header("User-Agent", LontarPersona.USER_AGENT)
+                    .build()
+                httpClient.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        SearchSuggestions.parse(response.body?.string().orEmpty())
+                    } else {
+                        emptyList()
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     override suspend fun getVideoDetails(videoId: String): VideoDetails =
         InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
 

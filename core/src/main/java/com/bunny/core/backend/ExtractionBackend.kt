@@ -30,6 +30,14 @@ interface ExtractionBackend {
 
     suspend fun search(query: String, page: String?): Page<VideoItem>
 
+    /**
+     * Live search suggestions for the search box — the official app
+     * serves them from a dedicated provider fed by Google's
+     * suggestqueries service (REA dissection 2026-11-10). Best-effort:
+     * an empty list is a valid answer and must never fail the search.
+     */
+    suspend fun getSearchSuggestions(query: String): List<String> = emptyList()
+
     suspend fun getVideoDetails(videoId: String): VideoDetails
 
     suspend fun getPlaybackStreams(videoId: String): PlaybackStreams
