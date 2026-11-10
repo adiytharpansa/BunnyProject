@@ -64,8 +64,8 @@ object FeedRanker {
         // similar candidates, the cheaper video wins by a nose.
         val duration = item.durationSeconds
         if (duration != null && duration > 0) {
-            score += (1.0 - min(duration, COST_BASELINE_SECONDS) / COST_BASELINE_SECONDS) *
-                COST_WEIGHT
+            score += (1.0 - min(duration.toDouble(), COST_BASELINE_SECONDS) /
+                COST_BASELINE_SECONDS) * COST_WEIGHT
         }
         return score
     }
