@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
@@ -121,6 +122,19 @@ class MainActivity : ComponentActivity() {
                 SideEffect { pipEligible = videoId != null }
                 val barVisible =
                     videoId == null && !openSearch && !openNotifications && openChannel == null
+                // System Back walks the page stack back to Beranda
+                // instead of leaving the app; the player's own
+                // BackHandler owns Back while a video is open.
+                val canGoBack = videoId == null &&
+                    (openChannel != null || openSearch || openNotifications || selectedTab != 0)
+                BackHandler(enabled = canGoBack) {
+                    when {
+                        openChannel != null -> openChannel = null
+                        openSearch -> openSearch = false
+                        openNotifications -> openNotifications = false
+                        else -> selectedTab = 0
+                    }
+                }
                 Scaffold { scaffoldPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         // While the bottom bar is on screen it overlays the
