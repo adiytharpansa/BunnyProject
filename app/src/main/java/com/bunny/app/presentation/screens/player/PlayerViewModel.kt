@@ -9,6 +9,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.bunny.app.data.LibraryRepository
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
@@ -18,15 +19,26 @@ import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 sealed interface PlayerUiState {
     data object Loading : PlayerUiState
-    data class Ready(val details: VideoDetails, val sourceNote: String) : PlayerUiState
+    data class Ready(
+        val details: VideoDetails,
+        val sourceNote: String,
+        /** Timbangan at the player: real-format estimate, when available. */
+        val estimatedSizeBytes: Long? = null,
+        /** Jatah: true when this playback pushes the month over budget. */
+        val jatahExceeded: Boolean = false,
+        val monthUsedBytes: Long = 0,
+        val quotaBytes: Long? = null,
+    ) : PlayerUiState
     data class Error(val message: String) : PlayerUiState
 }
 
@@ -36,6 +48,7 @@ class PlayerViewModel @Inject constructor(
     private val application: Application,
     private val backend: ExtractionBackend,
     private val playbackManager: PlaybackManager,
+    private val library: LibraryRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -106,6 +119,20 @@ class PlayerViewModel @Inject constructor(
         playbackManager.stop()
     }
 
+    /** Terbit's source: local subscriptions, toggled from this screen. */
+    fun subscriptionState(channelId: String): Flow<Boolean> =
+        library.isSubscribed(channelId)
+
+    fun toggleSubscription(channelId: String, channelName: String, subscribed: Boolean) {
+        viewModelScope.launch {
+            if (subscribed) {
+                library.unsubscribe(channelId)
+            } else {
+                library.subscribe(channelId, channelName)
+            }
+        }
+    }
+
     override fun onCleared() {
         // Tripwire: if loads die with "Parent job is Cancelling" because this
         // ViewModel is being cleared mid-flight, this line brackets them in
@@ -153,9 +180,27 @@ class PlayerViewModel @Inject constructor(
                 PlaybackService.start(application)
                 playbackManager.configure(streams.playbackUserAgent)
                 playbackManager.play(streams, details.title)
+
+                // Jatah: charge the estimate once playback starts, then
+                // judge the month WITH this video included — the warning
+                // must reflect the state the user is now in, not before.
+                val estimate = streams.estimatedSizeBytes
+                if (estimate != null) {
+                    library.charge(id, details.title, estimate)
+                }
+                val quota = library.quotaBytes.first()
+                val used = library.monthUsageBytes().first()
+                val exceeded = quota != null && used > quota
+                if (exceeded) {
+                    PlaybackDiagnostics.log("Jatah terlampaui bulan ini")
+                }
                 _uiState.value = PlayerUiState.Ready(
                     details = details,
                     sourceNote = "Sumber: ${sources.first()}",
+                    estimatedSizeBytes = estimate,
+                    jatahExceeded = exceeded,
+                    monthUsedBytes = used,
+                    quotaBytes = quota,
                 )
             } catch (e: CancellationException) {
                 // Cancellation is control flow, not a playback failure: it

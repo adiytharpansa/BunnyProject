@@ -12,4 +12,23 @@
     <string name="crash_title">Crash terakhir tercatat</string>
     <string name="crash_hint">Mohon kirim tangkapan layar teks di bawah ini agar bug-nya bisa diperbaiki tepat sasaran.</string>
     <string name="crash_dismiss">Tutup &amp; hapus catatan</string>
+    <string name="close">Tutup</string>
+    <string name="home_jatah_title">Jatah bulan ini</string>
+    <string name="home_jatah_used">Terpakai ≈ %1$s</string>
+    <string name="home_jatah_of">dari %1$s</string>
+    <string name="home_jatah_set">Atur</string>
+    <string name="home_jatah_unlimited">Tanpa batas</string>
+    <string name="home_jatah_dialog_title">Anggaran data bulanan (Jatah)</string>
+    <string name="player_data_estimate">Perkiraan data video ini: ≈ %1$s</string>
+    <string name="player_jatah_warning">Peringatan Jatah: pemakaian bulan ini ≈ %1$s, melewati anggaran %2$s.</string>
+    <string name="player_subscribe">Langganan</string>
+    <string name="player_unsubscribe">Berhenti langganan</string>
+    <string name="nav_home">Beranda</string>
+    <string name="nav_terbit">Terbit</string>
+    <string name="terbit_title">Terbit</string>
+    <string name="terbit_edition">Edisi %1$s</string>
+    <string name="terbit_summary">%1$d video terbaru dari %2$d langganan</string>
+    <string name="terbit_empty">Belum ada langganan. Buka sebuah video, lalu ketuk Langganan — video terbaru dari kanal itu akan terbit di sini setiap pagi.</string>
+    <string name="terbit_end">— Edisi selesai. Sampai jumpa besok pagi. —</string>
+    <string name="terbit_loading">Menyusun edisi…</string>
 </resources>

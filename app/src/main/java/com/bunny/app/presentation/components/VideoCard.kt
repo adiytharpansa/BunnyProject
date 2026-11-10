@@ -18,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
 
 @Composable
@@ -65,6 +66,29 @@ fun VideoCard(
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
+            // Timbangan: the estimated data cost of watching, visible
+            // BEFORE the tap. Ladder-based estimate (see DataCost); the
+            // player replaces it with real format bitrates.
+            val sizeBadge = if (item.isLive) {
+                null
+            } else {
+                item.durationSeconds?.let {
+                    "≈ " + DataCost.formatSize(DataCost.estimateBytes(it))
+                }
+            }
+            if (sizeBadge != null) {
+                Text(
+                    text = sizeBadge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
         }
         Text(
             text = item.title,
@@ -84,6 +108,19 @@ fun VideoCard(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        // Chip Alasan: why this video is on the list, stated plainly.
+        item.reason?.let { reason ->
+            Text(
+                text = reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .padding(horizontal = 8.dp, vertical = 3.dp),
+            )
+        }
     }
 }
 

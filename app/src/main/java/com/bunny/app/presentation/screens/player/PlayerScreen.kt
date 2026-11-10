@@ -47,6 +47,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
 import com.bunny.app.playback.PlaybackDiagnostics
+import com.bunny.core.model.DataCost
 
 @UnstableApi
 @Composable
@@ -172,6 +173,54 @@ fun PlayerScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Timbangan at the player: the estimate now comes
+                    // from the real formats, not the card ladder.
+                    current.estimatedSizeBytes?.let { bytes ->
+                        Text(
+                            stringResource(
+                                R.string.player_data_estimate,
+                                DataCost.formatSize(bytes),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (current.jatahExceeded && current.quotaBytes != null) {
+                        Text(
+                            stringResource(
+                                R.string.player_jatah_warning,
+                                DataCost.formatSize(current.monthUsedBytes),
+                                DataCost.formatSize(current.quotaBytes),
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    // Langganan lokal: Terbit's subscription source.
+                    val channelId = current.details.channelId
+                    if (channelId != null) {
+                        val subFlow = remember(channelId) {
+                            viewModel.subscriptionState(channelId)
+                        }
+                        val subscribed by subFlow.collectAsState(initial = false)
+                        Button(onClick = {
+                            viewModel.toggleSubscription(
+                                channelId = channelId,
+                                channelName = current.details.channelName,
+                                subscribed = subscribed,
+                            )
+                        }) {
+                            Text(
+                                stringResource(
+                                    if (subscribed) {
+                                        R.string.player_unsubscribe
+                                    } else {
+                                        R.string.player_subscribe
+                                    },
+                                ),
+                            )
+                        }
+                    }
                     if (!notificationsGranted) {
                         Button(onClick = {
                             PlaybackDiagnostics.log("Izin notifikasi: diminta dari tombol aktivasi")
