@@ -203,7 +203,7 @@ class InnertubeParserTest {
         val streams = InnertubeParser.parsePlaybackStreams(JSONObject(playerJson), nowEpochMs = 1_000)
         assertEquals("https://rr.example/high", streams.progressiveUrl)
         assertEquals("https://manifest.example/hls.m3u8", streams.hlsUrl)
-        assertEquals(1_000 + 21_540_000, streams.expiresAtEpochMs)
+        assertEquals(1_000L + 21_540_000L, streams.expiresAtEpochMs)
     }
 
     @Test
