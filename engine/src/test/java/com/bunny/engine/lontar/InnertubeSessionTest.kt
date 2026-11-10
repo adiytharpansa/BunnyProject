@@ -21,6 +21,15 @@ class InnertubeSessionTest {
     }
 
     @Test
+    fun fromHomepageHtml_missingVersionMarker_usesFallback() {
+        val noVersion = """
+            <script>{"INNERTUBE_API_KEY":"AIzaTESTKEY","visitorData":"CgtTESTVISITOR"}</script>
+        """.trimIndent()
+        val session = InnertubeSession.fromHomepageHtml(noVersion)
+        assertEquals(InnertubeSession.FALLBACK_CLIENT_VERSION, session?.clientVersion)
+    }
+
+    @Test
     fun fromHomepageHtml_missingMarkers_returnsNull() {
         assertNull(InnertubeSession.fromHomepageHtml("<html>no config here</html>"))
     }

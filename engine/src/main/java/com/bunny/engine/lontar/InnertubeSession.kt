@@ -17,11 +17,21 @@ data class InnertubeSession(
         private val CLIENT_VERSION_REGEX = Regex(""""INNERTUBE_CLIENT_VERSION":\s*"([^"]+)"""")
         private val VISITOR_DATA_REGEX = Regex(""""visitorData":\s*"([^"]+?)"""")
 
-        /** Extracts a session from homepage HTML; null when markers are absent. */
+        /**
+         * Fallback when the homepage offers no client version marker. InnerTube
+         * tolerates a range of client versions (verified 2026-11-10: this value
+         * served search fine while the live version differed), so a missing
+         * marker must not kill the whole session — the API key and visitor
+         * data remain the truly required pieces.
+         */
+        const val FALLBACK_CLIENT_VERSION = "2.20241126.01.00"
+
+        /** Extracts a session from homepage HTML; null when key markers are absent. */
         fun fromHomepageHtml(html: String): InnertubeSession? {
             val apiKey = API_KEY_REGEX.find(html)?.groupValues?.get(1) ?: return null
-            val clientVersion = CLIENT_VERSION_REGEX.find(html)?.groupValues?.get(1) ?: return null
             val visitorData = VISITOR_DATA_REGEX.find(html)?.groupValues?.get(1) ?: return null
+            val clientVersion = CLIENT_VERSION_REGEX.find(html)?.groupValues?.get(1)
+                ?: FALLBACK_CLIENT_VERSION
             return InnertubeSession(
                 apiKey = apiKey,
                 clientVersion = clientVersion,
