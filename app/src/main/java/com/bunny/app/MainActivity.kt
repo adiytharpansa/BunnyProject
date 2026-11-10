@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.theme.BunnyTheme
@@ -38,5 +39,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Tripwire paired with PlayerViewModel.onCleared: if the activity
+        // dies mid-load, the diagnostics ring shows whether it finished,
+        // was re-created for a config change, or was destroyed outright.
+        PlaybackDiagnostics.log(
+            "MainActivity hancur (finishing=$isFinishing, gantiKonfigurasi=$isChangingConfigurations)",
+        )
+        super.onDestroy()
     }
 }

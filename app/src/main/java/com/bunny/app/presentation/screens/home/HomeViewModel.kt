@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.core.backend.ExtractionBackend
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,11 +27,14 @@ class HomeViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
-            val status = backend.healthCheck()
-            _uiState.update { it.copy(backendStatus = status) }
             try {
+                val status = backend.healthCheck()
+                _uiState.update { it.copy(backendStatus = status) }
                 val page = backend.getHomeFeed(page = null)
                 _uiState.update { it.copy(isLoading = false, items = page.items) }
+            } catch (e: CancellationException) {
+                // Cancellation is control flow, never a feed error.
+                throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Unknown error") }
             }

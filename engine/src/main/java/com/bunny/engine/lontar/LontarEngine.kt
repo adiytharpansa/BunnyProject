@@ -5,6 +5,7 @@ import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +44,8 @@ class LontarEngine(
         val active = ensureSession()
         "Mesin Lontar siap — sesi InnerTube aktif (persona ${LontarPersona.CLIENT_NAME} " +
             "${active.clientVersion})"
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         "Mesin Lontar belum siap: ${e.message}"
     }
@@ -85,7 +88,13 @@ class LontarEngine(
 
     private suspend fun seedMixture(): Page<VideoItem> {
         val pages = SEED_QUERIES.map { query ->
-            runCatching { search(query, null).items }.getOrDefault(emptyList())
+            try {
+                search(query, null).items
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
         }
         val merged = mutableListOf<VideoItem>()
         val seen = mutableSetOf<String>()
