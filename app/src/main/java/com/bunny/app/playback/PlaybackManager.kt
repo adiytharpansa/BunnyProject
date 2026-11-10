@@ -2,8 +2,10 @@ package com.bunny.app.playback
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -77,6 +79,15 @@ class PlaybackManager @Inject constructor(
         channelName: String = "",
         artworkUrl: String? = null,
     ) {
+        // A manual quality override names track groups of the PREVIOUS
+        // video's manifest; it must never leak into a new video.
+        if (selectedQualityHeight != null) {
+            selectedQualityHeight = null
+            player.trackSelectionParameters = player.trackSelectionParameters
+                .buildUpon()
+                .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                .build()
+        }
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(channelName.takeIf { it.isNotEmpty() })
@@ -94,6 +105,71 @@ class PlaybackManager @Inject constructor(
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
+    }
+
+    // ------------------------------------------------- kontrol pemutar
+
+    /** Distinct video heights the current source offers, best first. */
+    fun videoQualities(): List<Int> {
+        val heights = sortedSetOf(Comparator.reverseOrder<Int>())
+        for (group in player.currentTracks.groups) {
+            if (group.type != C.TRACK_TYPE_VIDEO) continue
+            for (i in 0 until group.length) {
+                val height = group.getTrackFormat(i).height
+                if (height > 0) heights += height
+            }
+        }
+        return heights.toList()
+    }
+
+    private var selectedQualityHeight: Int? = null
+
+    /** The manually chosen height, or null while adaptation is automatic. */
+    fun selectedQuality(): Int? = selectedQualityHeight
+
+    /**
+     * Pins video selection to one height (null returns to adaptive).
+     * Only meaningful for the DASH source; a progressive file simply
+     * has the one height it has.
+     */
+    fun setVideoQuality(height: Int?) {
+        selectedQualityHeight = height
+        val builder = player.trackSelectionParameters.buildUpon()
+        if (height == null) {
+            builder.clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+        } else {
+            for (group in player.currentTracks.groups) {
+                if (group.type != C.TRACK_TYPE_VIDEO) continue
+                val indices = (0 until group.length).filter { index ->
+                    group.getTrackFormat(index).height == height
+                }
+                if (indices.isNotEmpty()) {
+                    builder.setOverrideForType(
+                        TrackSelectionOverride(group.mediaTrackGroup, indices),
+                    )
+                    break
+                }
+            }
+        }
+        player.trackSelectionParameters = builder.build()
+        PlaybackDiagnostics.log(
+            "Kualitas dipilih: ${height?.let { "${it}p" } ?: "Otomatis"}",
+        )
+    }
+
+    fun setSpeed(speed: Float) {
+        player.setPlaybackSpeed(speed)
+        PlaybackDiagnostics.log("Kecepatan putar: ${speed}x")
+    }
+
+    /** Current video size for the PiP aspect ratio; null when unknown. */
+    fun videoWidthHeight(): Pair<Int, Int>? {
+        val size = player.videoSize
+        return if (size.width > 0 && size.height > 0) {
+            size.width to size.height
+        } else {
+            null
+        }
     }
 
     // -------------------------------------------------------------- internals

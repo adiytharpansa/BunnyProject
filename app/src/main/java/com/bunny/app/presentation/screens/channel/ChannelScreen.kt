@@ -35,6 +35,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.util.UnstableApi
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 
@@ -45,6 +46,7 @@ import com.bunny.app.presentation.components.VideoCard
  * avatars from the engine, so the header uses a letter tile in the
  * theme's primary container — honest placeholder, not a fake photo.
  */
+@UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelScreen(
@@ -80,7 +82,7 @@ fun ChannelScreen(
                 .fillMaxSize()
                 .padding(padding),
             contentPadding = PaddingValues(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
                 Row(

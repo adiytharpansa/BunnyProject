@@ -2,12 +2,16 @@ package com.bunny.app.presentation.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.rank.FeedRanker
 import com.bunny.core.rank.TasteProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
@@ -19,10 +23,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@UnstableApi
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val library: LibraryRepository,
+    private val previewManager: FeedPreviewManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(backendId = backend.id))
@@ -37,6 +43,41 @@ class HomeViewModel @Inject constructor(
 
     fun setQuota(bytes: Long?) {
         viewModelScope.launch { library.setQuotaBytes(bytes) }
+    }
+
+    // ------------------------------------------------------ pratinjau
+
+    private val _previewingId = MutableStateFlow<String?>(null)
+
+    /** The video whose card currently shows an inline preview. */
+    val previewingId: StateFlow<String?> = _previewingId.asStateFlow()
+
+    /** Attach point for the preview surface in the previewing card. */
+    val previewPlayer: ExoPlayer get() = previewManager.player
+
+    private var previewJob: Job? = null
+
+    fun startPreview(videoId: String) {
+        if (_previewingId.value == videoId) return
+        previewJob?.cancel()
+        previewJob = viewModelScope.launch {
+            try {
+                val streams = backend.getPlaybackStreams(videoId)
+                previewManager.start(streams)
+                _previewingId.value = videoId
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Previews are decoration: a failure stays silent and
+                // the card simply keeps its thumbnail.
+            }
+        }
+    }
+
+    fun stopPreview() {
+        previewJob?.cancel()
+        _previewingId.value = null
+        previewManager.stop()
     }
 
     init {

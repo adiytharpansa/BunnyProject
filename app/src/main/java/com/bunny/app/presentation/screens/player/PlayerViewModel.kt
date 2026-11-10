@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -42,6 +43,15 @@ sealed interface PlayerUiState {
     ) : PlayerUiState
     data class Error(val message: String) : PlayerUiState
 }
+
+/** Player-control options shown on the player screen (S5). */
+data class PlayerOptionsState(
+    /** Heights the current source offers, best first; empty until known. */
+    val qualities: List<Int> = emptyList(),
+    /** Manually pinned height; null means adaptive ("Otomatis"). */
+    val selectedQuality: Int? = null,
+    val speed: Float = 1.0f,
+)
 
 @UnstableApi
 @HiltViewModel
@@ -132,6 +142,31 @@ class PlayerViewModel @Inject constructor(
                 library.subscribe(channelId, channelName)
             }
         }
+    }
+
+    // -------------------------------------------- kontrol pemutar (S5)
+
+    private val _options = MutableStateFlow(PlayerOptionsState())
+    val options: StateFlow<PlayerOptionsState> = _options.asStateFlow()
+
+    /** Re-reads the track-derived options; called when a dialog opens. */
+    fun refreshOptions() {
+        _options.update {
+            it.copy(
+                qualities = playbackManager.videoQualities(),
+                selectedQuality = playbackManager.selectedQuality(),
+            )
+        }
+    }
+
+    fun setQuality(height: Int?) {
+        playbackManager.setVideoQuality(height)
+        refreshOptions()
+    }
+
+    fun setSpeed(speed: Float) {
+        playbackManager.setSpeed(speed)
+        _options.update { it.copy(speed = speed) }
     }
 
     override fun onCleared() {

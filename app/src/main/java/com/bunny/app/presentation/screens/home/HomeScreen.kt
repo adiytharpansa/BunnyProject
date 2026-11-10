@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
@@ -29,11 +30,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.media3.common.util.UnstableApi
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -43,6 +49,7 @@ import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.DataCost
 
+@UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -62,6 +69,49 @@ fun HomeScreen(
         state.items
     } else {
         state.items.filter { it.reason == topicFilter }
+    }
+
+    // Inline previews (the official app's feed playback): the card
+    // occupying most of the viewport starts a muted preview after a
+    // short dwell; scrolling away or leaving Home stops it.
+    val listState = rememberLazyListState()
+    val previewingId by viewModel.previewingId.collectAsState()
+    val previewCandidate by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            var bestId: String? = null
+            var bestFraction = 0.6f
+            for (itemInfo in info.visibleItemsInfo) {
+                val id = itemInfo.key as? String ?: continue
+                val start = maxOf(itemInfo.offset, info.viewportStartOffset)
+                val end = minOf(
+                    itemInfo.offset + itemInfo.size,
+                    info.viewportEndOffset,
+                )
+                val fraction = if (itemInfo.size > 0) {
+                    (end - start).toFloat() / itemInfo.size
+                } else {
+                    0f
+                }
+                if (fraction >= bestFraction) {
+                    bestFraction = fraction
+                    bestId = id
+                }
+            }
+            bestId
+        }
+    }
+    LaunchedEffect(previewCandidate) {
+        val candidate = previewCandidate
+        if (candidate == null) {
+            viewModel.stopPreview()
+        } else {
+            delay(700)
+            viewModel.startPreview(candidate)
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopPreview() }
     }
 
     if (showQuotaDialog) {
@@ -124,18 +174,21 @@ fun HomeScreen(
                 }
 
                 else -> LazyColumn(
-                    contentPadding = PaddingValues(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    state = listState,
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     item {
                         JatahBar(
                             jatah = jatah,
                             onSetQuota = { showQuotaDialog = true },
+                            modifier = Modifier.padding(horizontal = 12.dp),
                         )
                     }
                     if (topics.size > 1) {
                         item {
                             LazyRow(
+                                contentPadding = PaddingValues(horizontal = 12.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 item {
@@ -160,7 +213,16 @@ fun HomeScreen(
                         }
                     }
                     items(visibleItems, key = { it.id }) { item ->
-                        VideoCard(item = item, onClick = { onVideoClick(item.id) })
+                        VideoCard(
+                            item = item,
+                            onClick = { onVideoClick(item.id) },
+                            previewPlayer = if (previewingId == item.id) {
+                                viewModel.previewPlayer
+                            } else {
+                                null
+                            },
+                            isPreviewing = previewingId == item.id,
+                        )
                     }
                 }
             }
@@ -176,9 +238,10 @@ fun HomeScreen(
 private fun JatahBar(
     jatah: JatahState,
     onSetQuota: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(

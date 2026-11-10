@@ -44,6 +44,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.util.UnstableApi
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 
@@ -54,6 +55,7 @@ import com.bunny.app.presentation.components.VideoCard
  * query) or live suggestions (while typing); after submitting it
  * shows paged results.
  */
+@UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -136,8 +138,8 @@ fun SearchScreen(
                 }
 
                 state.submittedQuery != null -> LazyColumn(
-                    contentPadding = PaddingValues(vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
                 ) {
                     if (state.results.isEmpty()) {
                         item {

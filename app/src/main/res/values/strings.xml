@@ -35,6 +35,11 @@
     <string name="channel_open">Lihat kanal %1$s</string>
     <string name="channel_video_count">%1$d video</string>
     <string name="channel_empty">Kanal ini belum punya video yang bisa ditampilkan.</string>
+    <string name="player_quality">Kualitas</string>
+    <string name="player_quality_auto">Otomatis</string>
+    <string name="player_speed">Kecepatan</string>
+    <string name="player_pip">PiP</string>
+    <string name="dialog_close">Tutup</string>
     <string name="search_more">Muat lebih banyak</string>
     <string name="search_empty">Tidak ada hasil untuk “%1$s”</string>
     <string name="search_error">Pencarian gagal. Periksa koneksi lalu coba lagi.</string>
