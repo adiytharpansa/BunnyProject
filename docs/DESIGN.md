@@ -45,7 +45,11 @@ aplikasi resmi YouTube, dari Kotlin murni:
   langsung tanpa cipher, sedangkan WEB/TVHTML5 menipiskan streamingData
   sampai tersisa format tercipher — jadi jalur putar tidak membutuhkan
   pemecah cipher. Format adaptif diubah menjadi manifest DASH oleh
-  generator milik Lontar sendiri (DashManifestBuilder).
+  generator milik Lontar sendiri (DashManifestBuilder). Temuan lanjutan
+  2026-11-10: gerbang bot (LOGIN_REQUIRED) terikat ke sesi, bukan persona —
+  permintaan player wajib membawa visitorData sesi beranda; tanpa itu VR
+  ditolak bahkan dari IP bersih, dengan itu playability OK + format
+  langsung lengkap (terverifikasi pada video yang gagal di perangkat).
 - **Cache respons player** per video, dipakai bersama oleh panggilan detail
   dan stream.
 

@@ -122,10 +122,21 @@ class LontarEngine(
      */
     private suspend fun playerResponse(videoId: String): Pair<JSONObject, PlayerPersona> {
         playerCache[videoId]?.let { return it }
+        // The session's visitorData is what separates a playable answer
+        // from the LOGIN_REQUIRED bot gate (see PlayerPersona): fetch it
+        // best-effort — a session failure must not mask a player answer
+        // that might still succeed bare.
+        val visitorData = try {
+            ensureSession().visitorData
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
         var lastError: LontarException? = null
         for (persona in PlayerPersonas.CHAIN) {
             repeat(2) {
-                val response = postPlayer(persona, videoId)
+                val response = postPlayer(persona, videoId, visitorData)
                 val playability = response.optJSONObject("playabilityStatus")
                 if (playability?.optString("status") == "OK") {
                     val accepted = response to persona
@@ -143,9 +154,13 @@ class LontarEngine(
         throw lastError ?: LontarException("Tidak ada persona player yang berhasil")
     }
 
-    private suspend fun postPlayer(persona: PlayerPersona, videoId: String): JSONObject {
+    private suspend fun postPlayer(
+        persona: PlayerPersona,
+        videoId: String,
+        visitorData: String?,
+    ): JSONObject {
         val body = JSONObject()
-            .put("context", JSONObject().put("client", persona.clientJson()))
+            .put("context", JSONObject().put("client", persona.clientJson(visitorData)))
             .put("videoId", videoId)
             .put("contentCheckOk", true)
             .put("racyCheckOk", true)

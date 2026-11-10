@@ -11,9 +11,16 @@ import org.json.JSONObject
  * ciphered format, and the ANDROID app client rejects the web API key
  * outright — while ANDROID_VR returns the full format set (progressive +
  * adaptive up to 4K) with direct, unsigned URLs. So playback speaks VR;
- * no cipher solver is needed on this path. Datacenter IPs intermittently
- * get LOGIN_REQUIRED ("confirm you're not a bot") from every persona;
- * residential device networks are the ground truth there.
+ * no cipher solver is needed on this path.
+ *
+ * The bot gate is bound to the session, not the persona: a bare VR request
+ * earns LOGIN_REQUIRED ("confirm you're not a bot") even from a clean
+ * residential IP, while the SAME request carrying the homepage session's
+ * visitorData returns playability OK with the full direct format set —
+ * verified 2026-11-10 against the exact video a device test failed on
+ * (baseline LOGIN_REQUIRED, with visitorData OK + 23 direct formats).
+ * [LontarEngine] therefore threads the session's visitorData into every
+ * player request.
  */
 data class PlayerPersona(
     val name: String,
@@ -24,9 +31,11 @@ data class PlayerPersona(
     /** Fields for context.client in the player request body. */
     val clientFields: Map<String, Any>,
 ) {
-    fun clientJson(): JSONObject {
+    /** The request's client context; [visitorData] binds it to a session. */
+    fun clientJson(visitorData: String? = null): JSONObject {
         val client = JSONObject()
         for ((key, value) in clientFields) client.put(key, value)
+        if (!visitorData.isNullOrBlank()) client.put("visitorData", visitorData)
         return client
     }
 
