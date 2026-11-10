@@ -87,9 +87,9 @@ class ArusResult(
 /**
  * Arus A1 — the conversation driver. A state machine over one
  * [ArusSession]: it asks, reads UMP parts, demultiplexes media to the
- * sink, reports its buffered position back, and asks again, until both
- * selected formats' sequences have ended at the video's full length —
- * the loop A0's single-burst probe deliberately stopped short of.
+ * sink, reports its buffered position back, and asks again, until the
+ * server's answers run dry — the loop A0's single-burst probe
+ * deliberately stopped short of.
  *
  * Behaviour pinned by the census:
  * - The conversation opens with a SABR_REDIRECT more often than not;
@@ -98,20 +98,31 @@ class ArusResult(
  * - Protection status 3 ends the conversation ([ArusException.ProtectionRequired]):
  *   Arus does not mint tokens, by design — Radar's job is to see this.
  * - Buffered position is reported back as ranges per format, with the
- *   playhead at the least-buffered format's end: the honest position
- *   of a player that has played everything it holds. Durations come
- *   from MEDIA_HEADER where present, else from bytes ÷ bitrate.
- * - When a response brings no media and nothing has ended, the client
- *   waits briefly before asking again instead of hot-looping; the
- *   server's pacing fields are recorded, not obeyed literally — a
- *   player holds minutes of buffer when it paces, A1 holds none.
+ *   playhead at the least-buffered format's end. The accumulated
+ *   header durations are a CLAIM, not a measurement: a controlled
+ *   probe (2026-11-11) showed the header duration field is NOT media
+ *   time (its sums reached 6.5x the video's real length while the
+ *   delivered byte stream assembled into exactly the full video),
+ *   but the server honours the claim as a held-watermark — it never
+ *   resends what the client claims to hold, while UNDERSTATED claims
+ *   (bytes ÷ bitrate estimates) made it resend whole sequences the
+ *   client already had. So the claim stays, and is never used as a
+ *   local clock.
+ * - The conversation ends when the SERVER goes quiet, not when a
+ *   local estimate says the video should be over: the earlier
+ *   frontier-based finish (sums vs. approxDurationMs) fired after
+ *   the first bursts on device and ended real streams mid-play
+ *   (field report 2026-11-11 — playback cut, listener restarted the
+ *   song). Media-less responses are retried with policy-paced
+ *   patience (the server's own backoff, clamped), because a pacing
+ *   pause is not the end; only a sustained silence is.
  *
  * Blocking by design: call from a background dispatcher.
  */
 class ArusClient(
     private val transport: ArusTransport,
     private val sleeper: (Long) -> Unit = { Thread.sleep(it) },
-    private val maxRequests: Int = 60,
+    private val maxRequests: Int = 400,
 ) : ArusConversation {
 
     override fun stream(
@@ -127,8 +138,9 @@ class ArusClient(
         val bytesByItag = mutableMapOf<Int, Long>()
         val headers = mutableMapOf<Int, MediaHeader>()
         val endedHeaders = mutableSetOf<Int>()
-        val bufferedMs = mutableMapOf<Int, Long>() // itag -> buffered end position estimate
-        var emptyResponses = 0
+        val bufferedMs = mutableMapOf<Int, Long>() // itag -> held-watermark claim (header durations)
+        var emptyStreak = 0
+        var policyBackoffMs: Long? = null
 
         fun bufferedRanges(): List<BufferedRange> = listOf(video, audio).map { format ->
             BufferedRange(format.formatId, 0, bufferedMs[format.itag] ?: 0)
@@ -136,10 +148,9 @@ class ArusClient(
 
         fun playheadMs(): Long = minOf(bufferedMs[video.itag] ?: 0, bufferedMs[audio.itag] ?: 0)
 
-        fun finished(): Boolean {
-            val total = session.approxDurationMs ?: return false
-            return playheadMs() >= total - COMPLETION_TOLERANCE_MS
-        }
+        fun emptyDelayMs(): Long =
+            (policyBackoffMs ?: DEFAULT_EMPTY_DELAY_MS)
+                .coerceIn(MIN_EMPTY_DELAY_MS, MAX_EMPTY_DELAY_MS)
 
         while (true) {
             if (rn >= maxRequests) throw ArusException.TooManyRequests(rn)
@@ -162,6 +173,7 @@ class ArusClient(
             }
             rn++
             var mediaInResponse = 0L
+            var sawRedirect = false
 
             for (part in UmpReader.parseAll(raw)) {
                 when (part.type) {
@@ -169,6 +181,7 @@ class ArusClient(
                         val next = SabrRedirect.parseUrl(part.payload)
                         if (next != null) {
                             url = next
+                            sawRedirect = true
                             events += "redirect"
                         }
                     }
@@ -180,7 +193,11 @@ class ArusClient(
                             throw ArusException.ProtectionRequired(status.status)
                         }
                     }
-                    UmpParts.NEXT_REQUEST_POLICY -> events += "policy"
+                    UmpParts.NEXT_REQUEST_POLICY -> {
+                        val policy = NextRequestPolicy.parse(part.payload)
+                        policyBackoffMs = policy.pacingMs.firstOrNull() ?: policyBackoffMs
+                        events += "policy"
+                    }
                     UmpParts.FORMAT_ROSTER -> events += "roster"
                     UmpParts.PLAYBACK_START_POLICY -> events += "start-policy"
                     UmpParts.MEDIA_HEADER -> {
@@ -222,27 +239,33 @@ class ArusClient(
                 }
             }
 
-            if (finished()) {
-                return ArusResult(bytesByItag, rn, protection, completedNormally = true, events)
-            }
-            if (mediaInResponse == 0L) {
-                emptyResponses++
-                if (emptyResponses >= MAX_EMPTY_RESPONSES) {
-                    // The server has nothing more for us right now: what
-                    // arrived is the honest result, flagged partial
-                    // unless the length check above already passed.
-                    return ArusResult(bytesByItag, rn, protection, completedNormally = false, events)
+            // Termination is the server's silence, sustained: media
+            // resets the streak, a redirect is movement (not silence),
+            // and anything else polls patiently at the pace the
+            // server's own policy asked for. "Completed" means the
+            // silence came after both formats had delivered media —
+            // the strongest end signal this protocol offers.
+            if (mediaInResponse > 0L) {
+                emptyStreak = 0
+            } else if (!sawRedirect) {
+                emptyStreak++
+                if (emptyStreak >= MAX_EMPTY_STREAK) {
+                    val deliveredBoth = (bytesByItag[video.itag] ?: 0) > 0 &&
+                        (bytesByItag[audio.itag] ?: 0) > 0
+                    return ArusResult(
+                        bytesByItag, rn, protection,
+                        completedNormally = deliveredBoth, events,
+                    )
                 }
-                sleeper(EMPTY_RESPONSE_DELAY_MS)
-            } else {
-                emptyResponses = 0
+                sleeper(emptyDelayMs())
             }
         }
     }
 
     companion object {
-        const val COMPLETION_TOLERANCE_MS = 1_500L
-        const val MAX_EMPTY_RESPONSES = 3
-        const val EMPTY_RESPONSE_DELAY_MS = 150L
+        const val MAX_EMPTY_STREAK = 5
+        const val DEFAULT_EMPTY_DELAY_MS = 2_000L
+        const val MIN_EMPTY_DELAY_MS = 1_000L
+        const val MAX_EMPTY_DELAY_MS = 6_000L
     }
 }

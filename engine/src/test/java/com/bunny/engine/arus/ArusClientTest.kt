@@ -75,12 +75,19 @@ class ArusClientTest {
             endPart(0),
             endPart(1),
         )
-        val transport = FakeTransport(redirect, mediaResponse)
+        // After the media, the server goes quiet: completion is the
+        // sustained silence (MAX_EMPTY_STREAK media-less polls), not a
+        // local length estimate.
+        val quiet = UmpReader.writePart(
+            UmpParts.NEXT_REQUEST_POLICY,
+            ProtoWriter().varintField(1, 21_000).bytes(),
+        )
+        val transport = FakeTransport(redirect, mediaResponse, quiet)
         val sink = CollectingSink()
         val result = ArusClient(transport, sleeper = {}).stream(session, videoFormat, audioFormat, sink)
 
         assertTrue(result.completedNormally)
-        assertEquals(2, result.requests)
+        assertEquals(2 + ArusClient.MAX_EMPTY_STREAK, result.requests)
         assertEquals(1, result.protectionStatus)
         assertEquals(mapOf(137 to 9L, 140 to 9L), result.bytesByItag)
         assertEquals("VIDEODATA", sink.byItag[137]!!.toString(Charsets.UTF_8.name()))
@@ -126,7 +133,37 @@ class ArusClientTest {
             session, videoFormat, audioFormat, CollectingSink(),
         )
         assertEquals(false, result.completedNormally)
-        assertEquals(ArusClient.MAX_EMPTY_RESPONSES, result.requests)
+        assertEquals(ArusClient.MAX_EMPTY_STREAK, result.requests)
         assertTrue(result.bytesByItag.isEmpty())
+    }
+
+    @Test
+    fun stream_pacingPause_doesNotEndConversation() {
+        // The server paces: media, a silence shorter than the streak
+        // limit, then more media. The conversation must survive the
+        // pause — on device, mistaking a pacing pause for the end cut
+        // real streams mid-play (2026-11-11).
+        val mediaResponse = ump(
+            headerPart(0, 137, 111, 2_000),
+            mediaPart(0, "VIDEODATA"),
+            headerPart(1, 140, 222, 2_000),
+            mediaPart(1, "AUDIODATA"),
+        )
+        val quiet = UmpReader.writePart(
+            UmpParts.NEXT_REQUEST_POLICY,
+            ProtoWriter().varintField(1, 21_000).bytes(),
+        )
+        val pause = ArusClient.MAX_EMPTY_STREAK - 1
+        val responses = mutableListOf<ByteArray>(mediaResponse)
+        repeat(pause) { responses += quiet }
+        responses += mediaResponse
+        responses += quiet
+        val transport = FakeTransport(*responses.toTypedArray())
+        val result = ArusClient(transport, sleeper = {}).stream(
+            session, videoFormat, audioFormat, CollectingSink(),
+        )
+        assertTrue(result.completedNormally)
+        assertEquals(1 + pause + 1 + ArusClient.MAX_EMPTY_STREAK, result.requests)
+        assertEquals(18L, result.bytesByItag[137])
     }
 }
