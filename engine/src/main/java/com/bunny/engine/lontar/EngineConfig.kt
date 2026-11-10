@@ -22,6 +22,16 @@ object EngineConfig {
         val fallbackClientVersion: String,
         val androidVrClientVersion: String,
         val seedQueries: List<Pair<String, String>>,
+        /**
+         * Player persona ladder, by [PlayerPersona.name], in the order
+         * [LontarEngine] tries them (distribution hardening 2026-11-10:
+         * remotely reorderable so a retired persona can be demoted or
+         * dropped without an app update).
+         */
+        val playerPersonas: List<String> = listOf("ANDROID_VR", "ANDROID", "IOS"),
+        /** Remotely updatable client versions for the ladder's personas. */
+        val androidClientVersion: String = "20.10.38",
+        val iosClientVersion: String = "20.10.4",
     )
 
     val DEFAULTS = Values(
@@ -48,12 +58,25 @@ object EngineConfig {
                 if (query.isNotEmpty() && label.isNotEmpty()) seeds += query to label
             }
         }
+        val personas = mutableListOf<String>()
+        val personaArray = json.optJSONArray("playerPersonas")
+        if (personaArray != null) {
+            for (i in 0 until personaArray.length()) {
+                val name = personaArray.optString(i).trim()
+                if (name.isNotEmpty()) personas += name
+            }
+        }
         return Values(
             fallbackClientVersion = json.optString("fallbackClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.fallbackClientVersion,
             androidVrClientVersion = json.optString("androidVrClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.androidVrClientVersion,
             seedQueries = seeds.takeIf { it.isNotEmpty() } ?: DEFAULTS.seedQueries,
+            playerPersonas = personas.takeIf { it.isNotEmpty() } ?: DEFAULTS.playerPersonas,
+            androidClientVersion = json.optString("androidClientVersion")
+                .takeIf { it.isNotBlank() } ?: DEFAULTS.androidClientVersion,
+            iosClientVersion = json.optString("iosClientVersion")
+                .takeIf { it.isNotBlank() } ?: DEFAULTS.iosClientVersion,
         )
     }
 }

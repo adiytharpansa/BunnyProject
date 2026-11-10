@@ -7,6 +7,7 @@ import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -273,25 +274,66 @@ class LontarEngine(
         videoId: String,
         visitorData: String?,
     ): ChainOutcome {
+        // Distribution hardening (2026-11-10): every persona's outcome
+        // is summarised into the final error, so a failure log can tell
+        // the bot gate (LOGIN_REQUIRED) apart from a retired client
+        // (ERROR) or an empty answer — they have entirely different
+        // fixes, and confusing them cost a debugging round before.
+        val outcomes = mutableListOf<String>()
         var lastError: LontarException? = null
-        for (persona in PlayerPersonas.chain(config.androidVrClientVersion)) {
+        for (persona in PlayerPersonas.chain(config)) {
+            var outcome = "tidak ada respons"
             repeat(2) {
                 val response = postPlayer(persona, videoId, visitorData)
                 val playability = response.optJSONObject("playabilityStatus")
-                if (playability?.optString("status") == "OK") {
+                val status = playability?.optString("status")
+                val reason = playability?.optString("reason")
+                    ?.takeIf { it.isNotEmpty() }
+                // Playability OK alone is not acceptance: an OK with no
+                // usable stream (seen from TV personas in the probe) is
+                // a refusal wearing a smile — the next persona may hold
+                // real formats.
+                if (status == "OK" && hasPlayableStreams(response)) {
                     val accepted = response to persona
+                    if (playerCache.size >= MAX_PLAYER_CACHE_ENTRIES) playerCache.clear()
                     playerCache[videoId] = accepted
                     return ChainOutcome(accepted, null)
                 }
+                outcome = when {
+                    status == "OK" -> "OK tanpa aliran yang dapat diputar"
+                    reason != null -> "${status ?: "?"}: $reason"
+                    else -> status ?: "respons player tidak dikenal"
+                }
                 lastError = LontarException(
                     "YouTube menolak memutar video ini: " +
-                        (playability?.optString("reason")?.takeIf { it.isNotEmpty() }
-                            ?: playability?.optString("status")
-                            ?: "respons player tidak dikenal"),
+                        (reason ?: status ?: "respons player tidak dikenal"),
                 )
             }
+            outcomes += "${persona.name} → $outcome"
         }
-        return ChainOutcome(null, lastError)
+        val summary = outcomes.joinToString("; ")
+        return ChainOutcome(
+            null,
+            LontarException(
+                (lastError?.message ?: "Tidak ada persona player yang berhasil") +
+                    " [rantai: $summary]",
+            ),
+        )
+    }
+
+    /** True when a player response carries at least one playable stream. */
+    private fun hasPlayableStreams(response: JSONObject): Boolean {
+        val streaming = response.optJSONObject("streamingData") ?: return false
+        if (streaming.optString("hlsManifestUrl").isNotEmpty()) return true
+        for (key in listOf("formats", "adaptiveFormats")) {
+            val formats = streaming.optJSONArray(key) ?: continue
+            for (i in 0 until formats.length()) {
+                if (formats.optJSONObject(i)?.optString("url")?.isNotEmpty() == true) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private suspend fun postPlayer(
@@ -349,33 +391,61 @@ class LontarEngine(
         clientVersion: String,
         body: JSONObject,
         endpointLabel: String,
-    ): JSONObject = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", userAgent)
-            .header("X-YouTube-Client-Name", clientNameId)
-            .header("X-YouTube-Client-Version", clientVersion)
-            .header("Content-Type", "application/json")
-            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                // Include the server's own error message: a bare HTTP code
-                // cost a full debugging round on 2026-11-10 (the 400 hid
-                // INVALID_ARGUMENT vs FAILED_PRECONDITION, which point to
-                // entirely different causes).
-                val detail = runCatching {
-                    JSONObject(text).getJSONObject("error").getString("message")
-                }.getOrNull()
-                throw LontarException(
-                    "InnerTube $endpointLabel menjawab HTTP ${response.code}" +
-                        (detail?.let { ": $it" } ?: ""),
-                )
+    ): JSONObject {
+        // Distribution hardening (2026-11-10): transient refusals —
+        // HTTP 429 (rate limit), 5xx (server trouble) and network I/O
+        // failures — earn a short backoff and another attempt instead
+        // of surfacing instantly; a feed built from five parallel
+        // searches is exactly the shape that trips rate limits. Client
+        // errors (4xx other than 429) are answers, not weather: they
+        // throw at once, with the server's own message included (a bare
+        // HTTP code cost a full debugging round on 2026-11-10 — the 400
+        // hid INVALID_ARGUMENT vs FAILED_PRECONDITION).
+        var attempt = 0
+        while (true) {
+            try {
+                return withContext(Dispatchers.IO) {
+                    val request = Request.Builder()
+                        .url(url)
+                        .header("User-Agent", userAgent)
+                        .header("X-YouTube-Client-Name", clientNameId)
+                        .header("X-YouTube-Client-Version", clientVersion)
+                        .header("Content-Type", "application/json")
+                        .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                        .build()
+                    httpClient.newCall(request).execute().use { response ->
+                        val text = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            val detail = runCatching {
+                                JSONObject(text).getJSONObject("error").getString("message")
+                            }.getOrNull()
+                            throw HttpRefusal(
+                                response.code,
+                                "InnerTube $endpointLabel menjawab HTTP ${response.code}" +
+                                    (detail?.let { ": $it" } ?: ""),
+                            )
+                        }
+                        JSONObject(text)
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: HttpRefusal) {
+                if (e.code !in RETRYABLE_HTTP_CODES || attempt >= RETRY_DELAYS_MS.size) {
+                    throw LontarException(e.message ?: "InnerTube $endpointLabel gagal")
+                }
+                delay(RETRY_DELAYS_MS[attempt])
+                attempt++
+            } catch (e: java.io.IOException) {
+                if (attempt >= RETRY_DELAYS_MS.size) throw e
+                delay(RETRY_DELAYS_MS[attempt])
+                attempt++
             }
-            JSONObject(text)
         }
     }
+
+    /** An HTTP refusal, carrying its code so retry policy can see it. */
+    private class HttpRefusal(val code: Int, message: String) : Exception(message)
 
     private suspend fun ensureSession(): InnertubeSession {
         session?.let { return it }
@@ -452,6 +522,15 @@ class LontarEngine(
 
         private const val MAX_SEED_ITEMS = 60
         private const val MAX_LIVE_ITEMS = 40
+
+        /** The player-response cache is a courtesy, not an archive. */
+        private const val MAX_PLAYER_CACHE_ENTRIES = 100
+
+        /** HTTP codes that mean "weather", not "answer": worth a backoff. */
+        private val RETRYABLE_HTTP_CODES = setOf(429, 500, 502, 503, 504)
+
+        /** Backoff schedule between postJson attempts (two retries). */
+        private val RETRY_DELAYS_MS = longArrayOf(600L, 1_800L)
 
         /** Live seed topics: query to Chip Alasan label. */
         private val LIVE_SEED_QUERIES: List<Pair<String, String>> = listOf(

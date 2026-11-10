@@ -14,13 +14,27 @@ class EngineConfigTest {
                 """
                 {"fallbackClientVersion":"2.20990101.01.00",
                  "androidVrClientVersion":"9.99.9",
-                 "seedQueries":[{"query":"topik uji","label":"Uji"}]}
+                 "seedQueries":[{"query":"topik uji","label":"Uji"}],
+                 "playerPersonas":["IOS","ANDROID_VR"],
+                 "androidClientVersion":"21.0.0",
+                 "iosClientVersion":"21.5.0"}
                 """.trimIndent(),
             ),
         )
         assertEquals("2.20990101.01.00", values.fallbackClientVersion)
         assertEquals("9.99.9", values.androidVrClientVersion)
         assertEquals(listOf("topik uji" to "Uji"), values.seedQueries)
+        assertEquals(listOf("IOS", "ANDROID_VR"), values.playerPersonas)
+        assertEquals("21.0.0", values.androidClientVersion)
+        assertEquals("21.5.0", values.iosClientVersion)
+    }
+
+    @Test
+    fun parse_personaListWithoutUsableNames_keepsDefaultLadder() {
+        val values = EngineConfig.parse(
+            JSONObject("""{"playerPersonas":["","  "]}"""),
+        )
+        assertEquals(EngineConfig.DEFAULTS.playerPersonas, values.playerPersonas)
     }
 
     @Test

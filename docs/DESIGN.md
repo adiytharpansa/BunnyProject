@@ -52,6 +52,19 @@ aplikasi resmi YouTube, dari Kotlin murni:
   langsung lengkap (terverifikasi pada video yang gagal di perangkat).
 - **Cache respons player** per video, dipakai bersama oleh panggilan detail
   dan stream.
+- **Penguatan distribusi (2026-11-10)** — rantai persona diperluas dari
+  ANDROID_VR tunggal menjadi tangga ANDROID_VR → ANDROID → IOS, ketiganya
+  terbukti lewat probe langsung dari bootstrap sesi Lontar (playability OK
+  + format URL langsung; IOS juga menawarkan HLS), sedangkan TVHTML5
+  (UNPLAYABLE) dan TVHTML5_SIMPLY_EMBEDDED_PLAYER (klien pensiun) ditolak
+  dengan bukti. Urutan tangga dan versi tiap persona dapat diatur dari
+  konfigurasi jarak jauh tanpa update aplikasi. Persona hanya diterima
+  bila jawabannya membawa aliran yang benar-benar dapat diputar, bukan
+  sekadar playability OK; kegagalan tiap persona diringkas ke dalam pesan
+  error akhir agar gerbang bot (LOGIN_REQUIRED) dapat dibedakan dari
+  klien pensiun. Lapisan HTTP kini memberi jeda dan mencoba ulang pada
+  HTTP 429/5xx dan kegagalan I/O (jadwal 0,6 dtk/1,8 dtk), dan cache
+  respons player dibatasi 100 entri.
 
 ## Fitur khas Bunny
 
