@@ -47,6 +47,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
 import com.bunny.app.playback.PlaybackDiagnostics
+import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
 
 @UnstableApi
@@ -82,6 +83,10 @@ fun PlayerScreen(
         notificationsGranted = granted
         PlaybackDiagnostics.log("Izin notifikasi: ${if (granted) "diberikan" else "ditolak"}")
     }
+
+    // Fase 4 telemetry: terminal playback failures persist on-device
+    // across restarts; read once when this screen opens.
+    var pastFailures by remember { mutableStateOf(PlaybackFailureLog.read(context)) }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
     BackHandler {
@@ -152,7 +157,14 @@ fun PlayerScreen(
                     Button(onClick = { viewModel.retry() }) {
                         Text(stringResource(R.string.retry))
                     }
-                    DiagnosticsBlock(diagnostics)
+                    DiagnosticsBlock(
+                        events = diagnostics,
+                        pastFailures = pastFailures,
+                        onClearFailures = {
+                            PlaybackFailureLog.clear(context)
+                            pastFailures = null
+                        },
+                    )
                 }
 
                 is PlayerUiState.Ready -> {
@@ -234,7 +246,14 @@ fun PlayerScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    DiagnosticsBlock(diagnostics)
+                    DiagnosticsBlock(
+                        events = diagnostics,
+                        pastFailures = pastFailures,
+                        onClearFailures = {
+                            PlaybackFailureLog.clear(context)
+                            pastFailures = null
+                        },
+                    )
                 }
             }
         }
@@ -242,7 +261,11 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun DiagnosticsBlock(events: List<String>) {
+private fun DiagnosticsBlock(
+    events: List<String>,
+    pastFailures: String? = null,
+    onClearFailures: () -> Unit = {},
+) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
         Text(stringResource(R.string.player_diagnostics))
@@ -253,6 +276,21 @@ private fun DiagnosticsBlock(events: List<String>) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (pastFailures != null) {
+            Text(
+                stringResource(R.string.player_failures_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                pastFailures,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onClearFailures) {
+                Text(stringResource(R.string.player_failures_clear))
+            }
+        }
     }
 }
 

@@ -94,12 +94,15 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   *(Terbukti di perangkat 2026-11-10, termasuk putar latar + notifikasi
   lewat MediaController; pemecah cipher tidak diperlukan di jalur ini.)*
 - **Fase 3** — Fitur khas: Timbangan + Jatah, Terbit, Chip Alasan,
-  langganan lokal + grup, Panen Bertingkat.
-  *(Dalam pengerjaan — Timbangan + Jatah, Chip Alasan, langganan lokal,
-  dan Terbit masuk lebih dulu; grup langganan dan Panen Bertingkat
-  menyusul dalam fase yang sama.)*
+  langganan lokal + grup, Panen Bertingkat. ✅ *(Timbangan + Jatah, Chip
+  Alasan, langganan lokal, dan Terbit terverifikasi di perangkat
+  2026-11-10; grup langganan dan Panen Bertingkat masih menyusul.)*
 - **Fase 4** — Ketahanan: persona bergilir, konfigurasi mesin yang dapat
   diperbarui jarak jauh, telemetri kegagalan putar di perangkat.
+  *(Dalam pengerjaan — konfigurasi jarak jauh lewat `engine-config.json`
+  di repo ini, coba-ulang rantai player dengan sesi segar saat gerbang
+  bot menolak, dan log kegagalan putar persisten di perangkat sudah
+  masuk; persona bergilir penuh menyusul bila lapangan menuntutnya.)*
 
 ## Keputusan tercatat
 

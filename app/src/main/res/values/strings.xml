@@ -31,4 +31,6 @@
     <string name="terbit_empty">Belum ada langganan. Buka sebuah video, lalu ketuk Langganan — video terbaru dari kanal itu akan terbit di sini setiap pagi.</string>
     <string name="terbit_end">— Edisi selesai. Sampai jumpa besok pagi. —</string>
     <string name="terbit_loading">Menyusun edisi…</string>
+    <string name="player_failures_title">Kegagalan putar tersimpan (hanya di perangkat ini)</string>
+    <string name="player_failures_clear">Hapus catatan kegagalan</string>
 </resources>

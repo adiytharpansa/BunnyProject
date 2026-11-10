@@ -11,6 +11,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.playback.PlaybackDiagnostics
+import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
@@ -211,6 +212,15 @@ class PlayerViewModel @Inject constructor(
             } catch (e: Exception) {
                 PlaybackDiagnostics.log(
                     "Gagal menyiapkan (#$attempt): ${e.javaClass.simpleName}: ${e.message}",
+                )
+                // Fase 4 telemetry: load failures persist on-device so a
+                // refusal pattern (e.g. a tightening bot gate) stays
+                // visible across restarts, not only in this session's ring.
+                PlaybackFailureLog.record(
+                    application,
+                    stage = "muat",
+                    subject = id,
+                    detail = "${e.javaClass.simpleName}: ${e.message}",
                 )
                 _uiState.value = PlayerUiState.Error(
                     e.message ?: "Video tidak dapat disiapkan.",

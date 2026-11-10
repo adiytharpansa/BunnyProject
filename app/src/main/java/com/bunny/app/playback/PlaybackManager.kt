@@ -106,7 +106,20 @@ class PlaybackManager @Inject constructor(
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackDiagnostics.log("Player error: ${error.errorCodeName} — ${error.message}")
-                        fallback?.invoke()
+                        val step = fallback
+                        if (step != null) {
+                            step.invoke()
+                        } else {
+                            // Terminal: the chain has no next source, so
+                            // this failure is the one the user experiences.
+                            // Persist it as on-device telemetry (Fase 4).
+                            PlaybackFailureLog.record(
+                                context,
+                                stage = "putar",
+                                subject = currentTitle,
+                                detail = "${error.errorCodeName} — ${error.message}",
+                            )
+                        }
                     }
                 })
             }
@@ -114,8 +127,10 @@ class PlaybackManager @Inject constructor(
 
     private var fallback: (() -> Unit)? = null
     private var chainGeneration = 0
+    private var currentTitle: String = ""
 
     private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
+        currentTitle = title
         val (label, source) = sources.first()
         val rest = sources.drop(1)
         val generation = ++chainGeneration
