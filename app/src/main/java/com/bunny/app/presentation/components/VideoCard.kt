@@ -5,7 +5,9 @@ import android.view.TextureView
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -62,19 +65,11 @@ import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
 import kotlin.math.roundToInt
 
-/**
- * One feed item, laid out like the official app's feed card: a
- * full-bleed 16:9 thumbnail, then a rounded panel holding the title
- * (full width, up to two lines) and a row with the channel avatar,
- * channel + meta lines and the ⋮ menu. Bunny's signatures stay: the
- * Timbangan ≈MB badge on the thumbnail and the Chip Alasan pill.
- * The engine supplies no channel avatars, so the avatar is an honest
- * letter tile.
- *
- * Inline preview: the thumbnail stays on top of the video surface until
- * the first frame is rendered ([previewReady]) and then fades out, so
- * the card never flashes black while the preview loads or when it fails.
- */
+private val CardShape = RoundedCornerShape(20.dp)
+private val AvatarSize = 40.dp
+private val AvatarGap = 12.dp
+private val LiveRed = Color(0xFFD32F2F)
+
 @UnstableApi
 @Composable
 fun VideoCard(
@@ -110,8 +105,13 @@ fun VideoCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+            .clip(CardShape)
             .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                shape = CardShape,
+            )
             .clickable { onClick() },
     ) {
         Box(
@@ -167,9 +167,6 @@ fun VideoCard(
                 item.isLive -> "LIVE"
                 else -> item.durationSeconds?.let { formatDuration(it) }
             }
-            if (badge != null) {
-                ThumbBadge(badge, Modifier.align(Alignment.BottomEnd))
-            }
             // Timbangan: the estimated data cost of watching, visible
             // BEFORE the tap. Ladder-based estimate (see DataCost); the
             // player replaces it with real format bitrates.
@@ -179,6 +176,26 @@ fun VideoCard(
                 item.durationSeconds?.let {
                     "≈ " + DataCost.formatSize(DataCost.estimateBytes(it))
                 }
+            }
+            // Soft scrim so the badges stay legible on bright thumbnails.
+            if (badge != null || sizeBadge != null) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.45f),
+                                ),
+                            ),
+                        ),
+                )
+            }
+            if (badge != null) {
+                ThumbBadge(badge, Modifier.align(Alignment.BottomEnd))
             }
             if (sizeBadge != null) {
                 ThumbBadge(sizeBadge, Modifier.align(Alignment.BottomStart))
@@ -194,13 +211,13 @@ fun VideoCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+                .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 14.dp),
         ) {
             Text(
                 text = item.title,
                 fontSize = 16.sp,
                 lineHeight = 22.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(end = 8.dp),
@@ -208,12 +225,12 @@ fun VideoCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 10.dp),
+                    .padding(top = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(AvatarSize)
                         .clip(CircleShape)
                         .background(avatarColor(item.channelName)),
                     contentAlignment = Alignment.Center,
@@ -224,13 +241,17 @@ fun VideoCard(
                         color = Color(0xFFF5F1EA),
                     )
                 }
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                Spacer(Modifier.width(AvatarGap))
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(1.dp),
+                ) {
                     if (item.channelName.isNotEmpty()) {
                         Text(
                             text = item.channelName,
                             fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -242,7 +263,7 @@ fun VideoCard(
                     if (meta.isNotEmpty()) {
                         Text(
                             text = meta,
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -252,17 +273,18 @@ fun VideoCard(
                 CardMenu(videoId = item.id)
             }
             // Chip Alasan: why this video is on the list, stated plainly.
+            // Aligned with the channel text, not the avatar.
             if (showReason) {
                 item.reason?.let { reason ->
                     Text(
                         text = reason,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSecondaryContainer,
                         modifier = Modifier
-                            .padding(top = 10.dp, start = 52.dp)
+                            .padding(top = 12.dp, start = AvatarSize + AvatarGap)
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
             }
@@ -338,19 +360,19 @@ private fun PreviewProgressBar(progress: () -> Float?, modifier: Modifier = Modi
     )
 }
 
-/** Duration / size badge on the thumbnail: black pill, white text. */
+/** Duration / size badge on the thumbnail: dark pill, white text; LIVE is red. */
 @Composable
 private fun ThumbBadge(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
         color = Color.White,
         fontSize = 12.sp,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         modifier = modifier
-            .padding(8.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(alpha = 0.8f))
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(10.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (text == "LIVE") LiveRed else Color.Black.copy(alpha = 0.72f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
 

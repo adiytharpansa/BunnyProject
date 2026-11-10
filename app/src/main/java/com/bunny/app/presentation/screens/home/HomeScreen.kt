@@ -1,6 +1,7 @@
 package com.bunny.app.presentation.screens.home
 
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -8,6 +9,7 @@ import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -34,6 +36,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.DataUsage
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -41,6 +44,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -62,6 +66,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -75,6 +80,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -96,6 +102,12 @@ private const val PREVIEW_MIN_VISIBLE_FRACTION = 0.6f
 
 /** Poll interval for the preview progress hairline. */
 private const val PREVIEW_PROGRESS_TICK_MS = 250L
+
+/** Horizontal margin shared by the Jatah bar, the cards and the skeleton. */
+private val FeedHorizontalPadding = 12.dp
+
+/** Vertical gap between feed items. */
+private val FeedItemSpacing = 16.dp
 
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -325,22 +337,23 @@ fun HomeScreen(
                     // starts right under the header and the list can
                     // scroll up beneath it when the header hides.
                     contentPadding = PaddingValues(
-                        top = headerPadDp + 8.dp,
-                        bottom = 12.dp + bottomPadding,
+                        top = headerPadDp + 4.dp,
+                        bottom = 16.dp + bottomPadding,
                     ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(FeedItemSpacing),
                 ) {
                     item {
                         JatahBar(
                             jatah = jatah,
                             onSetQuota = { showQuotaDialog = true },
-                            modifier = Modifier.padding(horizontal = 12.dp),
+                            modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                         )
                     }
                     items(visibleItems, key = { it.id }) { item ->
                         val isPreviewingThis = previewingId == item.id
                         VideoCard(
                             item = item,
+                            modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                             onClick = { onVideoClick(item.id) },
                             previewPlayer = if (isPreviewingThis) {
                                 viewModel.previewPlayer
@@ -397,13 +410,16 @@ fun HomeScreen(
                         Image(
                             painter = painterResource(R.drawable.ic_bunny_logo),
                             contentDescription = null,
-                            modifier = Modifier.size(30.dp),
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp)),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
                             stringResource(R.string.home_title),
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-1).sp,
+                            letterSpacing = (-0.8).sp,
                         )
                     }
                 },
@@ -412,14 +428,17 @@ fun HomeScreen(
                         Icon(
                             Icons.Outlined.Notifications,
                             contentDescription = stringResource(R.string.notif_title),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     IconButton(onClick = onSearchClick) {
                         Icon(
                             Icons.Filled.Search,
                             contentDescription = stringResource(R.string.search_open),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    Spacer(Modifier.width(4.dp))
                 },
             )
             if (topics.size > 1) {
@@ -427,7 +446,7 @@ fun HomeScreen(
                     topics = topics,
                     selected = topicFilter,
                     onSelect = { topicFilter = it },
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    modifier = Modifier.padding(bottom = 6.dp),
                 )
             }
         }
@@ -548,8 +567,8 @@ private val INDICATOR_REST_GAP = 12.dp
 @Composable
 private fun SkeletonFeed(topPadding: Dp = 0.dp) {
     LazyColumn(
-        contentPadding = PaddingValues(top = topPadding + 12.dp, bottom = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = topPadding + 4.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(FeedItemSpacing),
     ) {
         items(3) { SkeletonCard() }
     }
@@ -568,7 +587,13 @@ private fun SkeletonCard() {
         label = "skeletonAlpha",
     )
     val block = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
-    Column {
+    Column(
+        modifier = Modifier
+            .padding(horizontal = FeedHorizontalPadding)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surface),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -578,12 +603,12 @@ private fun SkeletonCard() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
                     .background(block),
             )
@@ -612,8 +637,9 @@ private fun SkeletonCard() {
 
 /**
  * Jatah bar: this month's estimated usage, and the budget when one is
- * set. One structured row — title + usage stacked on the left, the
- * Atur action centered on the right, the budget track underneath.
+ * set. A card with a round icon, title + usage stacked, a tonal "Atur"
+ * action and, when a budget exists, a rounded progress track with its
+ * percentage. The accent turns to the error color at 90% or more.
  * Estimates, not metering — the copy says so.
  */
 @Composable
@@ -622,18 +648,51 @@ private fun JatahBar(
     onSetQuota: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val quota = jatah.quotaBytes
+    val fraction = if (quota != null && quota > 0) {
+        (jatah.usedBytes.toFloat() / quota.toFloat()).coerceIn(0f, 1f)
+    } else {
+        null
+    }
+    val accent = if (fraction != null && fraction >= 0.9f) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val shape = RoundedCornerShape(16.dp)
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surface)
-            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                shape = shape,
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.DataUsage,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -650,10 +709,10 @@ private fun JatahBar(
                         R.string.home_jatah_used,
                         DataCost.formatSize(jatah.usedBytes),
                     )
-                    if (jatah.quotaBytes != null) {
+                    if (quota != null) {
                         used + " " + stringResource(
                             R.string.home_jatah_of,
-                            DataCost.formatSize(jatah.quotaBytes),
+                            DataCost.formatSize(quota),
                         )
                     } else {
                         used
@@ -665,19 +724,38 @@ private fun JatahBar(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(onClick = onSetQuota) {
-                Text(stringResource(R.string.home_jatah_set))
+            FilledTonalButton(
+                onClick = onSetQuota,
+                modifier = Modifier.height(36.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+            ) {
+                Text(
+                    stringResource(R.string.home_jatah_set),
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
-        if (jatah.quotaBytes != null && jatah.quotaBytes > 0) {
-            val fraction = (jatah.usedBytes.toFloat() / jatah.quotaBytes.toFloat())
-                .coerceIn(0f, 1f)
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 10.dp, bottom = 4.dp),
-            )
+        if (fraction != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(50)),
+                    color = accent,
+                    trackColor = accent.copy(alpha = 0.16f),
+                )
+                Text(
+                    text = "${(fraction * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = accent,
+                )
+            }
         }
     }
 }
@@ -735,10 +813,11 @@ private fun JatahQuotaDialog(
 }
 
 /**
- * Text tabs like the official home row (Beranda / Musik / Live …):
- * medium-weight labels, the selected one bold with a rounded accent
- * underline. The topics are Bunny's Chip Alasan reasons, so selecting
- * one filters the feed already on screen.
+ * Topic pills under the app bar (Beranda / Podcast / Berita …). The
+ * selected pill is filled with the primary color, the others sit on a
+ * muted surface; the color change is animated. The topics are Bunny's
+ * Chip Alasan reasons, so selecting one filters the feed already on
+ * screen.
  */
 @Composable
 private fun HomeTabs(
@@ -750,42 +829,50 @@ private fun HomeTabs(
     val all = listOf<String?>(null) + topics
     LazyRow(
         modifier = modifier,
-        contentPadding = PaddingValues(horizontal = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        contentPadding = PaddingValues(horizontal = FeedHorizontalPadding, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(all) { topic ->
+        items(all, key = { it ?: "__all__" }) { topic ->
             val isSelected = topic == selected
             val label = topic?.removePrefix("Topik: ")
                 ?: stringResource(R.string.nav_home)
-            Column(
+            val container by animateColorAsState(
+                targetValue = if (isSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surface
+                },
+                animationSpec = tween(180),
+                label = "tabContainer",
+            )
+            val content by animateColorAsState(
+                targetValue = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                animationSpec = tween(180),
+                label = "tabContent",
+            )
+            Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onSelect(topic) }
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .width(IntrinsicSize.Max),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(container)
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.Tab,
+                        onClick = { onSelect(topic) },
+                    )
+                    .padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label,
-                    fontSize = 17.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onBackground
-                        .copy(alpha = if (isSelected) 1f else 0.72f),
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = content,
                     maxLines = 1,
-                )
-                Spacer(Modifier.height(4.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp))
-                        .background(
-                            if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                Color.Transparent
-                            },
-                        ),
                 )
             }
         }
