@@ -3,6 +3,7 @@ package com.bunny.app.playback
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -63,9 +64,25 @@ class PlaybackManager @Inject constructor(
         }
     }
 
-    /** Loads the best available source for [streams] and starts playing. */
-    fun play(streams: PlaybackStreams, title: String) {
-        val sources = buildSourceChain(streams)
+    /**
+     * Loads the best available source for [streams] and starts playing.
+     * Title, channel and artwork ride on every item as session metadata:
+     * the media notification and lock-screen controls read them from
+     * there — the same information the official app's playback
+     * notification shows (REA dissection 2026-11-10).
+     */
+    fun play(
+        streams: PlaybackStreams,
+        title: String,
+        channelName: String = "",
+        artworkUrl: String? = null,
+    ) {
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(channelName.takeIf { it.isNotEmpty() })
+            .setArtworkUri(artworkUrl?.let { Uri.parse(it) })
+            .build()
+        val sources = buildSourceChain(streams, metadata)
         if (sources.isEmpty()) {
             PlaybackDiagnostics.log("Tidak ada sumber yang dapat diputar untuk \"$title\"")
             return
@@ -149,11 +166,18 @@ class PlaybackManager @Inject constructor(
         player.playWhenReady = true
     }
 
-    private fun buildSourceChain(streams: PlaybackStreams): List<Pair<String, MediaSource>> {
+    private fun buildSourceChain(
+        streams: PlaybackStreams,
+        metadata: MediaMetadata,
+    ): List<Pair<String, MediaSource>> {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(userAgent)
             .setAllowCrossProtocolRedirects(true)
         val chain = mutableListOf<Pair<String, MediaSource>>()
+        fun item(uri: Uri): MediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setMediaMetadata(metadata)
+            .build()
 
         streams.dashManifestContent?.takeIf { it.isNotBlank() }?.let { manifest ->
             // The manifest exists only in memory (Lontar generated it), so
@@ -193,22 +217,22 @@ class PlaybackManager @Inject constructor(
                 }
             }
             val source = DashMediaSource.Factory(delegatingFactory)
-                .createMediaSource(MediaItem.fromUri(manifestUri))
+                .createMediaSource(item(manifestUri))
             chain += "DASH (manifest buatan Lontar)" to source
         }
         streams.dashManifestUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = DashMediaSource.Factory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url)))
             chain += "DASH" to source
         }
         streams.hlsUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = HlsMediaSource.Factory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url)))
             chain += "HLS" to source
         }
         streams.progressiveUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = DefaultMediaSourceFactory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url)))
             chain += "progresif" to source
         }
         return chain

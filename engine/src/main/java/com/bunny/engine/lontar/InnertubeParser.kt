@@ -178,6 +178,7 @@ object InnertubeParser {
             likeCount = null, // Not exposed by the player endpoint.
             uploadedText = microformat?.optString("publishDate")?.takeIf { it.isNotEmpty() },
             isLive = details.optBoolean("isLiveContent", false),
+            thumbnailUrl = bestThumbnail(details.optJSONObject("thumbnail")),
         )
     }
 

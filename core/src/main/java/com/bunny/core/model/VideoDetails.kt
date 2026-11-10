@@ -11,4 +11,6 @@ data class VideoDetails(
     val likeCount: Long?,
     val uploadedText: String?,
     val isLive: Boolean = false,
+    /** Largest thumbnail URL — feeds the media notification's artwork. */
+    val thumbnailUrl: String? = null,
 )

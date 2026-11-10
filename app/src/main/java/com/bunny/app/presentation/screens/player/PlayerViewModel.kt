@@ -180,7 +180,12 @@ class PlayerViewModel @Inject constructor(
 
                 PlaybackService.start(application)
                 playbackManager.configure(streams.playbackUserAgent)
-                playbackManager.play(streams, details.title)
+                playbackManager.play(
+                    streams,
+                    details.title,
+                    details.channelName,
+                    details.thumbnailUrl,
+                )
 
                 // Jatah: charge the estimate once playback starts, then
                 // judge the month WITH this video included — the warning

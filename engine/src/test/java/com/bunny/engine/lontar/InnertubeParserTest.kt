@@ -182,7 +182,10 @@ class InnertubeParserTest {
         {"playabilityStatus":{"status":"OK"},
          "videoDetails":{"videoId":"aqz-KE-bpKQ","title":"Big Buck Bunny",
            "shortDescription":"Kelinci besar.","author":"Blender Foundation",
-           "channelId":"UCtC9L7g","viewCount":"28123456","lengthSeconds":"635"},
+           "channelId":"UCtC9L7g","viewCount":"28123456","lengthSeconds":"635",
+           "thumbnail":{"thumbnails":[
+             {"url":"https://img.example/small.jpg","width":120,"height":90},
+             {"url":"https://img.example/large.jpg","width":1280,"height":720}]}},
          "microformat":{"playerMicroformatRenderer":{"publishDate":"2015-01-01"}},
          "streamingData":{"expiresInSeconds":"21540",
            "formats":[
@@ -200,6 +203,7 @@ class InnertubeParserTest {
         assertEquals("Blender Foundation", details.channelName)
         assertEquals(28_123_456L, details.viewCount)
         assertEquals("2015-01-01", details.uploadedText)
+        assertEquals("https://img.example/large.jpg", details.thumbnailUrl)
     }
 
     @Test
