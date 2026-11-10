@@ -15,6 +15,7 @@ import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
+import com.bunny.app.playback.PlaybackWallPolicy
 import com.bunny.engine.lontar.LontarEngine
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoDetails
@@ -100,6 +101,10 @@ class PlayerViewModel @Inject constructor(
 
     init {
         connectController()
+        // Arus recovery (Fase A3): when the classic chain dies under
+        // this screen, the manager reports it here and the video gets
+        // one automatic SABR attempt instead of a black screen.
+        playbackManager.onClassicChainDied = { onClassicChainDied() }
     }
 
     private fun connectController() {
@@ -144,20 +149,54 @@ class PlayerViewModel @Inject constructor(
         load()
     }
 
+    /** The video the automatic Arus recovery already spent itself on. */
+    private var arusAutoAttemptedFor: String? = null
+
+    /**
+     * Arus Fase A3 — automatic recovery: the classic chain died under
+     * this screen (the token wall's mid-play cut, or every source
+     * refused at load). The video gets ONE automatic SABR attempt;
+     * live streams are excluded (Arus is VOD-only) and a spent
+     * attempt never loops. The manual button below stays available
+     * regardless — it is the user's own retry.
+     */
+    private fun onClassicChainDied() {
+        val ready = _uiState.value as? PlayerUiState.Ready ?: return
+        if (!PlaybackWallPolicy.shouldAutoRecover(
+                isLive = ready.details.isLive,
+                attemptedForVideoId = arusAutoAttemptedFor,
+                videoId = videoId,
+            )
+        ) {
+            return
+        }
+        arusAutoAttemptedFor = videoId
+        PlaybackDiagnostics.log(
+            "Pemulihan otomatis: jalur klasik gugur — beralih ke Arus (SABR)…",
+        )
+        startArus(ready)
+    }
+
     /**
      * Arus Fase A2 — the deliberate experiment: play the open video
-     * through a SABR conversation instead of the classic chain. Wired
-     * to the diagnostics block on purpose; whether Arus joins the
-     * automatic chain is Fase A3's decision, made with this test's
-     * results. Failures land in the diagnostics ring, where the user
-     * who pressed the button is already looking.
+     * through a SABR conversation instead of the classic chain, from
+     * the diagnostics block's button. Since Fase A3 the same path is
+     * also the automatic recovery when the classic chain dies.
+     * Failures land in the diagnostics ring, where the user who
+     * pressed the button is already looking.
      */
     fun playViaArus() {
-        val id = videoId ?: return
+        videoId ?: return
         val ready = _uiState.value as? PlayerUiState.Ready ?: run {
             PlaybackDiagnostics.log("Arus: video belum siap, percobaan dibatalkan")
             return
         }
+        startArus(ready)
+    }
+
+    /** Shared by the manual button and the automatic recovery. */
+    private fun startArus(ready: PlayerUiState.Ready) {
+        val id = videoId ?: return
         viewModelScope.launch {
             try {
                 PlaybackDiagnostics.log("Arus: meminta sesi SABR (persona VISIONOS)…")
@@ -329,6 +368,7 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
         // ViewModel is being cleared mid-flight, this line brackets them in
         // the diagnostics ring (field report 2026-11-10).
         PlaybackDiagnostics.log("PlayerViewModel dibersihkan (onCleared)")
+        playbackManager.onClassicChainDied = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controllerPlayer.value = null
@@ -341,6 +381,7 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
         relatedJob?.cancel()
         _related.value = RelatedUiState(isLoading = true)
         val attempt = ++loadAttempts
+        arusAutoAttemptedFor = null
         _uiState.value = PlayerUiState.Loading
         PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
         loadJob = viewModelScope.launch {

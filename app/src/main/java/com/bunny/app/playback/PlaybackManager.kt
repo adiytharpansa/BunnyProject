@@ -103,6 +103,7 @@ class PlaybackManager @Inject constructor(
     ) {
         closeArusStore()
         clearQualityOverride()
+        currentChainIsArus = false
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(channelName.takeIf { it.isNotEmpty() })
@@ -162,6 +163,7 @@ class PlaybackManager @Inject constructor(
         closeArusStore()
         arusStore = store
         clearQualityOverride()
+        currentChainIsArus = true
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(channelName.takeIf { it.isNotEmpty() })
@@ -263,6 +265,23 @@ class PlaybackManager @Inject constructor(
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackDiagnostics.log("Player error: ${error.errorCodeName} — ${error.message}")
+                        if (PlaybackWallPolicy.isWallSignature(
+                                isArusChain = currentChainIsArus,
+                                errorCode = error.errorCode,
+                                positionMs = player.currentPosition,
+                            )
+                        ) {
+                            // The wall: the remaining classic sources
+                            // were minted by the same player response
+                            // and share the refused URLs' fate (device
+                            // evidence 2026-11-11: all rejected within
+                            // seconds of the first), so skip them and
+                            // go straight to the terminal recovery.
+                            PlaybackDiagnostics.log(
+                                "Dinding token: penolakan HTTP di tengah putar — sisa sumber klasik dilewati",
+                            )
+                            fallback = null
+                        }
                         val step = fallback
                         if (step != null) {
                             step.invoke()
@@ -276,6 +295,13 @@ class PlaybackManager @Inject constructor(
                                 subject = currentTitle,
                                 detail = "${error.errorCodeName} — ${error.message}",
                             )
+                            // Arus recovery (Fase A3): a dead classic
+                            // chain earns one automatic SABR attempt,
+                            // owned by the player screen through this
+                            // hook. Arus's own death never re-enters.
+                            if (!currentChainIsArus) {
+                                onClassicChainDied?.invoke(currentTitle)
+                            }
                         }
                     }
                 })
@@ -285,6 +311,16 @@ class PlaybackManager @Inject constructor(
     private var fallback: (() -> Unit)? = null
     private var chainGeneration = 0
     private var currentTitle: String = ""
+    private var currentChainIsArus = false
+
+    /**
+     * Arus recovery hook (Fase A3): invoked once when a CLASSIC chain
+     * dies completely — every source refused, or the stream cut by
+     * the mid-play token wall. The player screen owns the recovery
+     * attempt; the manager only reports the death. Null while no
+     * player screen is alive, in which case a dead chain stays dead.
+     */
+    var onClassicChainDied: ((String) -> Unit)? = null
 
     private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
         currentTitle = title
