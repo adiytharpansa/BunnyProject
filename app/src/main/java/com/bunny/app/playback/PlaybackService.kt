@@ -3,7 +3,7 @@ package com.bunny.app.playback
 import android.content.Context
 import android.content.Intent
 import androidx.media3.common.Player
-import androidx.media3.session.DefaultMediaNotification
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
@@ -14,9 +14,11 @@ import javax.inject.Inject
  * a media notification with transport controls.
  *
  * The foreground contract is deliberately Media3's standard one — this
- * service plus DefaultMediaNotification, which performs startForeground
- * itself while a session player is active. Hand-rolling that contract is
- * what crashed CLEAR's player; Fase 2 does not repeat it.
+ * service plus DefaultMediaNotificationProvider (the media3-session 1.4
+ * class name; plain DefaultMediaNotification does not exist there), which
+ * performs startForeground itself while a session player is active.
+ * Hand-rolling that contract is what crashed CLEAR's player; Fase 2 does
+ * not repeat it.
  */
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
@@ -27,10 +29,10 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         setMediaNotificationProvider(
-            DefaultMediaNotification.Provider.Builder(this)
+            DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(CHANNEL_ID)
                 .setNotificationId(NOTIFICATION_ID)
-                .setChannelNameResourceId(CHANNEL_NAME_RES)
+                .setChannelName(CHANNEL_NAME_RES)
                 .build(),
         )
         playbackManager.player.addListener(object : Player.Listener {
