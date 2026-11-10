@@ -4,9 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.LibraryRepository
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.rank.FeedRanker
+import com.bunny.core.rank.TasteProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,7 +50,22 @@ class HomeViewModel @Inject constructor(
                 val status = backend.healthCheck()
                 _uiState.update { it.copy(backendStatus = status) }
                 val page = backend.getHomeFeed(page = null)
-                _uiState.update { it.copy(isLoading = false, items = page.items) }
+                // Mesin Selera: the mixture is candidate generation;
+                // this ranking pass is Bunny's local second stage,
+                // fed by a one-shot snapshot of the on-device taste
+                // profile (subscriptions, opened channels, searches).
+                val taste = TasteProfile(
+                    subscribedChannelIds = library.subscriptions.first()
+                        .map { it.channelId }
+                        .toSet(),
+                    channelAffinity = library.channelAffinity.first(),
+                    searchTerms = library.recentSearches.first()
+                        .flatMap { query -> query.lowercase().split(Regex("\\s+")) }
+                        .filter { it.length >= 3 }
+                        .toSet(),
+                )
+                val ranked = FeedRanker.rank(page.items, taste)
+                _uiState.update { it.copy(isLoading = false, items = ranked) }
             } catch (e: CancellationException) {
                 // Cancellation is control flow, never a feed error.
                 throw e

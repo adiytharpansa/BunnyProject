@@ -106,9 +106,48 @@ class LibraryRepository @Inject constructor(
         settingDao.upsert(SettingEntity(KEY_RECENT_SEARCHES, ""))
     }
 
+    // ------------------------------------------------------ mesin selera
+
+    /**
+     * Mesin Selera's revealed-interest signal: how often a video from
+     * each channel has been opened. Stored as tab-separated
+     * "count<TAB>name" lines in one settings value, best channels
+     * first, capped — a deliberately tiny, inspectable profile that
+     * never leaves the device.
+     */
+    val channelAffinity: Flow<Map<String, Int>> =
+        settingDao.observeValue(KEY_TASTE_CHANNELS).map { raw -> parseChannelCounts(raw) }
+
+    suspend fun recordChannelWatch(channelName: String) {
+        val name = channelName.trim()
+        if (name.isEmpty()) return
+        val current = channelAffinity.first().toMutableMap()
+        current[name] = (current[name] ?: 0) + 1
+        val encoded = current.entries
+            .sortedByDescending { it.value }
+            .take(MAX_TASTE_CHANNELS)
+            .joinToString("\n") { entry -> "${entry.value}\t${entry.key}" }
+        settingDao.upsert(SettingEntity(KEY_TASTE_CHANNELS, encoded))
+    }
+
+    private fun parseChannelCounts(raw: String?): Map<String, Int> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        val out = LinkedHashMap<String, Int>()
+        for (line in raw.split('\n')) {
+            val tab = line.indexOf('\t')
+            if (tab <= 0) continue
+            val count = line.substring(0, tab).toIntOrNull() ?: continue
+            val name = line.substring(tab + 1)
+            if (name.isNotEmpty()) out[name] = count
+        }
+        return out
+    }
+
     private companion object {
         const val KEY_QUOTA_BYTES = "jatah_quota_bytes"
         const val KEY_RECENT_SEARCHES = "recent_searches"
         const val MAX_RECENT_SEARCHES = 10
+        const val KEY_TASTE_CHANNELS = "taste_channel_counts"
+        const val MAX_TASTE_CHANNELS = 50
     }
 }

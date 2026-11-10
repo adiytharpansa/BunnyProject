@@ -194,6 +194,9 @@ class PlayerViewModel @Inject constructor(
                 if (estimate != null) {
                     library.charge(id, details.title, estimate)
                 }
+                // Mesin Selera: an open is the strongest local signal
+                // Bunny gets — record which channel earned it.
+                library.recordChannelWatch(details.channelName)
                 val quota = library.quotaBytes.first()
                 val used = library.monthUsageBytes().first()
                 val exceeded = quota != null && used > quota
