@@ -50,4 +50,32 @@ class PlaybackWallPolicyTest {
         assertFalse(PlaybackWallPolicy.shouldAutoRecover(true, null, "abc"))
         assertFalse(PlaybackWallPolicy.shouldAutoRecover(false, null, null))
     }
+
+    @Test
+    fun `arus opens vod videos while its session is healthy`() {
+        assertTrue(
+            PlaybackWallPolicy.primaryPath(isLive = false, arusSessionBroken = false) ==
+                PlaybackWallPolicy.PrimaryPath.ARUS_FIRST,
+        )
+    }
+
+    @Test
+    fun `classic opens live streams and broken arus sessions`() {
+        assertTrue(
+            PlaybackWallPolicy.primaryPath(isLive = true, arusSessionBroken = false) ==
+                PlaybackWallPolicy.PrimaryPath.CLASSIC_ONLY,
+        )
+        assertTrue(
+            PlaybackWallPolicy.primaryPath(isLive = false, arusSessionBroken = true) ==
+                PlaybackWallPolicy.PrimaryPath.CLASSIC_ONLY,
+        )
+    }
+
+    @Test
+    fun `classic rescue runs once per video`() {
+        assertTrue(PlaybackWallPolicy.shouldRescueWithClassic(null, "abc"))
+        assertFalse(PlaybackWallPolicy.shouldRescueWithClassic("abc", "abc"))
+        assertTrue(PlaybackWallPolicy.shouldRescueWithClassic("abc", "xyz"))
+        assertFalse(PlaybackWallPolicy.shouldRescueWithClassic(null, null))
+    }
 }

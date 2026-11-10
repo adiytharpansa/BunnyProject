@@ -40,4 +40,33 @@ object PlaybackWallPolicy {
         videoId: String?,
     ): Boolean =
         videoId != null && !isLive && attemptedForVideoId != videoId
+
+    /** Which engine opens a video (the merged-paths policy, A3). */
+    enum class PrimaryPath { ARUS_FIRST, CLASSIC_ONLY }
+
+    /**
+     * Since the paths merged, Arus opens every VOD video: the classic
+     * chain's URLs are the ones the token wall cuts, while the SABR
+     * conversation has never been refused on device. Classic opens
+     * only live streams (Arus cannot carry them) and every video
+     * while the session's Arus breaker is tripped (the SABR session
+     * fetch itself failed at transport level — retrying it per video
+     * would tax every open for a condition that is not the video's
+     * fault). Classic streams are fetched either way during load, so
+     * falling back costs nothing extra.
+     */
+    fun primaryPath(isLive: Boolean, arusSessionBroken: Boolean): PrimaryPath =
+        if (!isLive && !arusSessionBroken) PrimaryPath.ARUS_FIRST else PrimaryPath.CLASSIC_ONLY
+
+    /**
+     * The reverse rescue, one shot per video: when the primary Arus
+     * chain dies, the classic chain (already fetched) gets its turn.
+     * Together with [shouldAutoRecover] the worst case per video is
+     * bounded: Arus -> classic -> Arus, then the failure surfaces.
+     */
+    fun shouldRescueWithClassic(
+        attemptedForVideoId: String?,
+        videoId: String?,
+    ): Boolean =
+        videoId != null && attemptedForVideoId != videoId
 }

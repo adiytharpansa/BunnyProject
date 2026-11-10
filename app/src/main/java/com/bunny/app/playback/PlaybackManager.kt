@@ -295,11 +295,16 @@ class PlaybackManager @Inject constructor(
                                 subject = currentTitle,
                                 detail = "${error.errorCodeName} — ${error.message}",
                             )
-                            // Arus recovery (Fase A3): a dead classic
-                            // chain earns one automatic SABR attempt,
-                            // owned by the player screen through this
-                            // hook. Arus's own death never re-enters.
-                            if (!currentChainIsArus) {
+                            // Merged paths (Fase A3): a dead chain earns
+                            // one rescue from the OTHER engine, owned by
+                            // the player screen through these hooks —
+                            // classic death offers a SABR attempt, Arus
+                            // death offers the classic chain. The screen
+                            // gates each direction to one shot per video,
+                            // so the hooks cannot loop.
+                            if (currentChainIsArus) {
+                                onArusChainDied?.invoke()
+                            } else {
                                 onClassicChainDied?.invoke(currentTitle)
                             }
                         }
@@ -321,6 +326,22 @@ class PlaybackManager @Inject constructor(
      * player screen is alive, in which case a dead chain stays dead.
      */
     var onClassicChainDied: ((String) -> Unit)? = null
+
+    /** The reverse hook: invoked once when an ARUS chain dies. */
+    var onArusChainDied: (() -> Unit)? = null
+
+    /**
+     * Session circuit breaker for Arus-first playback: set by the
+     * player screen when fetching a SABR session fails at transport
+     * level (the engine/persona is unreachable, not a per-video
+     * refusal). While set, videos open on the classic chain directly
+     * instead of paying a doomed SABR attempt each time. Lives here
+     * because the manager is the app-session singleton; cleared only
+     * by process restart, deliberately — a walled session rarely
+     * heals mid-run.
+     */
+    @Volatile
+    var arusSessionBroken: Boolean = false
 
     private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
         currentTitle = title
