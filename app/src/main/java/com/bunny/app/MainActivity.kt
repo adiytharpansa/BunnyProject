@@ -26,10 +26,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Sensors
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -59,9 +63,11 @@ import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
+import com.bunny.app.presentation.screens.kanal.KanalScreen
+import com.bunny.app.presentation.screens.live.LiveScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
+import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
-import com.bunny.app.presentation.screens.terbit.TerbitScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
@@ -82,8 +88,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
-                // Fase 3 navigation: two tabs (Beranda, Terbit) under one
-                // optional open video. Still a plain state machine — the
+                // Navigation: four tabs (Beranda, Live, Kanal, Profil) under
+                // one optional open video. Still a plain state machine — the
                 // screens own their scaffolds, this one only owns the tab
                 // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
@@ -168,16 +174,34 @@ class MainActivity : ComponentActivity() {
                                             .padding(horizontal = 8.dp, vertical = 56.dp),
                                     )
                                 }
+                            } else if (selectedTab == 1) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = barHeightDp),
+                                ) {
+                                    LiveScreen(onSearchClick = { openSearch = true })
+                                }
+                            } else if (selectedTab == 2) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = barHeightDp),
+                                ) {
+                                    KanalScreen(
+                                        onChannelClick = { id, name ->
+                                            openChannel = id to name
+                                        },
+                                        onSearchClick = { openSearch = true },
+                                    )
+                                }
                             } else {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
-                                    TerbitScreen(
-                                        onVideoClick = { openVideoId = it },
-                                        onSearchClick = { openSearch = true },
-                                    )
+                                    ProfileScreen()
                                 }
                             }
                         }
@@ -297,6 +321,7 @@ private fun CrashReportBlock(
  * Bottom bar in the official app's style: flat, icon-only, a hairline on
  * top, outline icon when idle and filled when selected. Built by hand
  * because the Material NavigationBar has a fixed 80dp height.
+ * Tabs: Beranda · Live · Kanal · Profil.
  */
 @Composable
 private fun BunnyBottomBar(
@@ -333,9 +358,25 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 1,
                 onClick = { onSelect(1) },
-                filled = Icons.Filled.Article,
-                outlined = Icons.Outlined.Article,
-                description = stringResource(R.string.nav_terbit),
+                filled = Icons.Filled.Sensors,
+                outlined = Icons.Outlined.Sensors,
+                description = stringResource(R.string.nav_live),
+                modifier = Modifier.weight(1f),
+            )
+            BottomBarItem(
+                selected = selectedTab == 2,
+                onClick = { onSelect(2) },
+                filled = Icons.Filled.VideoLibrary,
+                outlined = Icons.Outlined.VideoLibrary,
+                description = stringResource(R.string.nav_kanal),
+                modifier = Modifier.weight(1f),
+            )
+            BottomBarItem(
+                selected = selectedTab == 3,
+                onClick = { onSelect(3) },
+                filled = Icons.Filled.Person,
+                outlined = Icons.Outlined.Person,
+                description = stringResource(R.string.nav_profile),
                 modifier = Modifier.weight(1f),
             )
         }

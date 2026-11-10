@@ -54,4 +54,14 @@
     <string name="terbit_loading">Menyusun edisi…</string>
     <string name="player_failures_title">Kegagalan putar tersimpan (hanya di perangkat ini)</string>
     <string name="player_failures_clear">Hapus catatan kegagalan</string>
+    <string name="nav_live">Live</string>
+    <string name="nav_kanal">Kanal</string>
+    <string name="nav_profile">Profil</string>
+    <string name="live_title">Live</string>
+    <string name="live_empty">Belum ada siaran langsung saat ini.</string>
+    <string name="kanal_title">Kanal</string>
+    <string name="kanal_empty">Belum ada kanal. Buka sebuah video, lalu ketuk Langganan — kanalnya akan muncul di sini.</string>
+    <string name="profile_title">Profil</string>
+    <string name="profile_name">Pengguna Bunny</string>
+    <string name="profile_hint">Akun lokal di perangkat ini</string>
 </resources>
