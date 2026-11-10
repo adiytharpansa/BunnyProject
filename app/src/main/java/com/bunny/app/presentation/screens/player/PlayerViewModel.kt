@@ -2,6 +2,7 @@ package com.bunny.app.presentation.screens.player
 
 import android.app.Application
 import androidx.lifecycle.ViewModel
+import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
@@ -22,6 +23,7 @@ sealed interface PlayerUiState {
     data class Error(val message: String) : PlayerUiState
 }
 
+@OptIn(UnstableApi::class)
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val application: Application,

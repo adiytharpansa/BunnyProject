@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.media3.common.Player
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSessionService
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -20,6 +21,7 @@ import javax.inject.Inject
  * Hand-rolling that contract is what crashed CLEAR's player; Fase 2 does
  * not repeat it.
  */
+@OptIn(UnstableApi::class)
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 

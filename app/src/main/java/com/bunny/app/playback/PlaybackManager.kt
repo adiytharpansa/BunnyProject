@@ -3,6 +3,7 @@ package com.bunny.app.playback
 import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.ByteArrayDataSource
@@ -33,6 +34,7 @@ import javax.inject.Singleton
  * progressive file. A playback error on one source falls through to the
  * next exactly once each; the final error is what the UI reports.
  */
+@OptIn(UnstableApi::class)
 @Singleton
 class PlaybackManager @Inject constructor(
     @ApplicationContext private val context: Context,
