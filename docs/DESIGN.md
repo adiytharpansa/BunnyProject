@@ -39,10 +39,13 @@ aplikasi resmi YouTube, dari Kotlin murni:
   Bunny *by design* adalah campuran: trending lebih dulu, dan bila kosong,
   campuran round-robin pencarian topik (berita, musik, gaming, film,
   podcast) dengan duplikat dan siaran langsung disisihkan.
-- **Player**: endpoint `player` untuk detail + daftar format. Format yang
-  membawa URL langsung dipakai apa adanya; format tercipher adalah pekerjaan
-  Fase 2 (pemecah cipher milik Lontar sendiri) dan dilewati secara eksplisit,
-  bukan dipalsukan.
+- **Player**: endpoint `player` dipanggil lewat rantai persona khusus
+  putar (terpisah dari persona WEB bidang metadata). Temuan lapangan
+  2026-11-10: klien ANDROID_VR mengembalikan set format lengkap dengan URL
+  langsung tanpa cipher, sedangkan WEB/TVHTML5 menipiskan streamingData
+  sampai tersisa format tercipher — jadi jalur putar tidak membutuhkan
+  pemecah cipher. Format adaptif diubah menjadi manifest DASH oleh
+  generator milik Lontar sendiri (DashManifestBuilder).
 - **Cache respons player** per video, dipakai bersama oleh panggilan detail
   dan stream.
 
@@ -80,10 +83,11 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
 
 - **Fase 0** — Kerangka profesional: modul, kontrak, CI, dokumen. ✅
 - **Fase 1** — Lontar bidang metadata: sesi, Beranda campuran, pencarian,
-  detail video. *(Kode tertulis; menunggu verifikasi CI.)*
-- **Fase 2** — Bidang putar: pemecah cipher Lontar, rantai putar
-  HLS → DASH → progresif, layanan Media3 dengan kontrak foreground yang
-  benar, diagnostik crash bawaan.
+  detail video. ✅ *(CI hijau; Beranda terverifikasi hidup di perangkat.)*
+- **Fase 2** — Bidang putar: rantai persona player (ANDROID_VR), manifest
+  DASH buatan Lontar, rantai putar DASH → HLS → progresif, layanan Media3
+  dengan kontrak foreground yang benar, diagnostik pemutaran bawaan.
+  *(Dalam pengerjaan — pemecah cipher tidak diperlukan di jalur ini.)*
 - **Fase 3** — Fitur khas: Timbangan + Jatah, Terbit, Chip Alasan,
   langganan lokal + grup, Panen Bertingkat.
 - **Fase 4** — Ketahanan: persona bergilir, konfigurasi mesin yang dapat

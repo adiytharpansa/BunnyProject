@@ -4,4 +4,7 @@
     <string name="home_title">Bunny</string>
     <string name="error_generic">Terjadi kesalahan. Coba lagi.</string>
     <string name="retry">Coba lagi</string>
+    <string name="playback_channel_name">Pemutaran Bunny</string>
+    <string name="player_loading">Menyiapkan video…</string>
+    <string name="player_diagnostics">Diagnostik pemutaran</string>
 </resources>

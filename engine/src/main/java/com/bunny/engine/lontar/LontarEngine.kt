@@ -23,9 +23,9 @@ import java.util.concurrent.ConcurrentHashMap
  * no NewPipeExtractor, no YouTube.js, no third-party YouTube code at all.
  * Platform libraries only (OkHttp, coroutines, org.json).
  *
- * Fase 1 scope: session bootstrap, home (locally composed seed mixture),
- * search, video details, and playback for streams that carry direct URLs.
- * Ciphered formats are Fase 2 (Lontar's own cipher solver) — see DESIGN.md.
+ * Scope: session bootstrap, home (locally composed seed mixture), search,
+ * video details, and playback — player-persona chain for direct-URL format
+ * sets plus a self-generated DASH manifest (Fase 2). See docs/DESIGN.md.
  */
 class LontarEngine(
     private val httpClient: OkHttpClient,
@@ -37,7 +37,7 @@ class LontarEngine(
     @Volatile private var session: InnertubeSession? = null
 
     /** Player responses are shared by details + streams calls for one video. */
-    private val playerCache = ConcurrentHashMap<String, JSONObject>()
+    private val playerCache = ConcurrentHashMap<String, Pair<JSONObject, PlayerPersona>>()
 
     override suspend fun healthCheck(): String = try {
         val active = ensureSession()
@@ -71,10 +71,15 @@ class LontarEngine(
     }
 
     override suspend fun getVideoDetails(videoId: String): VideoDetails =
-        InnertubeParser.parseVideoDetails(playerResponse(videoId))
+        InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
 
-    override suspend fun getPlaybackStreams(videoId: String): PlaybackStreams =
-        InnertubeParser.parsePlaybackStreams(playerResponse(videoId), System.currentTimeMillis())
+    override suspend fun getPlaybackStreams(videoId: String): PlaybackStreams {
+        val (response, persona) = playerResponse(videoId)
+        val streams = InnertubeParser.parsePlaybackStreams(response, System.currentTimeMillis())
+        // The URLs were issued to the persona that fetched them; playback
+        // must present the same user agent (see PlaybackStreams contract).
+        return streams.copy(playbackUserAgent = persona.userAgent)
+    }
 
     // -------------------------------------------------------------- internals
 
@@ -98,15 +103,52 @@ class LontarEngine(
         return Page(items = merged.take(MAX_SEED_ITEMS), nextPage = null)
     }
 
-    private suspend fun playerResponse(videoId: String): JSONObject {
+    /**
+     * Player responses come from the player-persona chain (see
+     * [PlayerPersonas]), not from the WEB metadata session: only those
+     * clients receive full direct-URL format sets. A persona's response is
+     * accepted when its playability is OK; anything else (notably the
+     * intermittent LOGIN_REQUIRED bot gate) earns one retry, then the next
+     * persona, and the last refusal is what the caller sees.
+     */
+    private suspend fun playerResponse(videoId: String): Pair<JSONObject, PlayerPersona> {
         playerCache[videoId]?.let { return it }
-        val body = baseBody()
-        body.put("videoId", videoId)
-        body.put("contentCheckOk", true)
-        body.put("racyCheckOk", true)
-        val response = post("player", body)
-        playerCache[videoId] = response
-        return response
+        var lastError: LontarException? = null
+        for (persona in PlayerPersonas.CHAIN) {
+            repeat(2) {
+                val response = postPlayer(persona, videoId)
+                val playability = response.optJSONObject("playabilityStatus")
+                if (playability?.optString("status") == "OK") {
+                    val accepted = response to persona
+                    playerCache[videoId] = accepted
+                    return accepted
+                }
+                lastError = LontarException(
+                    "YouTube menolak memutar video ini: " +
+                        (playability?.optString("reason")?.takeIf { it.isNotEmpty() }
+                            ?: playability?.optString("status")
+                            ?: "respons player tidak dikenal"),
+                )
+            }
+        }
+        throw lastError ?: LontarException("Tidak ada persona player yang berhasil")
+    }
+
+    private suspend fun postPlayer(persona: PlayerPersona, videoId: String): JSONObject {
+        val body = JSONObject()
+            .put("context", JSONObject().put("client", persona.clientJson()))
+            .put("videoId", videoId)
+            .put("contentCheckOk", true)
+            .put("racyCheckOk", true)
+        val url = "${persona.host}/youtubei/v1/player?key=${persona.apiKey}&prettyPrint=false"
+        return postJson(
+            url = url,
+            userAgent = persona.userAgent,
+            clientNameId = persona.clientNameId,
+            clientVersion = persona.clientVersion,
+            body = body,
+            endpointLabel = "player/${persona.name}",
+        )
     }
 
     private suspend fun baseBody(): JSONObject {
@@ -125,32 +167,49 @@ class LontarEngine(
 
     private suspend fun post(endpoint: String, body: JSONObject): JSONObject {
         val activeSession = ensureSession()
-        return withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url("https://www.youtube.com/youtubei/v1/$endpoint?key=${activeSession.apiKey}&prettyPrint=false")
-                .header("User-Agent", LontarPersona.USER_AGENT)
-                .header("X-YouTube-Client-Name", LontarPersona.CLIENT_NAME_ID)
-                .header("X-YouTube-Client-Version", activeSession.clientVersion)
-                .header("Content-Type", "application/json")
-                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
-                .build()
-            httpClient.newCall(request).execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    // Include the server's own error message: a bare HTTP code
-                    // cost a full debugging round on 2026-11-10 (the 400 hid
-                    // INVALID_ARGUMENT vs FAILED_PRECONDITION, which point to
-                    // entirely different causes).
-                    val detail = runCatching {
-                        JSONObject(text).getJSONObject("error").getString("message")
-                    }.getOrNull()
-                    throw LontarException(
-                        "InnerTube $endpoint menjawab HTTP ${response.code}" +
-                            (detail?.let { ": $it" } ?: ""),
-                    )
-                }
-                JSONObject(text)
+        return postJson(
+            url = "https://www.youtube.com/youtubei/v1/$endpoint" +
+                "?key=${activeSession.apiKey}&prettyPrint=false",
+            userAgent = LontarPersona.USER_AGENT,
+            clientNameId = LontarPersona.CLIENT_NAME_ID,
+            clientVersion = activeSession.clientVersion,
+            body = body,
+            endpointLabel = endpoint,
+        )
+    }
+
+    private suspend fun postJson(
+        url: String,
+        userAgent: String,
+        clientNameId: String,
+        clientVersion: String,
+        body: JSONObject,
+        endpointLabel: String,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", userAgent)
+            .header("X-YouTube-Client-Name", clientNameId)
+            .header("X-YouTube-Client-Version", clientVersion)
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                // Include the server's own error message: a bare HTTP code
+                // cost a full debugging round on 2026-11-10 (the 400 hid
+                // INVALID_ARGUMENT vs FAILED_PRECONDITION, which point to
+                // entirely different causes).
+                val detail = runCatching {
+                    JSONObject(text).getJSONObject("error").getString("message")
+                }.getOrNull()
+                throw LontarException(
+                    "InnerTube $endpointLabel menjawab HTTP ${response.code}" +
+                        (detail?.let { ": $it" } ?: ""),
+                )
             }
+            JSONObject(text)
         }
     }
 

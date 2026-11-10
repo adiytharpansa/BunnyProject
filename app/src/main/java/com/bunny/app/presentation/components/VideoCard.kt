@@ -1,6 +1,7 @@
 package com.bunny.app.presentation.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
@@ -23,8 +24,13 @@ import com.bunny.core.model.VideoItem
 fun VideoCard(
     item: VideoItem,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
 ) {
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()

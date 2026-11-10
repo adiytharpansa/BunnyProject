@@ -170,8 +170,9 @@ object InnertubeParser {
             ?.let { nowEpochMs + it * 1000 }
 
         // Progressive (muxed) formats carrying a direct URL can play as-is.
-        // Ciphered formats (signatureCipher) are Fase 2 work — Lontar's own
-        // cipher solver — and are skipped here rather than faked.
+        // Ciphered formats (signatureCipher) are skipped rather than faked:
+        // the VR player persona returns direct URLs, so no cipher solver is
+        // on the playback path (see PlayerPersona).
         var progressive: String? = null
         var bestBitrate = -1L
         val formats = streaming.optJSONArray("formats") ?: JSONArray()
@@ -185,11 +186,22 @@ object InnertubeParser {
             }
         }
 
+        // Adaptive formats become Bunny's own DASH manifest (Fase 2): the
+        // server rarely hands one out, so Lontar generates it from the
+        // formats' URLs and byte ranges. See DashManifestBuilder.
+        val durationSeconds = player.optJSONObject("videoDetails")
+            ?.opt("lengthSeconds")?.toString()?.toLongOrNull()
+        val dashContent = DashManifestBuilder.build(
+            streaming.optJSONArray("adaptiveFormats"),
+            durationSeconds,
+        )
+
         return PlaybackStreams(
             dashManifestUrl = streaming.optString("dashManifestUrl").takeIf { it.isNotEmpty() },
             hlsUrl = streaming.optString("hlsManifestUrl").takeIf { it.isNotEmpty() },
             progressiveUrl = progressive,
             expiresAtEpochMs = expiresAt,
+            dashManifestContent = dashContent,
         )
     }
 

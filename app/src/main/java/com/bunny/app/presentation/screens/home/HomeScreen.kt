@@ -29,6 +29,7 @@ import com.bunny.app.presentation.components.VideoCard
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    onVideoClick: (String) -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -74,7 +75,7 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(state.items, key = { it.id }) { item ->
-                        VideoCard(item = item)
+                        VideoCard(item = item, onClick = { onVideoClick(item.id) })
                     }
                 }
             }
