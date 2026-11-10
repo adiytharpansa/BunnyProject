@@ -40,7 +40,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun PlayerScreen(
     videoId: String,

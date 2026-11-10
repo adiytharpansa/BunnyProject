@@ -23,7 +23,7 @@ sealed interface PlayerUiState {
     data class Error(val message: String) : PlayerUiState
 }
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val application: Application,

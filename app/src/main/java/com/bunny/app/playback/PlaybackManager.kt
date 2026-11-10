@@ -34,7 +34,7 @@ import javax.inject.Singleton
  * progressive file. A playback error on one source falls through to the
  * next exactly once each; the final error is what the UI reports.
  */
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Singleton
 class PlaybackManager @Inject constructor(
     @ApplicationContext private val context: Context,

@@ -21,7 +21,7 @@ import javax.inject.Inject
  * Hand-rolling that contract is what crashed CLEAR's player; Fase 2 does
  * not repeat it.
  */
-@OptIn(UnstableApi::class)
+@UnstableApi
 @AndroidEntryPoint
 class PlaybackService : MediaSessionService() {
 
