@@ -7,7 +7,6 @@
     <string name="playback_channel_name">Pemutaran Bunny</string>
     <string name="player_loading">Menyiapkan video…</string>
     <string name="player_diagnostics">Diagnostik pemutaran</string>
-    <string name="player_try_arus">Putar via Arus (SABR, percobaan)</string>
     <string name="player_enable_background">Aktifkan putar latar &amp; notifikasi</string>
     <string name="player_enable_background_hint">Agar suara tetap berjalan saat Anda pindah aplikasi, dengan kontrol di notifikasi. Sistem akan meminta izin satu kali.</string>
     <string name="crash_title">Crash terakhir tercatat</string>

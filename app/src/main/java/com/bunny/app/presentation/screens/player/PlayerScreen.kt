@@ -552,7 +552,6 @@ fun PlayerScreen(
                             PlaybackFailureLog.clear(context)
                             pastFailures = null
                         },
-                        onTryArus = { viewModel.playViaArus() },
                     )
                     RelatedSection(
                         state = related,
@@ -598,7 +597,6 @@ private fun DiagnosticsBlock(
     events: List<String>,
     pastFailures: String? = null,
     onClearFailures: () -> Unit = {},
-    onTryArus: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
@@ -608,11 +606,6 @@ private fun DiagnosticsBlock(
         )
     }
     if (expanded) {
-        if (onTryArus != null) {
-            TextButton(onClick = onTryArus) {
-                Text(stringResource(R.string.player_try_arus))
-            }
-        }
         Text(
             events.takeLast(12).joinToString("\n").ifEmpty { "—" },
             style = MaterialTheme.typography.bodySmall,

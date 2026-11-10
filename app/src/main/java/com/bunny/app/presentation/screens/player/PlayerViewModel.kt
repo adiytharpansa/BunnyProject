@@ -10,15 +10,11 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.bunny.app.data.LibraryRepository
-import com.bunny.app.playback.ArusPlayback
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
-import com.bunny.app.playback.PlaybackWallPolicy
-import com.bunny.engine.lontar.LontarEngine
 import com.bunny.core.backend.ExtractionBackend
-import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import com.google.common.util.concurrent.ListenableFuture
@@ -77,7 +73,6 @@ data class RelatedUiState(
 class PlayerViewModel @Inject constructor(
     private val application: Application,
     private val backend: ExtractionBackend,
-    private val lontarEngine: LontarEngine,
     private val playbackManager: PlaybackManager,
     private val library: LibraryRepository,
 ) : ViewModel() {
@@ -102,13 +97,6 @@ class PlayerViewModel @Inject constructor(
 
     init {
         connectController()
-        // Arus recovery (Fase A3): when the classic chain dies under
-        // this screen, the manager reports it here and the video gets
-        // one automatic SABR attempt instead of a black screen.
-        playbackManager.onClassicChainDied = { onClassicChainDied() }
-        // The merged paths' reverse direction: a dead Arus chain
-        // earns one classic rescue, with the streams load() fetched.
-        playbackManager.onArusChainDied = { onArusChainDied() }
     }
 
     private fun connectController() {
@@ -151,148 +139,6 @@ class PlayerViewModel @Inject constructor(
 
     fun retry() {
         load()
-    }
-
-    /** The video the automatic Arus recovery already spent itself on. */
-    private var arusAutoAttemptedFor: String? = null
-
-    /**
-     * Arus Fase A3 — automatic recovery: the classic chain died under
-     * this screen (the token wall's mid-play cut, or every source
-     * refused at load). The video gets ONE automatic SABR attempt;
-     * live streams are excluded (Arus is VOD-only) and a spent
-     * attempt never loops. The manual button below stays available
-     * regardless — it is the user's own retry.
-     */
-    private fun onClassicChainDied() {
-        val ready = _uiState.value as? PlayerUiState.Ready ?: return
-        if (!PlaybackWallPolicy.shouldAutoRecover(
-                isLive = ready.details.isLive,
-                attemptedForVideoId = arusAutoAttemptedFor,
-                videoId = videoId,
-            )
-        ) {
-            return
-        }
-        arusAutoAttemptedFor = videoId
-        PlaybackDiagnostics.log(
-            "Pemulihan otomatis: jalur klasik gugur — beralih ke Arus (SABR)…",
-        )
-        startArus(ready)
-    }
-
-    /**
-     * Arus Fase A2 — the deliberate experiment: play the open video
-     * through a SABR conversation instead of the classic chain, from
-     * the diagnostics block's button. Since Fase A3 the same path is
-     * also the automatic recovery when the classic chain dies.
-     * Failures land in the diagnostics ring, where the user who
-     * pressed the button is already looking.
-     */
-    fun playViaArus() {
-        videoId ?: return
-        val ready = _uiState.value as? PlayerUiState.Ready ?: run {
-            PlaybackDiagnostics.log("Arus: video belum siap, percobaan dibatalkan")
-            return
-        }
-        startArus(ready)
-    }
-
-    /** Shared by the manual button and the automatic recovery. */
-    private fun startArus(ready: PlayerUiState.Ready) {
-        val id = videoId ?: return
-        viewModelScope.launch { startArusNow(id, ready.details) }
-    }
-
-    /**
-     * The one SABR start every caller shares — the diagnostics
-     * button, the classic chain's rescue, and (since the paths
-     * merged) the primary open in [load]. Returns true when the
-     * Arus chain took the player over; false leaves the caller to
-     * run the classic chain instead. A session FETCH failure is a
-     * statement about the engine, not the video, so it trips the
-     * session breaker: later videos skip straight to classic.
-     */
-    private suspend fun startArusNow(id: String, details: VideoDetails): Boolean {
-        PlaybackDiagnostics.log("Arus: meminta sesi SABR (persona VISIONOS)…")
-        val sabr = try {
-            lontarEngine.sabrSession(id)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            playbackManager.arusSessionBroken = true
-            PlaybackDiagnostics.log(
-                "Arus gagal: ${e.javaClass.simpleName}: ${e.message} (pemutus sesi terpicu — video berikutnya langsung klasik)",
-            )
-            return false
-        }
-        if (sabr == null) {
-            PlaybackDiagnostics.log("Arus: respons player tidak membawa sesi SABR")
-            return false
-        }
-        val (session, persona) = sabr
-        val picked = ArusPlayback.pickFormats(session)
-        if (picked == null) {
-            PlaybackDiagnostics.log("Arus: sesi SABR tanpa format video/audio")
-            return false
-        }
-        val (video, audio) = picked
-        PlaybackDiagnostics.log(
-            "Arus: video itag ${video.itag} (${video.height}p), audio itag ${audio.itag}",
-        )
-        return try {
-            val store = ArusPlayback.newStore(session, video, audio, persona.userAgent)
-            PlaybackService.start(application)
-            playbackManager.playArus(
-                store, video, audio,
-                details.title,
-                details.channelName,
-                details.thumbnailUrl,
-            )
-            true
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            PlaybackDiagnostics.log(
-                "Arus gagal: ${e.javaClass.simpleName}: ${e.message}",
-            )
-            false
-        }
-    }
-
-    /** The video the classic rescue already spent itself on. */
-    private var classicRescueAttemptedFor: String? = null
-
-    /** load()'s classic streams, kept so a dead Arus chain can be rescued with them. */
-    private var lastStreams: PlaybackStreams? = null
-    private var lastDetails: VideoDetails? = null
-
-    /**
-     * The reverse rescue (merged paths): the primary Arus chain died
-     * under this screen — hand the video to the classic chain, whose
-     * streams [load] already fetched. One shot per video; if classic
-     * then hits the wall, the classic hook offers Arus once more,
-     * and after that the failure surfaces honestly.
-     */
-    private fun onArusChainDied() {
-        val streams = lastStreams ?: return
-        val details = lastDetails ?: return
-        if (_uiState.value !is PlayerUiState.Ready) return
-        if (!PlaybackWallPolicy.shouldRescueWithClassic(classicRescueAttemptedFor, videoId)) {
-            return
-        }
-        classicRescueAttemptedFor = videoId
-        PlaybackDiagnostics.log(
-            "Pemulihan otomatis: Arus gugur — beralih ke jalur klasik…",
-        )
-        PlaybackService.start(application)
-        playbackManager.configure(streams.playbackUserAgent)
-        playbackManager.play(
-            streams,
-            details.title,
-            details.channelName,
-            details.thumbnailUrl,
-        )
     }
 
     fun stopPlayback() {
@@ -432,8 +278,6 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
         // ViewModel is being cleared mid-flight, this line brackets them in
         // the diagnostics ring (field report 2026-11-10).
         PlaybackDiagnostics.log("PlayerViewModel dibersihkan (onCleared)")
-        playbackManager.onClassicChainDied = null
-        playbackManager.onArusChainDied = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controllerPlayer.value = null
@@ -446,8 +290,6 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
         relatedJob?.cancel()
         _related.value = RelatedUiState(isLoading = true)
         val attempt = ++loadAttempts
-        arusAutoAttemptedFor = null
-        classicRescueAttemptedFor = null
         _uiState.value = PlayerUiState.Loading
         PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
         loadJob = viewModelScope.launch {
@@ -460,8 +302,6 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
                 // the user-facing error on 2026-11-10).
                 val details = backend.getVideoDetails(id)
                 val streams = backend.getPlaybackStreams(id)
-                lastStreams = streams
-                lastDetails = details
 
                 val sources = listOfNotNull(
                     streams.dashManifestContent?.let { "DASH adaptif" },
@@ -473,42 +313,20 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
                     "Stream tersedia: ${sources.joinToString(", ").ifEmpty { "tidak ada" }}",
                 )
 
+                if (sources.isEmpty()) {
+                    _uiState.value = PlayerUiState.Error(
+                        "Video ini tidak menyediakan aliran yang dapat diputar.",
+                    )
+                    return@launch
+                }
                 PlaybackService.start(application)
                 playbackManager.configure(streams.playbackUserAgent)
-                // Merged paths: Arus opens VOD videos (its conversation
-                // is never cut by the token wall that kills classic
-                // URLs); the classic chain — already fetched above —
-                // takes over instantly when Arus cannot open, and the
-                // two rescue hooks cover deaths after the open.
-                val arusFirst = PlaybackWallPolicy.primaryPath(
-                    isLive = details.isLive,
-                    arusSessionBroken = playbackManager.arusSessionBroken,
-                ) == PlaybackWallPolicy.PrimaryPath.ARUS_FIRST
-                var playingViaArus = false
-                if (arusFirst) {
-                    playingViaArus = startArusNow(id, details)
-                    if (!playingViaArus) {
-                        PlaybackDiagnostics.log(
-                            "Arus tidak dapat membuka video ini — jalur klasik mengambil alih",
-                        )
-                    }
-                }
-                if (!playingViaArus) {
-                    // The empty-classic verdict only applies once Arus
-                    // has also had its chance to open the video.
-                    if (sources.isEmpty()) {
-                        _uiState.value = PlayerUiState.Error(
-                            "Video ini tidak menyediakan aliran yang dapat diputar.",
-                        )
-                        return@launch
-                    }
-                    playbackManager.play(
-                        streams,
-                        details.title,
-                        details.channelName,
-                        details.thumbnailUrl,
-                    )
-                }
+                playbackManager.play(
+                    streams,
+                    details.title,
+                    details.channelName,
+                    details.thumbnailUrl,
+                )
 
                 // Jatah: charge the estimate once playback starts, then
                 // judge the month WITH this video included — the warning
@@ -528,11 +346,7 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
                 }
                 _uiState.value = PlayerUiState.Ready(
                     details = details,
-                    sourceNote = if (playingViaArus) {
-                        "Sumber: SABR (Arus)"
-                    } else {
-                        "Sumber: ${sources.first()}"
-                    },
+                    sourceNote = "Sumber: ${sources.first()}",
                     estimatedSizeBytes = estimate,
                     jatahExceeded = exceeded,
                     monthUsedBytes = used,

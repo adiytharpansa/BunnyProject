@@ -138,11 +138,9 @@ object PlayerPersonas {
      * bytes survived past the cold-start allowance from the project
      * VM — app personas ANDROID_VR/ANDROID/IOS all answered the player
      * OK and then HTTP 403 at the 3 MB mark, while VISIONOS read clean
-     * at both offsets; and its SABR conversation ran end-to-end with
-     * stream protection status 1 (no token). Shares the iOS family's
-     * public API key. Whether it joins the classic ladder by default
-     * is the Lontar Hidup decision; it is available to the chain (and
-     * required by Arus) from here.
+     * at both offsets. Shares the iOS family's public API key. Whether
+     * it joins the classic ladder by default is the Lontar Hidup
+     * decision; it is available to the chain from here.
      */
     val VISIONOS = PlayerPersona(
         name = "VISIONOS",

@@ -23,8 +23,6 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
-import com.bunny.engine.arus.ArusFormat
-import com.bunny.engine.arus.ArusStreamStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -101,9 +99,7 @@ class PlaybackManager @Inject constructor(
         channelName: String = "",
         artworkUrl: String? = null,
     ) {
-        closeArusStore()
         clearQualityOverride()
-        currentChainIsArus = false
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
             .setArtist(channelName.takeIf { it.isNotEmpty() })
@@ -118,19 +114,9 @@ class PlaybackManager @Inject constructor(
     }
 
     fun stop() {
-        closeArusStore()
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
-    }
-
-    // ------------------------------------------------------------ Arus (SABR)
-
-    private var arusStore: ArusStreamStore? = null
-
-    private fun closeArusStore() {
-        arusStore?.close()
-        arusStore = null
     }
 
     private fun clearQualityOverride() {
@@ -143,34 +129,6 @@ class PlaybackManager @Inject constructor(
                 .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                 .build()
         }
-    }
-
-    /**
-     * Arus Fase A2: plays ONE video through a SABR conversation. The
-     * store is owned here and closed by the next play/stop — a SABR
-     * conversation must never outlive the playback it feeds. Falls
-     * back through [playChain]'s error path like any other source:
-     * if the conversation dies, the player's error is the report.
-     */
-    fun playArus(
-        store: ArusStreamStore,
-        video: ArusFormat,
-        audio: ArusFormat,
-        title: String,
-        channelName: String = "",
-        artworkUrl: String? = null,
-    ) {
-        closeArusStore()
-        arusStore = store
-        clearQualityOverride()
-        currentChainIsArus = true
-        val metadata = MediaMetadata.Builder()
-            .setTitle(title)
-            .setArtist(channelName.takeIf { it.isNotEmpty() })
-            .setArtworkUri(artworkUrl?.let { Uri.parse(it) })
-            .build()
-        val source = ArusPlayback.createMediaSource(store, video, audio, metadata)
-        playChain(listOf("SABR (Arus)" to source), title)
     }
 
     // ------------------------------------------------- kontrol pemutar
@@ -265,23 +223,6 @@ class PlaybackManager @Inject constructor(
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackDiagnostics.log("Player error: ${error.errorCodeName} — ${error.message}")
-                        if (PlaybackWallPolicy.isWallSignature(
-                                isArusChain = currentChainIsArus,
-                                errorCode = error.errorCode,
-                                positionMs = player.currentPosition,
-                            )
-                        ) {
-                            // The wall: the remaining classic sources
-                            // were minted by the same player response
-                            // and share the refused URLs' fate (device
-                            // evidence 2026-11-11: all rejected within
-                            // seconds of the first), so skip them and
-                            // go straight to the terminal recovery.
-                            PlaybackDiagnostics.log(
-                                "Dinding token: penolakan HTTP di tengah putar — sisa sumber klasik dilewati",
-                            )
-                            fallback = null
-                        }
                         val step = fallback
                         if (step != null) {
                             step.invoke()
@@ -295,18 +236,6 @@ class PlaybackManager @Inject constructor(
                                 subject = currentTitle,
                                 detail = "${error.errorCodeName} — ${error.message}",
                             )
-                            // Merged paths (Fase A3): a dead chain earns
-                            // one rescue from the OTHER engine, owned by
-                            // the player screen through these hooks —
-                            // classic death offers a SABR attempt, Arus
-                            // death offers the classic chain. The screen
-                            // gates each direction to one shot per video,
-                            // so the hooks cannot loop.
-                            if (currentChainIsArus) {
-                                onArusChainDied?.invoke()
-                            } else {
-                                onClassicChainDied?.invoke(currentTitle)
-                            }
                         }
                     }
                 })
@@ -316,32 +245,6 @@ class PlaybackManager @Inject constructor(
     private var fallback: (() -> Unit)? = null
     private var chainGeneration = 0
     private var currentTitle: String = ""
-    private var currentChainIsArus = false
-
-    /**
-     * Arus recovery hook (Fase A3): invoked once when a CLASSIC chain
-     * dies completely — every source refused, or the stream cut by
-     * the mid-play token wall. The player screen owns the recovery
-     * attempt; the manager only reports the death. Null while no
-     * player screen is alive, in which case a dead chain stays dead.
-     */
-    var onClassicChainDied: ((String) -> Unit)? = null
-
-    /** The reverse hook: invoked once when an ARUS chain dies. */
-    var onArusChainDied: (() -> Unit)? = null
-
-    /**
-     * Session circuit breaker for Arus-first playback: set by the
-     * player screen when fetching a SABR session fails at transport
-     * level (the engine/persona is unreachable, not a per-video
-     * refusal). While set, videos open on the classic chain directly
-     * instead of paying a doomed SABR attempt each time. Lives here
-     * because the manager is the app-session singleton; cleared only
-     * by process restart, deliberately — a walled session rarely
-     * heals mid-run.
-     */
-    @Volatile
-    var arusSessionBroken: Boolean = false
 
     private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
         currentTitle = title

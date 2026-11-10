@@ -179,22 +179,6 @@ class LontarEngine(
         return streams.copy(playbackUserAgent = persona.userAgent)
     }
 
-    /**
-     * Arus (Fase A2): a SABR session for [videoId], from a dedicated
-     * player request in the VISIONOS persona — the one context measured
-     * token-free end-to-end (Fase A0/A1). Deliberately separate from
-     * the classic chain and its cache: this response's streamingData
-     * speaks a different protocol, and the two must never be confused
-     * for each other. Null when the response carries no conversation.
-     */
-    suspend fun sabrSession(videoId: String): Pair<com.bunny.engine.arus.ArusSession, PlayerPersona>? {
-        val persona = PlayerPersonas.visionOs(config.visionOsClientVersion)
-        val response = postPlayer(persona, videoId, sessionVisitorData())
-        return com.bunny.engine.arus.ArusSession
-            .parsePlayerResponse(response, videoId)
-            ?.let { it to persona }
-    }
-
     // -------------------------------------------------------------- internals
 
     private suspend fun seedMixture(): Page<VideoItem> {
