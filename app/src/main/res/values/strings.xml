@@ -74,4 +74,8 @@
     <string name="notif_subtitle">Video terbaru dari kanal langgananmu</string>
     <string name="notif_loading">Memeriksa video baru…</string>
     <string name="notif_empty">Belum ada notifikasi. Langganan sebuah kanal, lalu video terbarunya akan muncul di sini.</string>
+    <string name="related_all">Semua</string>
+    <string name="related_from_channel">Dari %1$s</string>
+    <string name="related_similar">Terkait</string>
+    <string name="related_empty">Belum ada video rekomendasi.</string>
 </resources>

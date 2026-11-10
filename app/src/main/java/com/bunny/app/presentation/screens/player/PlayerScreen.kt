@@ -6,6 +6,7 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,12 +14,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -56,16 +60,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
+import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
@@ -78,11 +86,15 @@ fun PlayerScreen(
     onBack: () -> Unit,
     onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     onPipClick: () -> Unit = {},
+    onVideoClick: (videoId: String) -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val diagnostics by viewModel.diagnostics.collectAsState()
     val controller by viewModel.controllerPlayer.collectAsState()
+    val related by viewModel.related.collectAsState()
+    // Scroll kembali ke atas setiap kali pindah ke video lain.
+    val scrollState = remember(videoId) { ScrollState(0) }
 
     // The media notification cannot appear on Android 13+ until the user
     // grants POST_NOTIFICATIONS. The system dialog is never shown on its
@@ -183,7 +195,7 @@ fun PlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -541,6 +553,12 @@ fun PlayerScreen(
                             pastFailures = null
                         },
                     )
+                    RelatedSection(
+                        state = related,
+                        channelName = current.details.channelName,
+                        onVideoClick = onVideoClick,
+                        onRetry = { viewModel.retryRelated() },
+                    )
                 }
             }
         }
@@ -641,4 +659,115 @@ private fun formatCount(count: Long): String = when {
     count >= 1_000_000 -> "%.1f jt".format(count / 1_000_000.0)
     count >= 1_000 -> "%.1f rb".format(count / 1_000.0)
     else -> count.toString()
+}
+
+private enum class RelatedFilter { SEMUA, KANAL, TERKAIT }
+
+/**
+ * Rekomendasi gaya YouTube: chip filter lalu kartu full-width. Kartu
+ * dibuat memenuhi lebar layar (menembus padding 12dp kolom induk).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@UnstableApi
+@Composable
+private fun RelatedSection(
+    state: RelatedUiState,
+    channelName: String,
+    onVideoClick: (String) -> Unit,
+    onRetry: () -> Unit,
+) {
+    var filter by remember { mutableStateOf(RelatedFilter.SEMUA) }
+    val items = when (filter) {
+        RelatedFilter.SEMUA -> state.all
+        RelatedFilter.KANAL -> state.fromChannel
+        RelatedFilter.TERKAIT -> state.similar
+    }
+
+    Column(
+        modifier = Modifier.fullBleed(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item {
+                FilterChip(
+                    selected = filter == RelatedFilter.SEMUA,
+                    onClick = { filter = RelatedFilter.SEMUA },
+                    label = { Text(stringResource(R.string.related_all)) },
+                )
+            }
+            if (channelName.isNotEmpty()) {
+                item {
+                    FilterChip(
+                        selected = filter == RelatedFilter.KANAL,
+                        onClick = { filter = RelatedFilter.KANAL },
+                        label = {
+                            Text(
+                                stringResource(R.string.related_from_channel, channelName),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 180.dp),
+                            )
+                        },
+                    )
+                }
+            }
+            item {
+                FilterChip(
+                    selected = filter == RelatedFilter.TERKAIT,
+                    onClick = { filter = RelatedFilter.TERKAIT },
+                    label = { Text(stringResource(R.string.related_similar)) },
+                )
+            }
+        }
+
+        when {
+            state.isLoading -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
+            }
+
+            items.isEmpty() -> Column(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    state.error ?: stringResource(R.string.related_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onRetry) {
+                    Text(stringResource(R.string.retry))
+                }
+            }
+
+            else -> items.forEach { item ->
+                key(item.id) {
+                    VideoCard(
+                        item = item,
+                        onClick = { onVideoClick(item.id) },
+                        showReason = filter == RelatedFilter.SEMUA,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Melebarkan konten keluar sebesar [inset] di kiri dan kanan. */
+private fun Modifier.fullBleed(inset: Dp): Modifier = layout { measurable, constraints ->
+    val insetPx = inset.roundToPx()
+    val width = constraints.maxWidth + insetPx * 2
+    val placeable = measurable.measure(
+        Constraints(minWidth = width, maxWidth = width),
+    )
+    layout(constraints.maxWidth, placeable.height) {
+        placeable.place(-insetPx, 0)
+    }
 }

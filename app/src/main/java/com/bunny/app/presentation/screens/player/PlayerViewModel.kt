@@ -16,10 +16,13 @@ import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoDetails
+import com.bunny.core.model.VideoItem
 import com.google.common.util.concurrent.ListenableFuture
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +54,18 @@ data class PlayerOptionsState(
     /** Manually pinned height; null means adaptive ("Otomatis"). */
     val selectedQuality: Int? = null,
     val speed: Float = 1.0f,
+)
+
+/** Rekomendasi di bawah pemutar: tiga tampilan dari satu sumber data. */
+data class RelatedUiState(
+    val isLoading: Boolean = true,
+    /** Campuran serupa + kanal (tab "Semua"). */
+    val all: List<VideoItem> = emptyList(),
+    /** Hasil pencarian dari judul video (tab "Terkait"). */
+    val similar: List<VideoItem> = emptyList(),
+    /** Unggahan terbaru kanal yang sama (tab "Dari {kanal}"). */
+    val fromChannel: List<VideoItem> = emptyList(),
+    val error: String? = null,
 )
 
 @UnstableApi
@@ -169,6 +184,95 @@ class PlayerViewModel @Inject constructor(
         _options.update { it.copy(speed = speed) }
     }
 
+// ------------------------------------------------ rekomendasi video
+
+private val _related = MutableStateFlow(RelatedUiState())
+val related: StateFlow<RelatedUiState> = _related.asStateFlow()
+private var relatedJob: Job? = null
+
+fun retryRelated() {
+    val id = videoId ?: return
+    val details = (_uiState.value as? PlayerUiState.Ready)?.details ?: return
+    loadRelated(id, details)
+}
+
+/**
+ * Rekomendasi tidak boleh menghambat pemutaran: dijalankan di job
+ * terpisah SETELAH video siap, dan semua kegagalannya hanya berujung
+ * daftar kosong, tidak pernah error pemutar.
+ */
+private fun loadRelated(id: String, details: VideoDetails) {
+    relatedJob?.cancel()
+    _related.value = RelatedUiState(isLoading = true)
+    relatedJob = viewModelScope.launch {
+        val query = relatedQuery(details.title).ifBlank { details.channelName }
+        val channelId = details.channelId
+        val (similarRaw, channelRaw) = coroutineScope {
+            val similarJob = async {
+                safeItems { backend.search(query, null).items }
+            }
+            val channelJob = async {
+                safeItems {
+                    channelId?.let { backend.getChannelVideos(it).items }.orEmpty()
+                }
+            }
+            similarJob.await() to channelJob.await()
+        }
+
+        val similar = similarRaw
+            .filter { it.id != id && !it.isLive }
+            .distinctBy { it.id }
+            .map { it.copy(reason = "Serupa dengan video ini") }
+        val fromChannel = channelRaw
+            .filter { it.id != id && !it.isLive }
+            .distinctBy { it.id }
+            .take(15)
+            .map { it.copy(reason = "Dari kanal ini") }
+        val all = mixRelated(similar, fromChannel)
+
+        _related.value = RelatedUiState(
+            isLoading = false,
+            all = all,
+            similar = similar.take(30),
+            fromChannel = fromChannel,
+            error = if (all.isEmpty()) "Rekomendasi tidak dapat dimuat." else null,
+        )
+    }
+}
+
+private suspend fun safeItems(block: suspend () -> List<VideoItem>): List<VideoItem> =
+    try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        PlaybackDiagnostics.log("Rekomendasi gagal: ${e.javaClass.simpleName}: ${e.message}")
+        emptyList()
+    }
+
+/** Judul bersih untuk pencarian: tanpa emoji/simbol, maksimal 6 kata. */
+private fun relatedQuery(title: String): String =
+    title.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+        .split(Regex("\\s+"))
+        .filter { it.isNotBlank() }
+        .take(6)
+        .joinToString(" ")
+
+/** Pola 2 serupa : 1 kanal, duplikat dibuang, maksimal 30 item. */
+private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List<VideoItem> {
+    val out = ArrayList<VideoItem>()
+    val seen = HashSet<String>()
+    fun add(item: VideoItem?) {
+        if (item != null && seen.add(item.id)) out += item
+    }
+    for (i in 0 until maxOf((similar.size + 1) / 2, channel.size)) {
+        add(similar.getOrNull(i * 2))
+        add(similar.getOrNull(i * 2 + 1))
+        add(channel.getOrNull(i))
+    }
+    return out.take(30)
+}
+
     override fun onCleared() {
         // Tripwire: if loads die with "Parent job is Cancelling" because this
         // ViewModel is being cleared mid-flight, this line brackets them in
@@ -183,6 +287,8 @@ class PlayerViewModel @Inject constructor(
     private fun load() {
         val id = videoId ?: return
         loadJob?.cancel()
+        relatedJob?.cancel()
+        _related.value = RelatedUiState(isLoading = true)
         val attempt = ++loadAttempts
         _uiState.value = PlayerUiState.Loading
         PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
@@ -246,6 +352,7 @@ class PlayerViewModel @Inject constructor(
                     monthUsedBytes = used,
                     quotaBytes = quota,
                 )
+                loadRelated(id, details)
             } catch (e: CancellationException) {
                 // Cancellation is control flow, not a playback failure: it
                 // must never become an error state (its message is a

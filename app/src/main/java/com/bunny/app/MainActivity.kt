@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                         openChannel = id to name
                                     },
                                     onPipClick = { enterPip() },
+                                    onVideoClick = { openVideoId = it },
                                 )
                             } else if (openChannel != null) {
                                 val (channelId, channelName) = openChannel!!
