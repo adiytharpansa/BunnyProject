@@ -2,6 +2,7 @@ package com.bunny.engine.arus
 
 import android.net.Uri
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -17,6 +18,7 @@ import androidx.media3.datasource.DataSpec
  * pair, so the video and audio sources of one playback share the ONE
  * conversation behind them.
  */
+@UnstableApi
 class ArusDataSource(
     private val store: ArusStreamStore,
     private val format: ArusFormat,
@@ -50,6 +52,7 @@ class ArusDataSource(
         }
     }
 
+    @UnstableApi
     class Factory(
         private val store: ArusStreamStore,
         private val format: ArusFormat,
