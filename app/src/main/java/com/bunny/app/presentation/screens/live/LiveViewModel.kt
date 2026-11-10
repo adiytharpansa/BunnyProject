@@ -2,6 +2,7 @@ package com.bunny.app.presentation.screens.live
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,6 +30,7 @@ data class LiveUiState(
 @HiltViewModel
 class LiveViewModel @Inject constructor(
     private val backend: ExtractionBackend,
+    private val thumbnails: ThumbnailPreloader,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LiveUiState())
@@ -46,6 +48,7 @@ class LiveViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
                 val page = backend.getLiveFeed()
+                thumbnails.preload(page.items)
                 _uiState.update { it.copy(isLoading = false, items = page.items) }
             } catch (e: CancellationException) {
                 throw e

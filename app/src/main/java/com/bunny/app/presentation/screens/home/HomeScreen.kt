@@ -574,7 +574,7 @@ private fun SkeletonFeed(topPadding: Dp = 0.dp) {
 }
 
 @Composable
-private fun SkeletonCard() {
+internal fun SkeletonCard() {
     val transition = rememberInfiniteTransition(label = "skeleton")
     val alpha by transition.animateFloat(
         initialValue = 0.45f,

@@ -7,6 +7,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.app.playback.PreviewStatus
+import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.rank.FeedRanker
 import com.bunny.core.rank.TasteProfile
@@ -30,6 +31,7 @@ class HomeViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val library: LibraryRepository,
     private val previewManager: FeedPreviewManager,
+    private val thumbnails: ThumbnailPreloader,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(backendId = backend.id))
@@ -142,6 +144,10 @@ class HomeViewModel @Inject constructor(
                         .toSet(),
                 )
                 val ranked = FeedRanker.rank(page.items, taste)
+                // Tunggu thumbnail layar pertama (paralel) lalu tampilkan
+                // semuanya bersamaan; skeleton / indikator refresh tetap
+                // tampil selama menunggu.
+                thumbnails.preload(ranked)
                 _uiState.update { it.copy(isLoading = false, items = ranked) }
             } catch (e: CancellationException) {
                 // Cancellation is control flow, never a feed error.

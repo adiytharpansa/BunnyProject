@@ -93,6 +93,7 @@ fun VideoCard(
     showReason: Boolean = true,
 ) {
     val surfaceActive = isPreviewing && previewPlayer != null
+    val context = LocalContext.current
     val previewPlaying = surfaceActive && previewReady
     val animatedThumbAlpha by animateFloatAsState(
         targetValue = if (previewPlaying) 0f else 1f,
@@ -130,9 +131,11 @@ fun VideoCard(
             }
             // The thumbnail is drawn ABOVE the surface and fades out once
             // the first frame is on screen — no black flash.
-            if (item.thumbnailUrl != null && thumbAlpha > 0f) {
+            val thumbUrl = item.thumbnailUrl
+            if (thumbUrl != null && thumbAlpha > 0f) {
+                val request = remember(thumbUrl) { thumbnailRequest(context, thumbUrl) }
                 AsyncImage(
-                    model = item.thumbnailUrl,
+                    model = request,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

@@ -3,6 +3,7 @@ package com.bunny.app.presentation.screens.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,6 +39,7 @@ data class SearchUiState(
 class SearchViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val library: LibraryRepository,
+    private val thumbnails: ThumbnailPreloader,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
@@ -84,6 +86,7 @@ class SearchViewModel @Inject constructor(
             library.recordSearch(query)
             try {
                 val page = backend.search(query, null)
+                thumbnails.preload(page.items)
                 _uiState.update {
                     it.copy(isLoading = false, results = page.items, nextPage = page.nextPage)
                 }
@@ -104,6 +107,7 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val page = backend.search(query, token)
+                thumbnails.preload(page.items)
                 _uiState.update {
                     it.copy(
                         isLoadingMore = false,

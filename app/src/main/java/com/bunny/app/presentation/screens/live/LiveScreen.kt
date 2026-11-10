@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +32,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
+import com.bunny.app.presentation.screens.home.SkeletonCard
 
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,17 +65,12 @@ fun LiveScreen(
                 .padding(padding),
         ) {
             when {
-                state.isLoading -> Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                state.isLoading -> LazyColumn(
+                    contentPadding = PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
+                    userScrollEnabled = false,
                 ) {
-                    CircularProgressIndicator()
-                    Text(
-                        stringResource(R.string.live_loading),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    items(3) { SkeletonCard() }
                 }
 
                 state.error != null -> Column(
