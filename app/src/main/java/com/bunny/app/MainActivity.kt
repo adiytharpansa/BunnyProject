@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -34,12 +35,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -84,28 +89,117 @@ class MainActivity : ComponentActivity() {
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
+                // 0 = bottom bar fully shown, 1 = fully hidden. Written by
+                // HomeScreen while its header collapses; read only inside
+                // graphicsLayer, so it redraws without recomposing.
+                val barsFraction = remember { mutableFloatStateOf(0f) }
+                var barHeightPx by remember { mutableFloatStateOf(0f) }
+                val barHeightDp = with(LocalDensity.current) { barHeightPx.toDp() }
+
                 val videoId = openVideoId
                 SideEffect { pipEligible = videoId != null }
-                Scaffold(
-                    bottomBar = {
-                        if (videoId == null && !openSearch && openChannel == null) {
-                            // The bar melts into the page background
-                            // (design pass 2026-11-10): no separate
-                            // tinted band; the selection speaks through
-                            // the orange indicator alone.
-                            val navItemColors =
-                                NavigationBarItemDefaults.colors(
-                                    selectedIconColor =
-                                        MaterialTheme.colorScheme.onBackground,
-                                    selectedTextColor =
-                                        MaterialTheme.colorScheme.onBackground,
-                                    unselectedIconColor =
-                                        MaterialTheme.colorScheme.onBackground,
-                                    unselectedTextColor =
-                                        MaterialTheme.colorScheme.onBackground,
-                                    indicatorColor = Color.Transparent,
+                val barVisible =
+                    videoId == null && !openSearch && openChannel == null
+                Scaffold { scaffoldPadding ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // While the bottom bar is on screen it overlays the
+                        // content (so it can slide away), so the content only
+                        // takes the top inset; each tab pads for the bar.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    if (barVisible) {
+                                        PaddingValues(
+                                            top = scaffoldPadding.calculateTopPadding(),
+                                        )
+                                    } else {
+                                        scaffoldPadding
+                                    },
+                                ),
+                        ) {
+                            if (videoId != null) {
+                                PlayerScreen(
+                                    videoId = videoId,
+                                    onBack = { openVideoId = null },
+                                    onChannelClick = { id, name ->
+                                        openChannel = id to name
+                                    },
+                                    onPipClick = { enterPip() },
                                 )
+                            } else if (openChannel != null) {
+                                val (channelId, channelName) = openChannel!!
+                                ChannelScreen(
+                                    channelId = channelId,
+                                    channelName = channelName,
+                                    onBack = { openChannel = null },
+                                    onVideoClick = { openVideoId = it },
+                                )
+                            } else if (openSearch) {
+                                SearchScreen(
+                                    onBack = { openSearch = false },
+                                    onVideoClick = { openVideoId = it },
+                                )
+                            } else if (selectedTab == 0) {
+                                HomeScreen(
+                                    onVideoClick = { openVideoId = it },
+                                    onSearchClick = { openSearch = true },
+                                    onBarsFraction = {
+                                        barsFraction.floatValue = it
+                                    },
+                                    bottomPadding = barHeightDp,
+                                )
+                                val report = crashReport
+                                if (report != null) {
+                                    CrashReportBlock(
+                                        report = report,
+                                        onDismiss = {
+                                            CrashRecorder.clear(this@MainActivity)
+                                            crashReport = null
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(horizontal = 8.dp, vertical = 56.dp),
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = barHeightDp),
+                                ) {
+                                    TerbitScreen(
+                                        onVideoClick = { openVideoId = it },
+                                        onSearchClick = { openSearch = true },
+                                    )
+                                }
+                            }
+                        }
+
+                        if (barVisible) {
+                            // YouTube-style bar: flat, outline icon when idle,
+                            // filled when selected, no indicator pill. It
+                            // slides down and fades with Home's header.
+                            val navItemColors = NavigationBarItemDefaults.colors(
+                                selectedIconColor =
+                                    MaterialTheme.colorScheme.onBackground,
+                                selectedTextColor =
+                                    MaterialTheme.colorScheme.onBackground,
+                                unselectedIconColor =
+                                    MaterialTheme.colorScheme.onBackground,
+                                unselectedTextColor =
+                                    MaterialTheme.colorScheme.onBackground,
+                                indicatorColor = Color.Transparent,
+                            )
                             NavigationBar(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .onSizeChanged { barHeightPx = it.height.toFloat() }
+                                    .graphicsLayer {
+                                        val f = barsFraction.floatValue
+                                        translationY = f * size.height
+                                        alpha = 1f - f
+                                    },
                                 containerColor =
                                     MaterialTheme.colorScheme.background,
                                 tonalElevation = 0.dp,
@@ -143,59 +237,6 @@ class MainActivity : ComponentActivity() {
                                     colors = navItemColors,
                                 )
                             }
-                        }
-                    },
-                ) { scaffoldPadding ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(scaffoldPadding),
-                    ) {
-                        if (videoId != null) {
-                            PlayerScreen(
-                                videoId = videoId,
-                                onBack = { openVideoId = null },
-                                onChannelClick = { id, name ->
-                                    openChannel = id to name
-                                },
-                                onPipClick = { enterPip() },
-                            )
-                        } else if (openChannel != null) {
-                            val (channelId, channelName) = openChannel!!
-                            ChannelScreen(
-                                channelId = channelId,
-                                channelName = channelName,
-                                onBack = { openChannel = null },
-                                onVideoClick = { openVideoId = it },
-                            )
-                        } else if (openSearch) {
-                            SearchScreen(
-                                onBack = { openSearch = false },
-                                onVideoClick = { openVideoId = it },
-                            )
-                        } else if (selectedTab == 0) {
-                            HomeScreen(
-                                onVideoClick = { openVideoId = it },
-                                onSearchClick = { openSearch = true },
-                            )
-                            val report = crashReport
-                            if (report != null) {
-                                CrashReportBlock(
-                                    report = report,
-                                    onDismiss = {
-                                        CrashRecorder.clear(this@MainActivity)
-                                        crashReport = null
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.TopCenter)
-                                        .padding(horizontal = 8.dp, vertical = 56.dp),
-                                )
-                            }
-                        } else {
-                            TerbitScreen(
-                                onVideoClick = { openVideoId = it },
-                                onSearchClick = { openSearch = true },
-                            )
                         }
                     }
                 }

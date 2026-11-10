@@ -4,6 +4,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -41,7 +42,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -56,6 +56,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
@@ -65,10 +66,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -84,6 +88,10 @@ import com.bunny.core.model.DataCost
 fun HomeScreen(
     onVideoClick: (String) -> Unit = {},
     onSearchClick: () -> Unit = {},
+    /** Reports how hidden the header is (0 = shown, 1 = hidden) so the host can hide the bottom bar in sync. */
+    onBarsFraction: (Float) -> Unit = {},
+    /** Height of the host's bottom bar, so the last card is not covered by it. */
+    bottomPadding: Dp = 0.dp,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -181,9 +189,163 @@ fun HomeScreen(
         selectedLabelColor = MaterialTheme.colorScheme.background,
     )
     val chipShape = RoundedCornerShape(8.dp)
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
+    // Collapsing header (app bar + topic chips): hides while the feed
+    // scrolls down (finger moves up) and slides back in as soon as the
+    // user scrolls up, like the official home tab. The offset follows
+    // the finger 1:1 and settles (snaps) when the gesture ends.
+    val density = LocalDensity.current
+    var headerHeightPx by remember { mutableFloatStateOf(0f) }
+    var headerOffsetPx by remember { mutableFloatStateOf(0f) } // -height..0
+    val headerPadDp = with(density) { headerHeightPx.toDp() }
+    val headerConnection = remember(listState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (headerHeightPx > 0f) {
+                    headerOffsetPx = (headerOffsetPx + available.y)
+                        .coerceIn(-headerHeightPx, 0f)
+                }
+                // Never consume: the list (and pull-to-refresh) scroll as usual.
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: Velocity,
+                available: Velocity,
+            ): Velocity {
+                val atTop = listState.firstVisibleItemIndex == 0 &&
+                    listState.firstVisibleItemScrollOffset == 0
+                val target = if (atTop || headerOffsetPx > -headerHeightPx / 2f) {
+                    0f
+                } else {
+                    -headerHeightPx
+                }
+                if (headerOffsetPx != target) {
+                    animate(
+                        initialValue = headerOffsetPx,
+                        targetValue = target,
+                        animationSpec = tween(180),
+                    ) { value, _ -> headerOffsetPx = value }
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+    // Mirror the header's collapse to the host so the bottom bar hides and
+    // shows in lockstep; reset when Home leaves the screen.
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            if (headerHeightPx > 0f) {
+                (-headerOffsetPx / headerHeightPx).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        }.collect { onBarsFraction(it) }
+    }
+    DisposableEffect(Unit) {
+        onDispose { onBarsFraction(0f) }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .nestedScroll(headerConnection),
+    ) {
+        when {
+            // First load: skeleton cards in the feed's own
+            // geometry — no bare spinner on an empty screen.
+            state.isLoading && state.items.isEmpty() ->
+                SkeletonFeed(topPadding = headerPadDp)
+
+            state.error != null && state.items.isEmpty() -> Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (state.backendStatus.isNotEmpty()) {
+                    Text(
+                        text = state.backendStatus,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = state.error ?: stringResource(R.string.error_generic),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = { viewModel.load() }) {
+                    Text(stringResource(R.string.retry))
+                }
+            }
+
+            else -> PullToRefreshBox(
+                isRefreshing = state.isLoading,
+                onRefresh = { viewModel.load() },
+                topInsetPx = headerHeightPx,
+            ) {
+                LazyColumn(
+                    state = listState,
+                    // Top padding = header height, so the first item
+                    // starts right under the header and the list can
+                    // scroll up beneath it when the header hides.
+                    contentPadding = PaddingValues(
+                        top = headerPadDp + 8.dp,
+                        bottom = 12.dp + bottomPadding,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    item {
+                        JatahBar(
+                            jatah = jatah,
+                            onSetQuota = { showQuotaDialog = true },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                    items(visibleItems, key = { it.id }) { item ->
+                        VideoCard(
+                            item = item,
+                            onClick = { onVideoClick(item.id) },
+                            previewPlayer = if (previewingId == item.id) {
+                                viewModel.previewPlayer
+                            } else {
+                                null
+                            },
+                            isPreviewing = previewingId == item.id,
+                            previewProgress = if (previewingId == item.id) {
+                                previewProgress
+                            } else {
+                                null
+                            },
+                            // The active topic's pill would repeat
+                            // the filter the user already picked.
+                            showReason = item.reason != topicFilter,
+                        )
+                    }
+                }
+            }
+        }
+
+        // The header floats above the list and is moved/faded by the
+        // scroll offset above.
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .onSizeChanged { headerHeightPx = it.height.toFloat() }
+                .graphicsLayer {
+                    translationY = headerOffsetPx
+                    alpha = if (headerHeightPx > 0f) {
+                        (1f + headerOffsetPx / headerHeightPx).coerceIn(0f, 1f)
+                    } else {
+                        1f
+                    }
+                }
+                .background(MaterialTheme.colorScheme.background),
+        ) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -223,114 +385,31 @@ fun HomeScreen(
                     }
                 },
             )
-        },
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            when {
-                // First load: skeleton cards in the feed's own
-                // geometry — no bare spinner on an empty screen.
-                state.isLoading && state.items.isEmpty() -> SkeletonFeed()
-
-                state.error != null && state.items.isEmpty() -> Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+            if (topics.size > 1) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(bottom = 8.dp),
                 ) {
-                    if (state.backendStatus.isNotEmpty()) {
-                        Text(
-                            text = state.backendStatus,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    item {
+                        FilterChip(
+                            selected = topicFilter == null,
+                            onClick = { topicFilter = null },
+                            label = { Text(stringResource(R.string.topic_all)) },
+                            colors = chipColors,
+                            shape = chipShape,
+                            border = null,
                         )
                     }
-                    Text(
-                        text = state.error ?: stringResource(R.string.error_generic),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                    Button(onClick = { viewModel.load() }) {
-                        Text(stringResource(R.string.retry))
-                    }
-                }
-
-                else -> Column(modifier = Modifier.fillMaxSize()) {
-                    // The topic row sits OUTSIDE the scrolling list so it
-                    // stays pinned under the app bar, like the official
-                    // home tab row (Beranda / Musik / Live / …).
-                    if (topics.size > 1) {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        ) {
-                            item {
-                                FilterChip(
-                                    selected = topicFilter == null,
-                                    onClick = { topicFilter = null },
-                                    label = {
-                                        Text(stringResource(R.string.topic_all))
-                                    },
-                                    colors = chipColors,
-                                    shape = chipShape,
-                                    border = null,
-                                )
-                            }
-                            items(topics) { topic ->
-                                FilterChip(
-                                    selected = topicFilter == topic,
-                                    onClick = { topicFilter = topic },
-                                    label = {
-                                        Text(topic.removePrefix("Topik: "))
-                                    },
-                                    colors = chipColors,
-                                    shape = chipShape,
-                                    border = null,
-                                )
-                            }
-                        }
-                    }
-                    PullToRefreshBox(
-                        isRefreshing = state.isLoading,
-                        onRefresh = { viewModel.load() },
-                    ) {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(bottom = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp),
-                        ) {
-                            item {
-                                JatahBar(
-                                    jatah = jatah,
-                                    onSetQuota = { showQuotaDialog = true },
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                )
-                            }
-                            items(visibleItems, key = { it.id }) { item ->
-                                VideoCard(
-                                    item = item,
-                                    onClick = { onVideoClick(item.id) },
-                                    previewPlayer = if (previewingId == item.id) {
-                                        viewModel.previewPlayer
-                                    } else {
-                                        null
-                                    },
-                                    isPreviewing = previewingId == item.id,
-                                    previewProgress = if (previewingId == item.id) {
-                                        previewProgress
-                                    } else {
-                                        null
-                                    },
-                                    // The active topic's pill would repeat
-                                    // the filter the user already picked.
-                                    showReason = item.reason != topicFilter,
-                                )
-                            }
-                        }
+                    items(topics) { topic ->
+                        FilterChip(
+                            selected = topicFilter == topic,
+                            onClick = { topicFilter = topic },
+                            label = { Text(topic.removePrefix("Topik: ")) },
+                            colors = chipColors,
+                            shape = chipShape,
+                            border = null,
+                        )
                     }
                 }
             }
@@ -350,6 +429,7 @@ fun HomeScreen(
 private fun PullToRefreshBox(
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
+    topInsetPx: Float = 0f,
     content: @Composable () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -408,7 +488,7 @@ private fun PullToRefreshBox(
                         } else {
                             pullPx - badgePx
                         }
-                        IntOffset(0, travel.toInt())
+                        IntOffset(0, (travel + topInsetPx).toInt())
                     }
                     .size(36.dp)
                     .clip(CircleShape)
@@ -434,9 +514,9 @@ private fun PullToRefreshBox(
 
 /** First-load placeholder: three ghost cards in the feed's geometry. */
 @Composable
-private fun SkeletonFeed() {
+private fun SkeletonFeed(topPadding: Dp = 0.dp) {
     LazyColumn(
-        contentPadding = PaddingValues(vertical = 12.dp),
+        contentPadding = PaddingValues(top = topPadding + 12.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         items(3) { SkeletonCard() }
