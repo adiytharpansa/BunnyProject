@@ -163,6 +163,9 @@ class InnertubeParserTest {
     fun parseCount_handlesSuffixesAndLocales() {
         assertEquals(1_200_000L, InnertubeParser.parseCount("1.2M views"))
         assertEquals(321_000L, InnertubeParser.parseCount("321K watching"))
+        assertEquals(1_200L, InnertubeParser.parseCount("1,2 rb x ditonton"))
+        assertEquals(3_500_000L, InnertubeParser.parseCount("3,5 jt x ditonton"))
+        assertEquals(131_200L, InnertubeParser.parseCount("131,2 rb x ditonton"))
         assertEquals(950L, InnertubeParser.parseCount("950 views"))
         assertEquals(0L, InnertubeParser.parseCount("No views"))
         assertNull(InnertubeParser.parseCount(""))
@@ -283,11 +286,11 @@ class InnertubeParserTest {
              "streamingData":{
                "expiresInSeconds":"21540",
                "adaptiveFormats":[
-                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":2500000,"height":720,"url":"https://v720"},
-                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":800000,"height":480,"url":"https://v480"},
-                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":300000,"height":240,"url":"https://v240"},
-                 {"mimeType":"audio/mp4; codecs=\"mp4a\"","bitrate":128000,"url":"https://a128"},
-                 {"mimeType":"audio/mp4; codecs=\"mp4a\"","bitrate":48000,"url":"https://a48"}
+                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":2500000,"height":720,"url":"https://v720","initRange":{"start":"0","end":"740"},"indexRange":{"start":"741","end":"3000"}},
+                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":800000,"height":480,"url":"https://v480","initRange":{"start":"0","end":"740"},"indexRange":{"start":"741","end":"3000"}},
+                 {"mimeType":"video/mp4; codecs=\"avc1\"","bitrate":300000,"height":240,"url":"https://v240","initRange":{"start":"0","end":"740"},"indexRange":{"start":"741","end":"3000"}},
+                 {"mimeType":"audio/mp4; codecs=\"mp4a\"","bitrate":128000,"url":"https://a128","initRange":{"start":"0","end":"740"},"indexRange":{"start":"741","end":"3000"}},
+                 {"mimeType":"audio/mp4; codecs=\"mp4a\"","bitrate":48000,"url":"https://a48","initRange":{"start":"0","end":"740"},"indexRange":{"start":"741","end":"3000"}}
                ]}}
             """.trimIndent(),
         )

@@ -304,19 +304,25 @@ object InnertubeParser {
 
     /**
      * "1,234,567 views" / "1.2M views" / "321K watching" / "No views" -> count.
-     * Indonesian locales use '.' as the thousands separator; both are handled.
+     * Indonesian counts abbreviate with a SEPARATE word — "1,2 rb" (ribu),
+     * "3,5 jt" (juta), "1,1 M" (miliar) — while English glues the suffix
+     * to the number; both shapes are handled. Full numbers use '.' or ','
+     * as thousands separators; abbreviated ones use them as the decimal
+     * separator.
      */
     fun parseCount(text: String): Long? {
         val cleaned = text.trim().lowercase()
-        if (cleaned.startsWith("no ") || cleaned.isEmpty()) return if (cleaned.isEmpty()) null else 0L
-        val token = cleaned.split(" ").firstOrNull() ?: return null
+        if (cleaned.isEmpty()) return null
+        if (cleaned.startsWith("no ")) return 0L
+        val tokens = cleaned.split(" ").filter { it.isNotEmpty() }
+        val first = tokens.firstOrNull() ?: return null
         val multiplier = when {
-            token.endsWith("k") -> 1_000L
-            token.endsWith("m") -> 1_000_000L
-            token.endsWith("b") -> 1_000_000_000L
+            first.endsWith("k") || tokens.getOrNull(1) == "rb" -> 1_000L
+            first.endsWith("m") || tokens.getOrNull(1) == "jt" -> 1_000_000L
+            first.endsWith("b") || tokens.getOrNull(1) == "m" -> 1_000_000_000L
             else -> 1L
         }
-        val numeric = token.trimEnd('k', 'm', 'b')
+        val numeric = first.trimEnd('k', 'm', 'b')
         return if (multiplier > 1) {
             (numeric.replace(",", ".").toDoubleOrNull()?.times(multiplier))?.toLong()
         } else {
