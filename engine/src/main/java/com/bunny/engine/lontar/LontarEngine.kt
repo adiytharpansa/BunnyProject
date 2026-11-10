@@ -77,6 +77,36 @@ class LontarEngine(
         return InnertubeParser.parseFeedPage(post("search", body))
     }
 
+    override suspend fun getLiveFeed(): Page<VideoItem> {
+        // The Live tab is the home mixture's mirror image: topic
+        // searches through the search endpoint's Live feature filter,
+        // keeping ONLY live items. The filter param was probed against
+        // YouTube with this project's own session bootstrap on
+        // 2026-11-10: for the query "berita", 20 of 20 results carried
+        // the LIVE badge (the plain videos-only param returned 1 of
+        // 20), and the parser flags them via that badge. A channel-hub
+        // browse was probed too and rejected: its rows carry no badges.
+        val pages = LIVE_SEED_QUERIES.map { (query, label) ->
+            try {
+                searchLive(query).map { item -> item.copy(reason = "Topik: $label") }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+        return Page(items = roundRobin(pages, MAX_LIVE_ITEMS), nextPage = null)
+    }
+
+    /** One live-filtered search; only badge-flagged live items survive. */
+    private suspend fun searchLive(query: String): List<VideoItem> {
+        val body = baseBody()
+            .put("query", query)
+            .put("params", SEARCH_PARAMS_LIVE)
+        return InnertubeParser.parseFeedPage(post("search", body)).items
+            .filter { it.isLive }
+    }
+
     override suspend fun getChannelVideos(channelId: String): Page<VideoItem> {
         // A channel's uploads playlist is a system playlist whose id is
         // the channel id with UC swapped for UU; browsing it returns the
@@ -146,13 +176,23 @@ class LontarEngine(
         // by the UI. The seed set itself is remotely updatable (Fase 4).
         val pages = config.seedQueries.map { (query, label) ->
             try {
-                search(query, null).items.map { item -> item.copy(reason = "Topik: $label") }
+                search(query, null).items
+                    .filter { !it.isLive }
+                    .map { item -> item.copy(reason = "Topik: $label") }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 emptyList()
             }
         }
+        return Page(items = roundRobin(pages, MAX_SEED_ITEMS), nextPage = null)
+    }
+
+    /** Round-robin interleave of per-topic pages, duplicates removed. */
+    private fun roundRobin(
+        pages: List<List<VideoItem>>,
+        limit: Int,
+    ): List<VideoItem> {
         val merged = mutableListOf<VideoItem>()
         val seen = mutableSetOf<String>()
         var index = 0
@@ -162,11 +202,11 @@ class LontarEngine(
             for (list in pages) {
                 val item = list.getOrNull(index) ?: continue
                 added = true
-                if (seen.add(item.id) && !item.isLive) merged += item
+                if (seen.add(item.id)) merged += item
             }
             index++
         }
-        return Page(items = merged.take(MAX_SEED_ITEMS), nextPage = null)
+        return merged.take(limit)
     }
 
     /**
@@ -374,6 +414,19 @@ class LontarEngine(
         /** InnerTube search param filter: videos only. */
         private const val SEARCH_PARAMS_VIDEO_ONLY = "EgIQAQ%3D%3D"
 
+        /** InnerTube search param filter: the Live feature (probed 2026-11-10). */
+        private const val SEARCH_PARAMS_LIVE = "EgJAAQ%3D%3D"
+
         private const val MAX_SEED_ITEMS = 60
+        private const val MAX_LIVE_ITEMS = 40
+
+        /** Live seed topics: query to Chip Alasan label. */
+        private val LIVE_SEED_QUERIES: List<Pair<String, String>> = listOf(
+            "berita" to "Berita",
+            "musik" to "Musik",
+            "sepak bola" to "Bola",
+            "gaming" to "Gaming",
+            "ceramah" to "Ceramah",
+        )
     }
 }

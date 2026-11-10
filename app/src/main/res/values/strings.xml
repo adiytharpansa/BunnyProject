@@ -58,6 +58,7 @@
     <string name="nav_kanal">Kanal</string>
     <string name="nav_profile">Profil</string>
     <string name="live_title">Live</string>
+    <string name="live_loading">Memuat siaran langsung…</string>
     <string name="live_empty">Belum ada siaran langsung saat ini.</string>
     <string name="kanal_title">Kanal</string>
     <string name="kanal_empty">Belum ada kanal. Buka sebuah video, lalu ketuk Langganan — kanalnya akan muncul di sini.</string>

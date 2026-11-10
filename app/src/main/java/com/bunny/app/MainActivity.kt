@@ -180,7 +180,10 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
-                                    LiveScreen(onSearchClick = { openSearch = true })
+                                    LiveScreen(
+                                        onVideoClick = { openVideoId = it },
+                                        onSearchClick = { openSearch = true },
+                                    )
                                 }
                             } else if (selectedTab == 2) {
                                 Box(

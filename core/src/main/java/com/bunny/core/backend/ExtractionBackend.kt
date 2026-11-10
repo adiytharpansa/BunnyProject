@@ -38,6 +38,14 @@ interface ExtractionBackend {
      */
     suspend fun getSearchSuggestions(query: String): List<String> = emptyList()
 
+    /**
+     * Streams live right now — the Live tab (2026-11-10). A finite
+     * composed list like [getChannelVideos]; no pagination. Backends
+     * without a live source return an empty page.
+     */
+    suspend fun getLiveFeed(): Page<VideoItem> =
+        Page(items = emptyList(), nextPage = null)
+
     suspend fun getVideoDetails(videoId: String): VideoDetails
 
     suspend fun getPlaybackStreams(videoId: String): PlaybackStreams
