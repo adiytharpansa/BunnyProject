@@ -60,21 +60,26 @@ fun PlayerScreen(
     val controller by viewModel.controllerPlayer.collectAsState()
 
     // The media notification cannot appear on Android 13+ until the user
-    // grants POST_NOTIFICATIONS; ask for it when the player opens (device
-    // test 2026-11-10: background playback + notification both missing).
+    // grants POST_NOTIFICATIONS. The system dialog is never shown on its
+    // own: it appears only when the user taps the "Aktifkan putar latar &
+    // notifikasi" button below, i.e. at the moment they choose to enable
+    // the feature (owner decision 2026-11-10). Devices below Android 13
+    // need no runtime grant.
     val context = LocalContext.current
+    var notificationsGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
+        notificationsGranted = granted
         PlaybackDiagnostics.log("Izin notifikasi: ${if (granted) "diberikan" else "ditolak"}")
-    }
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
     }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
@@ -167,6 +172,19 @@ fun PlayerScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!notificationsGranted) {
+                        Button(onClick = {
+                            PlaybackDiagnostics.log("Izin notifikasi: diminta dari tombol aktivasi")
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }) {
+                            Text(stringResource(R.string.player_enable_background))
+                        }
+                        Text(
+                            stringResource(R.string.player_enable_background_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     DiagnosticsBlock(diagnostics)
                 }
             }
