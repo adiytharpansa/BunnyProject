@@ -36,11 +36,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
 
-@UnstableApi
 @Composable
 fun PlayerScreen(
     videoId: String,
