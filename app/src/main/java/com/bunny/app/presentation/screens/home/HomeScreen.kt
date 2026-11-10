@@ -28,6 +28,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,6 +45,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -69,6 +72,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
@@ -85,8 +89,7 @@ fun HomeScreen(
     val state by viewModel.uiState.collectAsState()
     val jatah by viewModel.jatah.collectAsState()
     var showQuotaDialog by remember { mutableStateOf(false) }
-    // Topic chips, like the official app's home tab bar (REA dissection
-    // 2026-11-10): they filter the mixture already on screen — Bunny's
+    // Topic chips: they filter the mixture already on screen — Bunny's
     // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
     var topicFilter by remember { mutableStateOf<String?>(null) }
     val topics = state.items.mapNotNull { it.reason }.distinct()
@@ -169,27 +172,45 @@ fun HomeScreen(
         )
     }
 
-    // The official app's chip treatment: the selected chip is a solid
-    // light pill with dark text; unselected chips stay outlined.
+    // YouTube-style chips: unselected = flat grey pill, no outline;
+    // selected = solid light pill with dark text. 8dp corners.
     val chipColors = FilterChipDefaults.filterChipColors(
+        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
         selectedContainerColor = MaterialTheme.colorScheme.onBackground,
         selectedLabelColor = MaterialTheme.colorScheme.background,
     )
+    val chipShape = RoundedCornerShape(8.dp)
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    scrolledContainerColor = MaterialTheme.colorScheme.background,
+                ),
                 title = {
+                    // Wordmark: red play badge + tight bold "Bunny".
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(9.dp)
+                                .size(26.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.primary),
-                        )
-                        Spacer(Modifier.width(8.dp))
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             stringResource(R.string.home_title),
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = (-1).sp,
                         )
                     }
                 },
@@ -237,70 +258,78 @@ fun HomeScreen(
                     }
                 }
 
-                else -> PullToRefreshBox(
-                    isRefreshing = state.isLoading,
-                    onRefresh = { viewModel.load() },
-                ) {
-                    LazyColumn(
-                        state = listState,
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                    ) {
-                        item {
-                            JatahBar(
-                                jatah = jatah,
-                                onSetQuota = { showQuotaDialog = true },
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                            )
-                        }
-                        if (topics.size > 1) {
+                else -> Column(modifier = Modifier.fillMaxSize()) {
+                    // The topic row sits OUTSIDE the scrolling list so it
+                    // stays pinned under the app bar, like the official
+                    // home tab row (Beranda / Musik / Live / …).
+                    if (topics.size > 1) {
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        ) {
                             item {
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    item {
-                                        FilterChip(
-                                            selected = topicFilter == null,
-                                            onClick = { topicFilter = null },
-                                            label = {
-                                                Text(stringResource(R.string.topic_all))
-                                            },
-                                            colors = chipColors,
-                                        )
-                                    }
-                                    items(topics) { topic ->
-                                        FilterChip(
-                                            selected = topicFilter == topic,
-                                            onClick = { topicFilter = topic },
-                                            label = {
-                                                Text(topic.removePrefix("Topik: "))
-                                            },
-                                            colors = chipColors,
-                                        )
-                                    }
-                                }
+                                FilterChip(
+                                    selected = topicFilter == null,
+                                    onClick = { topicFilter = null },
+                                    label = {
+                                        Text(stringResource(R.string.topic_all))
+                                    },
+                                    colors = chipColors,
+                                    shape = chipShape,
+                                    border = null,
+                                )
+                            }
+                            items(topics) { topic ->
+                                FilterChip(
+                                    selected = topicFilter == topic,
+                                    onClick = { topicFilter = topic },
+                                    label = {
+                                        Text(topic.removePrefix("Topik: "))
+                                    },
+                                    colors = chipColors,
+                                    shape = chipShape,
+                                    border = null,
+                                )
                             }
                         }
-                        items(visibleItems, key = { it.id }) { item ->
-                            VideoCard(
-                                item = item,
-                                onClick = { onVideoClick(item.id) },
-                                previewPlayer = if (previewingId == item.id) {
-                                    viewModel.previewPlayer
-                                } else {
-                                    null
-                                },
-                                isPreviewing = previewingId == item.id,
-                                previewProgress = if (previewingId == item.id) {
-                                    previewProgress
-                                } else {
-                                    null
-                                },
-                                // The active topic's pill would repeat
-                                // the filter the user already picked.
-                                showReason = item.reason != topicFilter,
-                            )
+                    }
+                    PullToRefreshBox(
+                        isRefreshing = state.isLoading,
+                        onRefresh = { viewModel.load() },
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            contentPadding = PaddingValues(bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            item {
+                                JatahBar(
+                                    jatah = jatah,
+                                    onSetQuota = { showQuotaDialog = true },
+                                    modifier = Modifier.padding(horizontal = 12.dp),
+                                )
+                            }
+                            items(visibleItems, key = { it.id }) { item ->
+                                VideoCard(
+                                    item = item,
+                                    onClick = { onVideoClick(item.id) },
+                                    previewPlayer = if (previewingId == item.id) {
+                                        viewModel.previewPlayer
+                                    } else {
+                                        null
+                                    },
+                                    isPreviewing = previewingId == item.id,
+                                    previewProgress = if (previewingId == item.id) {
+                                        previewProgress
+                                    } else {
+                                        null
+                                    },
+                                    // The active topic's pill would repeat
+                                    // the filter the user already picked.
+                                    showReason = item.reason != topicFilter,
+                                )
+                            }
                         }
                     }
                 }
@@ -408,7 +437,7 @@ private fun PullToRefreshBox(
 private fun SkeletonFeed() {
     LazyColumn(
         contentPadding = PaddingValues(vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         items(3) { SkeletonCard() }
     }

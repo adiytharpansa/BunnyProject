@@ -19,6 +19,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.outlined.Article
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -93,12 +96,14 @@ class MainActivity : ComponentActivity() {
                             val navItemColors =
                                 NavigationBarItemDefaults.colors(
                                     selectedIconColor =
-                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.onBackground,
                                     selectedTextColor =
-                                        MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme
-                                        .colorScheme.primary
-                                        .copy(alpha = 0.15f),
+                                        MaterialTheme.colorScheme.onBackground,
+                                    unselectedIconColor =
+                                        MaterialTheme.colorScheme.onBackground,
+                                    unselectedTextColor =
+                                        MaterialTheme.colorScheme.onBackground,
+                                    indicatorColor = Color.Transparent,
                                 )
                             NavigationBar(
                                 containerColor =
@@ -110,7 +115,11 @@ class MainActivity : ComponentActivity() {
                                     onClick = { selectedTab = 0 },
                                     icon = {
                                         Icon(
-                                            Icons.Filled.Home,
+                                            if (selectedTab == 0) {
+                                                Icons.Filled.Home
+                                            } else {
+                                                Icons.Outlined.Home
+                                            },
                                             contentDescription = null,
                                         )
                                     },
@@ -122,7 +131,11 @@ class MainActivity : ComponentActivity() {
                                     onClick = { selectedTab = 1 },
                                     icon = {
                                         Icon(
-                                            Icons.Filled.Article,
+                                            if (selectedTab == 1) {
+                                                Icons.Filled.Article
+                                            } else {
+                                                Icons.Outlined.Article
+                                            },
                                             contentDescription = null,
                                         )
                                     },
