@@ -1,8 +1,13 @@
 package com.bunny.app.presentation.screens.player
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.provider.Settings
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,8 +76,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -117,11 +126,47 @@ fun PlayerScreen(
                 ) == PackageManager.PERMISSION_GRANTED,
         )
     }
+    // YouTube's pattern (verified by dissecting the official app,
+    // 2026-11-11): no custom explanation screen before the system
+    // dialog — and once the permission is permanently denied, the app
+    // stops re-asking and instead guides the user to Settings in
+    // words. Mirror that here: after a denial with no rationale left,
+    // the card below switches to a Settings path instead of a dead
+    // re-ask button.
+    var notificationsDeniedPermanently by remember { mutableStateOf(false) }
     val notificationPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         notificationsGranted = granted
+        if (!granted) {
+            val activity = context as? Activity
+            notificationsDeniedPermanently = activity != null &&
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                )
+        }
         PlaybackDiagnostics.log("Izin notifikasi: ${if (granted) "diberikan" else "ditolak"}")
+    }
+
+    // Returning from the system Settings page (where the user may
+    // have just granted the permission by hand) refreshes the card:
+    // granted there means the card disappears here.
+    val hostActivity = context as? ComponentActivity
+    DisposableEffect(hostActivity) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val grantedNow = Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) == PackageManager.PERMISSION_GRANTED
+                notificationsGranted = grantedNow
+                if (grantedNow) notificationsDeniedPermanently = false
+            }
+        }
+        hostActivity?.lifecycle?.addObserver(observer)
+        onDispose { hostActivity?.lifecycle?.removeObserver(observer) }
     }
 
     // Fase 4 telemetry: terminal playback failures persist on-device
@@ -541,24 +586,66 @@ fun PlayerScreen(
                                         fontWeight = FontWeight.SemiBold,
                                     )
                                 }
-                                Text(
-                                    stringResource(R.string.player_enable_background_hint),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Button(
-                                    shape = CircleShape,
-                                    onClick = {
-                                        PlaybackDiagnostics.log(
-                                            "Izin notifikasi: diminta dari tombol aktivasi",
-                                        )
-                                        notificationPermission.launch(
-                                            Manifest.permission.POST_NOTIFICATIONS,
-                                        )
-                                    },
-                                    modifier = Modifier.align(Alignment.End),
-                                ) {
-                                    Text(stringResource(R.string.player_enable_short))
+                                if (notificationsDeniedPermanently) {
+                                    // The system will no longer show the
+                                    // dialog (YouTube handles this same
+                                    // dead end with plain words pointing
+                                    // to Settings): explain, then offer
+                                    // the one-tap path there.
+                                    Text(
+                                        stringResource(R.string.player_notif_denied_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        shape = CircleShape,
+                                        onClick = {
+                                            PlaybackDiagnostics.log(
+                                                "Izin notifikasi: buka Pengaturan dari kartu",
+                                            )
+                                            val settingsIntent =
+                                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                                    .apply {
+                                                        putExtra(
+                                                            Settings.EXTRA_APP_PACKAGE,
+                                                            context.packageName,
+                                                        )
+                                                    }
+                                            try {
+                                                context.startActivity(settingsIntent)
+                                            } catch (e: Exception) {
+                                                context.startActivity(
+                                                    Intent(
+                                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                                        Uri.parse("package:" + context.packageName),
+                                                    ),
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) {
+                                        Text(stringResource(R.string.player_open_settings))
+                                    }
+                                } else {
+                                    Text(
+                                        stringResource(R.string.player_enable_background_hint),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Button(
+                                        shape = CircleShape,
+                                        onClick = {
+                                            PlaybackDiagnostics.log(
+                                                "Izin notifikasi: diminta dari tombol aktivasi",
+                                            )
+                                            notificationPermission.launch(
+                                                Manifest.permission.POST_NOTIFICATIONS,
+                                            )
+                                        },
+                                        modifier = Modifier.align(Alignment.End),
+                                    ) {
+                                        Text(stringResource(R.string.player_enable_short))
+                                    }
                                 }
                             }
                         }
