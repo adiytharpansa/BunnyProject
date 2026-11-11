@@ -4,8 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.bunny.app.data.AccountTasteRepository
 import com.bunny.app.data.AuthRepository
+import com.bunny.app.data.DesktopAuth
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.data.PersonalDataRepository
+import com.bunny.app.data.YouTubeDataApi
 import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.app.playback.PreviewStatus
 import com.bunny.app.presentation.components.ThumbnailPreloader
@@ -34,6 +38,10 @@ class HomeViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val previewManager: FeedPreviewManager,
     private val thumbnails: ThumbnailPreloader,
+    private val desktopAuth: DesktopAuth,
+    private val dataApi: YouTubeDataApi,
+    private val personal: PersonalDataRepository,
+    private val accountTasteRepo: AccountTasteRepository,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(backendId = backend.id))
@@ -142,10 +150,58 @@ class HomeViewModel @Inject constructor(
                 // could only ever answer empty and strand signed-in
                 // users on an error); removed 2026-11-12.
                 val page = backend.getHomeFeed(page = null)
+                // Selera Akun: while signed in, quietly refresh the
+                // account taste profile (at most once a day, rebuilt
+                // on-device from the account's subscriptions and
+                // likes) and let it enrich the candidate pool with
+                // the subscriptions' newest uploads. Enrichment
+                // only — a failure here never fails Home.
+                var accountTaste: AccountTasteRepository.AccountTaste? =
+                    null
+                if (auth.isSignedIn) {
+                    try {
+                        if (desktopAuth.ensureFresh(null)) {
+                            val token = auth.dataToken
+                            if (token != null) {
+                                accountTaste =
+                                    accountTasteRepo.refreshIfStale(
+                                        dataApi,
+                                        token,
+                                    )
+                            }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // fall through with whatever profile exists
+                    }
+                    if (accountTaste == null) {
+                        accountTaste = accountTasteRepo.profile()
+                    }
+                }
+                var candidates = page.items
+                if (accountTaste != null) {
+                    try {
+                        val fromSubs = personal.latestFeed()
+                        if (fromSubs.isNotEmpty()) {
+                            val known = candidates.map { it.id }.toSet()
+                            candidates = candidates + fromSubs
+                                .filter { it.id !in known }
+                                .map {
+                                    it.copy(reason = "Dari langganan Anda")
+                                }
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // pool enrichment only; the mixture stands
+                    }
+                }
                 // Mesin Selera: the mixture is candidate generation;
                 // this ranking pass is Bunny's local second stage,
                 // fed by a one-shot snapshot of the on-device taste
-                // profile (subscriptions, opened channels, searches).
+                // profile (subscriptions, opened channels, searches)
+                // plus, while signed in, the account's own taste.
                 val taste = TasteProfile(
                     subscribedChannelIds = library.subscriptions.first()
                         .map { it.channelId }
@@ -155,22 +211,56 @@ class HomeViewModel @Inject constructor(
                         .flatMap { query -> query.lowercase().split(Regex("\\s+")) }
                         .filter { it.length >= 3 }
                         .toSet(),
+                    accountTerms = accountTaste?.terms ?: emptyMap(),
+                    accountChannelIds = accountTaste?.let {
+                        it.subscribedChannelIds + it.likedChannelIds
+                    } ?: emptySet(),
                     // Aturan churn dari model resmi YouTube: yang sudah
                     // tampil di Beranda muatan sebelumnya tapi tak pernah
                     // dibuka turun peringkatnya di muatan ini.
                     demotedIds = library.feedImpressions.first().toSet() -
                         library.openedVideoIds.first().toSet(),
                 )
-                val ranked = FeedRanker.rank(page.items, taste)
+                val ranked = FeedRanker.rank(candidates, taste)
+                // Chip Alasan for the account's hand in the order: a
+                // title matching one of the account's own interest
+                // words says so. Subscription-pool items already
+                // carry their chip.
+                val annotated = if (
+                    accountTaste != null && accountTaste.terms.isNotEmpty()
+                ) {
+                    val byWeight = accountTaste.terms.entries
+                        .sortedByDescending { it.value }
+                    ranked.map { item ->
+                        if (item.reason == "Dari langganan Anda") {
+                            item
+                        } else {
+                            val hit = byWeight.firstOrNull {
+                                item.title.lowercase().contains(it.key)
+                            }
+                            if (hit != null) {
+                                item.copy(
+                                    reason = "Sesuai minat Anda: ${hit.key}",
+                                )
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                } else {
+                    ranked
+                }
                 // Tunggu thumbnail layar pertama (paralel) lalu tampilkan
                 // semuanya bersamaan; skeleton / indikator refresh tetap
                 // tampil selama menunggu.
-                thumbnails.preload(ranked)
-                _uiState.update { it.copy(isLoading = false, items = ranked) }
+                thumbnails.preload(annotated)
+                _uiState.update {
+                    it.copy(isLoading = false, items = annotated)
+                }
                 // Catat tayangan muatan ini untuk aturan churn berikutnya
                 // (sesudah peringkat dihitung, supaya daftar ini tidak
                 // menghukum dirinya sendiri).
-                library.recordFeedImpressions(ranked.map { it.id })
+                library.recordFeedImpressions(annotated.map { it.id })
             } catch (e: CancellationException) {
                 // Cancellation is control flow, never a feed error.
                 throw e

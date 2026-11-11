@@ -15,6 +15,15 @@ data class TasteProfile(
     val channelAffinity: Map<String, Int> = emptyMap(),
     val searchTerms: Set<String> = emptySet(),
     /**
+     * Selera Akun: interest words weighted by the signed-in
+     * account's own likes (tags count most, then title words,
+     * categories, subscription names) — rebuilt on-device from the
+     * official Data API, never the server's profile.
+     */
+    val accountTerms: Map<String, Int> = emptyMap(),
+    /** Channels behind the account's subscriptions and likes. */
+    val accountChannelIds: Set<String> = emptySet(),
+    /**
      * Videos already shown on Home in earlier loads that the viewer
      * never opened. YouTube's published model churns its lists between
      * requests and demotes what was shown but not watched (2016); this
@@ -85,6 +94,27 @@ object FeedRanker {
             val matches = taste.searchTerms.count { title.contains(it) }
             score += min(matches, SEARCH_MATCH_CAP) * SEARCH_MATCH_WEIGHT
         }
+        // Selera Akun: channels the account itself follows or likes
+        // from — stated interest at the account level.
+        if (item.channelId != null &&
+            item.channelId in taste.accountChannelIds
+        ) {
+            score += ACCOUNT_CHANNEL_BOOST
+        }
+        // Selera Akun: the account's weighted interest words in the
+        // title, in proportion to how strongly the account's likes
+        // voted for each word.
+        if (taste.accountTerms.isNotEmpty()) {
+            val title = item.title.lowercase()
+            var termScore = 0.0
+            for ((term, weight) in taste.accountTerms) {
+                if (title.contains(term)) {
+                    termScore += min(weight, ACCOUNT_TERM_WEIGHT_CAP) *
+                        ACCOUNT_TERM_WEIGHT
+                }
+            }
+            score += min(termScore, ACCOUNT_TERM_TOTAL_CAP)
+        }
         // Freshness, from the relative upload text both languages use
         // (the papers' "example age": fresh is preferred, never at the
         // expense of relevance).
@@ -142,6 +172,10 @@ object FeedRanker {
     private const val AFFINITY_WEIGHT = 1.2
     private const val SEARCH_MATCH_CAP = 2
     private const val SEARCH_MATCH_WEIGHT = 1.5
+    private const val ACCOUNT_CHANNEL_BOOST = 5.0
+    private const val ACCOUNT_TERM_WEIGHT = 0.25
+    private const val ACCOUNT_TERM_WEIGHT_CAP = 12
+    private const val ACCOUNT_TERM_TOTAL_CAP = 6.0
     private const val LIVE_SCORE = 2.8
     private const val FRESHNESS_UNKNOWN = 1.0
     private const val WATCHTIME_BASELINE_SECONDS = 1800.0

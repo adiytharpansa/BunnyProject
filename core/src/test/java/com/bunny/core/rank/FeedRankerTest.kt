@@ -124,4 +124,50 @@ class FeedRankerTest {
                 FeedRanker.score(stale, TasteProfile()),
         )
     }
+
+    @Test
+    fun rank_accountChannelRaisesItem() {
+        // Selera Akun: a channel the account itself follows or
+        // likes from outranks a far more-viewed stranger.
+        val fromAccount = item(
+            "acct",
+            channelId = "UCaccount",
+            views = 200,
+            uploaded = "2 hari yang lalu",
+        )
+        val stranger = item(
+            "stranger",
+            channelId = "UCstranger",
+            views = 5_000_000,
+            uploaded = "2 hari yang lalu",
+        )
+        val ranked = FeedRanker.rank(
+            listOf(stranger, fromAccount),
+            TasteProfile(accountChannelIds = setOf("UCaccount")),
+        )
+        assertEquals("acct", ranked.first().id)
+    }
+
+    @Test
+    fun rank_accountTermsRaiseMatchingTitles() {
+        // Selera Akun: the account's weighted interest words lift
+        // matching titles above equally-fresh, more-viewed ones.
+        val match = item(
+            "match",
+            title = "Rendang Daging Empuk",
+            views = 1_000,
+            uploaded = "2 hari yang lalu",
+        )
+        val plain = item(
+            "plain",
+            title = "Berita Pagi Ini",
+            views = 900_000,
+            uploaded = "2 hari yang lalu",
+        )
+        val ranked = FeedRanker.rank(
+            listOf(plain, match),
+            TasteProfile(accountTerms = mapOf("rendang" to 12)),
+        )
+        assertEquals("match", ranked.first().id)
+    }
 }
