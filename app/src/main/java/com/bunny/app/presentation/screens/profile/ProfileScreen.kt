@@ -205,6 +205,9 @@ fun ProfileScreen(
                         textAlign = TextAlign.Center,
                     )
                     verdicts.forEach { verdict ->
+                        // Local copy: a public property from another
+                        // module cannot be smart-cast (CI #113).
+                        val status = verdict.httpStatus
                         Text(
                             when {
                                 verdict.accepted -> stringResource(
@@ -212,10 +215,10 @@ fun ProfileScreen(
                                     verdict.contextName,
                                     verdict.accountName ?: "",
                                 )
-                                verdict.httpStatus != null -> stringResource(
+                                status != null -> stringResource(
                                     R.string.onetap_verdict_rejected,
                                     verdict.contextName,
-                                    verdict.httpStatus,
+                                    status,
                                 )
                                 else -> stringResource(
                                     R.string.onetap_verdict_network,
