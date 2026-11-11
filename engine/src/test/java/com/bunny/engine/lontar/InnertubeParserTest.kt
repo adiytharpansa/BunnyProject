@@ -528,52 +528,202 @@ class InnertubeParserTest {
         // the metadata parts' accessibility labels.
         val json = JSONObject(
             """
-            {"contents":{"twoColumnWatchNextResults":{"secondaryResults":{
-              "secondaryResults":{"results":[
-                {"lockupViewModel":{
-                  "contentId":"PDE0HcAjATk",
-                  "contentType":"LOCKUP_CONTENT_TYPE_VIDEO",
-                  "contentImage":{"thumbnailViewModel":{"image":{"sources":[
-                    {"url":"https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-168.jpg","width":168},
-                    {"url":"https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-336.jpg","width":336}]},
-                    "overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[
-                      {"thumbnailBadgeViewModel":{"text":"1.23.21"}}]}}]}},
-                  "metadata":{"lockupMetadataViewModel":{
-                    "title":{"content":"Top Hits Spotify Indonesia 2026"},
-                    "image":{"decoratedAvatarViewModel":{"avatar":{"avatarViewModel":{
-                      "image":{"sources":[{"url":"https://yt3.ggpht.com/avatar.jpg","width":68}]}}}}},
-                    "rendererContext":{"commandContext":{"onTap":{"innertubeCommand":{
-                      "browseEndpoint":{"browseId":"UC51FepQ6WpkqdMaIXUthXTg"}}}}},
-                    "metadata":{"contentMetadataViewModel":{"metadataRows":[
-                      {"metadataParts":[{"text":{"content":"Ruang Nada Senja"}}]},
-                      {"metadataParts":[
-                        {"text":{"content":"702"},"accessibilityLabel":"702 x ditonton"},
-                        {"text":{"content":"6 h lalu"},"accessibilityLabel":"6 hari yang lalu"}]}],
-                      "delimiter":" "}}}}}
-                }},
-                {"lockupViewModel":{
-                  "contentId":"PLS3mZpWbSjLIiZmCOzhcaCkXkz923KIMA",
-                  "contentType":"LOCKUP_CONTENT_TYPE_PLAYLIST",
-                  "metadata":{"lockupMetadataViewModel":{
-                    "title":{"content":"Mix - Lagu Santai"}}}
-                }},
-                {"lockupViewModel":{
-                  "contentId":"dQw4w9WgXcQ",
-                  "contentType":"LOCKUP_CONTENT_TYPE_VIDEO",
-                  "contentImage":{"thumbnailViewModel":{"image":{"sources":[
-                    {"url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hq.jpg","width":336}]},
-                    "overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[
-                      {"thumbnailBadgeViewModel":{"text":"12.34"}}]}}]}},
-                  "metadata":{"lockupMetadataViewModel":{
-                    "title":{"content":"Video Kedua"},
-                    "metadata":{"contentMetadataViewModel":{"metadataRows":[
-                      {"metadataParts":[{"text":{"content":"Kanal Lain"}}]},
-                      {"metadataParts":[
-                        {"text":{"content":"1,2 rb"},"accessibilityLabel":"1,2 rb x ditonton"},
-                        {"text":{"content":"2 m lalu"},"accessibilityLabel":"2 minggu yang lalu"}]}],
-                      "delimiter":" "}}}}}
-                }}
-              ]}}}}}
+            {
+              "contents": {
+                "twoColumnWatchNextResults": {
+                  "secondaryResults": {
+                    "secondaryResults": {
+                      "results": [
+                        {
+                          "lockupViewModel": {
+                            "contentId": "PDE0HcAjATk",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": {
+                                  "content": "Top Hits Spotify Indonesia 2026"
+                                },
+                                "image": {
+                                  "decoratedAvatarViewModel": {
+                                    "avatar": {
+                                      "avatarViewModel": {
+                                        "image": {
+                                          "sources": [
+                                            {
+                                              "url": "https://yt3.ggpht.com/avatar.jpg",
+                                              "width": 68
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "rendererContext": {
+                                  "commandContext": {
+                                    "onTap": {
+                                      "innertubeCommand": {
+                                        "browseEndpoint": {
+                                          "browseId": "UC51FepQ6WpkqdMaIXUthXTg"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "metadata": {
+                                  "contentMetadataViewModel": {
+                                    "metadataRows": [
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "Ruang Nada Senja"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "702"
+                                            },
+                                            "accessibilityLabel": "702 x ditonton"
+                                          },
+                                          {
+                                            "text": {
+                                              "content": "6 h lalu"
+                                            },
+                                            "accessibilityLabel": "6 hari yang lalu"
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "delimiter": " "
+                                  }
+                                }
+                              }
+                            },
+                            "contentImage": {
+                              "thumbnailViewModel": {
+                                "image": {
+                                  "sources": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-168.jpg",
+                                      "width": 168
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-336.jpg",
+                                      "width": 336
+                                    }
+                                  ]
+                                },
+                                "overlays": [
+                                  {
+                                    "thumbnailBottomOverlayViewModel": {
+                                      "badges": [
+                                        {
+                                          "thumbnailBadgeViewModel": {
+                                            "text": "1.23.21"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "lockupViewModel": {
+                            "contentId": "PLS3mZpWbSjLIiZmCOzhcaCkXkz923KIMA",
+                            "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": {
+                                  "content": "Mix - Lagu Santai"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "lockupViewModel": {
+                            "contentId": "dQw4w9WgXcQ",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": {
+                                  "content": "Video Kedua"
+                                },
+                                "metadata": {
+                                  "contentMetadataViewModel": {
+                                    "metadataRows": [
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "Kanal Lain"
+                                            }
+                                          }
+                                        ]
+                                      },
+                                      {
+                                        "metadataParts": [
+                                          {
+                                            "text": {
+                                              "content": "1,2 rb"
+                                            },
+                                            "accessibilityLabel": "1,2 rb x ditonton"
+                                          },
+                                          {
+                                            "text": {
+                                              "content": "2 m lalu"
+                                            },
+                                            "accessibilityLabel": "2 minggu yang lalu"
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "delimiter": " "
+                                  }
+                                }
+                              }
+                            },
+                            "contentImage": {
+                              "thumbnailViewModel": {
+                                "image": {
+                                  "sources": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hq.jpg",
+                                      "width": 336
+                                    }
+                                  ]
+                                },
+                                "overlays": [
+                                  {
+                                    "thumbnailBottomOverlayViewModel": {
+                                      "badges": [
+                                        {
+                                          "thumbnailBadgeViewModel": {
+                                            "text": "12.34"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
             """.trimIndent(),
         )
         val items = InnertubeParser.parseRelatedVideos(json)
