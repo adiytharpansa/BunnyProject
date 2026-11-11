@@ -140,6 +140,12 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   (FEsubscriptions), Riwayat (FEhistory); parser tileRenderer
   rekursif teruji fixture; token segar disimpan terenkripsi,
   Keluar mencabut grant TV di Google. Menunggu uji perangkat.**
+  **Satu Pintu (probe dibangun 2026-11-12): klien Desktop app
+  proyek yang sama + lembar browser sistem (Custom Tab, kode
+  otorisasi + PKCE) — kunci kelahiran Desktop belum pernah diuji
+  siapa pun ke InnerTube (riset bunny-login-satu-pintu); probe
+  perangkat yang memutuskan penyatuan satu tombol. Proyek naik
+  ke Production agar token segar tidak kedaluwarsa mingguan.**
 - **Fase 6** — Sisa utang + Lontar Hidup (keputusan pengguna
   2026-11-11: "Semua nya"): **6-A** balasan komentar bisa dibuka persis
   struktur jawaban asli; **6-B** Panen Bertingkat (audio dulu, naik ke
