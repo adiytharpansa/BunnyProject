@@ -28,6 +28,17 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Satu Pintu: the Desktop-client OAuth redirect lands
+                 here (reversed-client-id scheme, injected by Gradle
+                 from the same value the code reads). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="${desktopRedirectScheme}"
+                    android:path="/oauth2redirect" />
+            </intent-filter>
         </activity>
 
         <!-- Media3 session service: background playback + media notification.

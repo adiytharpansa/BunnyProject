@@ -36,6 +36,7 @@ class AuthViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val dataApi: YouTubeDataApi,
     private val tvAuth: com.bunny.app.data.TvAuth,
+    private val desktopAuth: com.bunny.app.data.DesktopAuth,
 ) : ViewModel() {
 
     val state: StateFlow<AuthRepository.State> = auth.state
@@ -209,9 +210,13 @@ class AuthViewModel @Inject constructor(
         // The TV grant is revoked at Google too, not just forgotten
         // locally — captured before the wipe, revoked best-effort.
         val tvRefresh = auth.tvRefreshToken()
+        val desktopRefresh = auth.desktopRefreshToken()
         auth.signOut()
         if (tvRefresh != null) {
             viewModelScope.launch { tvAuth.revoke(tvRefresh) }
+        }
+        if (desktopRefresh != null) {
+            viewModelScope.launch { desktopAuth.revoke(desktopRefresh) }
         }
         _verdicts.value = emptyList()
         _oneTap.value = OneTap.Idle

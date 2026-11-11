@@ -101,6 +101,11 @@
     <string name="tv_denied">Persetujuan ditolak. Kode dibatalkan.</string>
     <string name="tv_expired">Kode kedaluwarsa. Minta kode baru.</string>
     <string name="tv_need_login">Sesi TV berakhir. Masuk lagi dengan kode dari tab Profil.</string>
+    <string name="desktop_login_button">Masuk dengan Google — Satu Pintu</string>
+    <string name="desktop_waiting">Selesaikan di halaman Google yang terbuka…</string>
+    <string name="desktop_done">Uji kunci selesai — vonisnya di bawah.</string>
+    <string name="desktop_verdicts_title">Hasil uji kunci Satu Pintu</string>
+    <string name="desktop_data_verdict">Pintu Data API v3: %1$s</string>
     <string name="tv_empty_home">Beranda pribadi server masih kosong.</string>
     <string name="tv_empty_subs">Belum ada video dari langganan di permukaan TV.</string>
     <string name="tv_empty_history">Riwayat tontonan masih kosong.</string>

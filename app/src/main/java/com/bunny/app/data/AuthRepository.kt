@@ -91,6 +91,16 @@ class AuthRepository @Inject constructor(
 
     fun tvRefreshToken(): String? = tvRefreshStored
 
+    // Satu Pintu: the Desktop-client session's refresh token. The
+    // access token lives in DesktopAuth's memory; this is the
+    // durable half, kept in the same encrypted blob.
+    private var desktopRefreshStored: String? = null
+
+    private val _desktopSignedIn = MutableStateFlow(false)
+    val desktopSignedIn: StateFlow<Boolean> = _desktopSignedIn.asStateFlow()
+
+    fun desktopRefreshToken(): String? = desktopRefreshStored
+
     init {
         restore()
     }
@@ -118,6 +128,9 @@ class AuthRepository @Inject constructor(
         tvAvatarStored = stored.optString("tvAvatar")
             .takeIf { it.isNotEmpty() }
         _tvSignedIn.value = tvRefreshStored != null
+        desktopRefreshStored = stored.optString("desktopRefresh")
+            .takeIf { it.isNotEmpty() }
+        _desktopSignedIn.value = desktopRefreshStored != null
         apiIdStored = stored.optString("apiId").takeIf { it.isNotEmpty() }
         apiNameStored = stored.optString("apiName").takeIf { it.isNotEmpty() }
         apiHandleStored = stored.optString("apiHandle")
@@ -212,6 +225,26 @@ class AuthRepository @Inject constructor(
         persistAll(main?.name, main?.avatarUrl)
     }
 
+    /**
+     * Satu Pintu proven at the Data API table (and at InnerTube too
+     * when the probe's winner exists): keep the desktop refresh
+     * token and the identity the Data API named.
+     */
+    fun signInDesktop(
+        refreshToken: String?,
+        name: String?,
+        avatarUrl: String?,
+    ) {
+        if (refreshToken != null) desktopRefreshStored = refreshToken
+        _desktopSignedIn.value = desktopRefreshStored != null
+        val current = _state.value
+        if (current !is State.SignedIn && name != null) {
+            _state.value = State.SignedIn(name, avatarUrl)
+        }
+        val main = _state.value as? State.SignedIn
+        persistAll(main?.name, main?.avatarUrl)
+    }
+
     /** One-tap wipe: blob, engine session, WebView cookies, GMS grant. */
     fun signOut() {
         val token = bearerTokenStored ?: dataToken
@@ -232,6 +265,8 @@ class AuthRepository @Inject constructor(
         tvNameStored = null
         tvAvatarStored = null
         _tvSignedIn.value = false
+        desktopRefreshStored = null
+        _desktopSignedIn.value = false
         _state.value = State.SignedOut
         prefs().edit().remove(KEY_BLOB).apply()
         CookieManager.getInstance().removeAllCookies(null)
@@ -280,6 +315,7 @@ class AuthRepository @Inject constructor(
             .put("tvRefresh", tvRefreshStored ?: "")
             .put("tvName", tvNameStored ?: "")
             .put("tvAvatar", tvAvatarStored ?: "")
+            .put("desktopRefresh", desktopRefreshStored ?: "")
             .toString()
         val blob = encrypt(plain) ?: return
         prefs().edit().putString(KEY_BLOB, blob).apply()

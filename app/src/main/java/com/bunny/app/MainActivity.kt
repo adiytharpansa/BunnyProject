@@ -105,11 +105,23 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var playbackManager: PlaybackManager
 
+    @Inject
+    lateinit var desktopAuth: com.bunny.app.data.DesktopAuth
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let { desktopAuth.handleRedirect(it) }
+    }
+
     /** True while a video is open — gates automatic PiP on leaving. */
     private var pipEligible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A cold start can BE the OAuth redirect (the browser sheet
+        // returns to a fresh process); hand it to the same door.
+        intent?.data?.let { desktopAuth.handleRedirect(it) }
         enableEdgeToEdge()
         setContent {
             BunnyTheme {

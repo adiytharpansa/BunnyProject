@@ -44,10 +44,16 @@ fun ProfileScreen(
     onPersonalClick: (String) -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
     tvViewModel: TvLoginViewModel = hiltViewModel(),
+    desktopViewModel: DesktopProbeViewModel = hiltViewModel(),
 ) {
     val tvState by tvViewModel.state.collectAsState()
     val tvSignedIn by tvViewModel.tvSignedIn.collectAsState()
     val tvVerdicts by tvViewModel.verdicts.collectAsState()
+    val desktopState by desktopViewModel.state.collectAsState()
+    val desktopSignedIn by desktopViewModel.desktopSignedIn
+        .collectAsState()
+    val desktopVerdicts by desktopViewModel.verdicts.collectAsState()
+    val desktopDataVerdict by desktopViewModel.dataVerdict.collectAsState()
     val authState by viewModel.state.collectAsState()
     // Satu Ketuk: the consent sheet belongs to the system; the screen
     // only launches the PendingIntent the authorization call returns.
@@ -156,6 +162,20 @@ fun ProfileScreen(
                         }
                     }
                     TvStatusText(tvState)
+                    if (desktopViewModel.configured && !desktopSignedIn) {
+                        OutlinedButton(
+                            onClick = {
+                                if (activity != null) {
+                                    desktopViewModel.start(activity)
+                                }
+                            },
+                        ) {
+                            Text(
+                                stringResource(R.string.desktop_login_button),
+                            )
+                        }
+                        DesktopStatusText(desktopState)
+                    }
                     OutlinedButton(onClick = { viewModel.signOut() }) {
                         Text(stringResource(R.string.profile_signout))
                     }
@@ -233,6 +253,26 @@ fun ProfileScreen(
                         Text(stringResource(R.string.tv_login_button))
                     }
                     TvStatusText(tvState)
+                    if (desktopViewModel.configured) {
+                        Text(
+                            stringResource(R.string.tv_or_divider),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                if (activity != null) {
+                                    desktopViewModel.start(activity)
+                                }
+                            },
+                        ) {
+                            Text(
+                                stringResource(R.string.desktop_login_button),
+                            )
+                        }
+                        DesktopStatusText(desktopState)
+                    }
                 }
             }
             if (verdicts.isNotEmpty()) {
@@ -315,6 +355,61 @@ fun ProfileScreen(
                     }
                 }
             }
+            if (desktopVerdicts.isNotEmpty() ||
+                desktopDataVerdict != null
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.desktop_verdicts_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                    desktopVerdicts.forEach { verdict ->
+                        val status = verdict.httpStatus
+                        Text(
+                            when {
+                                verdict.accepted -> stringResource(
+                                    R.string.onetap_verdict_accepted,
+                                    verdict.contextName,
+                                    verdict.accountName ?: "",
+                                )
+                                status != null -> stringResource(
+                                    R.string.onetap_verdict_rejected,
+                                    verdict.contextName,
+                                    status,
+                                )
+                                else -> stringResource(
+                                    R.string.onetap_verdict_network,
+                                    verdict.contextName,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    desktopDataVerdict?.let { dataVerdict ->
+                        Text(
+                            stringResource(
+                                R.string.desktop_data_verdict,
+                                dataVerdict,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
             OutlinedButton(onClick = onDownloadsClick) {
                 Text(stringResource(R.string.profile_downloads_button))
             }
@@ -380,6 +475,31 @@ fun ProfileScreen(
 }
 
 /** The TV flow's quiet status line: denial, expiry, or failure. */
+@Composable
+private fun DesktopStatusText(state: DesktopProbeViewModel.State) {
+    val text = when (state) {
+        DesktopProbeViewModel.State.Idle -> null
+        DesktopProbeViewModel.State.Waiting ->
+            stringResource(R.string.desktop_waiting)
+        DesktopProbeViewModel.State.Probing ->
+            stringResource(R.string.onetap_probing)
+        DesktopProbeViewModel.State.Done ->
+            stringResource(R.string.desktop_done)
+        is DesktopProbeViewModel.State.Failed -> state.message
+    } ?: return
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (state is DesktopProbeViewModel.State.Failed) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
+}
+
 @Composable
 private fun TvStatusText(state: TvLoginViewModel.TvState) {
     val text = when (state) {

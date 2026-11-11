@@ -36,6 +36,36 @@ android {
                 .getOrElse("")
         buildConfigField("String", "TV_CLIENT_ID", "\"$tvClientId\"")
         buildConfigField("String", "TV_CLIENT_SECRET", "\"$tvClientSecret\"")
+
+        // Satu Pintu: the Desktop-app OAuth client of the same
+        // project, fed the same way (repo secrets BUNNY_DESKTOP_*).
+        // The manifest's redirect scheme is derived from the client
+        // ID here so code, manifest and console can never drift.
+        val desktopClientId =
+            providers.environmentVariable("BUNNY_DESKTOP_CLIENT_ID")
+                .getOrElse("")
+        val desktopClientSecret =
+            providers.environmentVariable("BUNNY_DESKTOP_CLIENT_SECRET")
+                .getOrElse("")
+        buildConfigField(
+            "String",
+            "DESKTOP_CLIENT_ID",
+            "\"$desktopClientId\"",
+        )
+        buildConfigField(
+            "String",
+            "DESKTOP_CLIENT_SECRET",
+            "\"$desktopClientSecret\"",
+        )
+        manifestPlaceholders["desktopRedirectScheme"] =
+            if (desktopClientId.isNotEmpty()) {
+                "com.googleusercontent.apps." +
+                    desktopClientId.removeSuffix(
+                        ".apps.googleusercontent.com",
+                    )
+            } else {
+                "com.bunny.app.desktop.unconfigured"
+            }
     }
 
     signingConfigs {
@@ -138,6 +168,11 @@ dependencies {
     // Google Identity Authorization API (Satu Ketuk): the system
     // account sheet + scope consent that returns an OAuth access token.
     implementation("com.google.android.gms:play-services-auth:22.0.0")
+
+    // Chrome Custom Tabs (Satu Pintu): Google's own sign-in page in
+    // the system browser sheet — the sanctioned alternative to the
+    // banned embedded WebView.
+    implementation("androidx.browser:browser:1.8.0")
 
     // Bunny's own modules: contract/models (:core) and the Lontar engine
     // (:engine). The UI depends on the contract only — never on the engine's
