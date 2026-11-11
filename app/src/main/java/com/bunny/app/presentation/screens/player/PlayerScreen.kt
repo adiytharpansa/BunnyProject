@@ -157,6 +157,10 @@ fun PlayerScreen(
                     PlayerView(context).apply {
                         useController = true
                         keepScreenOn = true
+                        // Media3 1.5 made the Compose surface-sync workaround
+                        // opt-in; without it, video rendered inside AndroidView
+                        // can stretch/crop on API 34 devices.
+                        setEnableComposeSurfaceSyncWorkaround(true)
                     }
                 },
                 update = { view ->

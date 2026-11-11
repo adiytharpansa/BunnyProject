@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.bunny.app"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.bunny.app"
@@ -110,7 +110,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // AndroidX Media3 / ExoPlayer (player — Fase 1+)
-    val media3Version = "1.4.0"
+    val media3Version = "1.5.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
