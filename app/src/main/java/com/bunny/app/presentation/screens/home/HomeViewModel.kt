@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.bunny.app.data.AuthRepository
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.app.playback.PreviewStatus
@@ -30,6 +31,7 @@ import javax.inject.Inject
 class HomeViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val library: LibraryRepository,
+    private val auth: AuthRepository,
     private val previewManager: FeedPreviewManager,
     private val thumbnails: ThumbnailPreloader,
 ) : ViewModel() {
@@ -133,6 +135,27 @@ class HomeViewModel @Inject constructor(
             try {
                 val status = backend.healthCheck()
                 _uiState.update { it.copy(backendStatus = status) }
+                // Fase 5: while signed in, Home is the account's own
+                // server list in the server's order — no local ranking,
+                // and no local substitute when it comes back empty
+                // (the same no-fallback rule as the related list).
+                if (auth.isSignedIn) {
+                    val personal = backend.getPersonalHomeFeed(page = null)
+                    if (personal.items.isEmpty()) {
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                error = "Beranda pribadi tidak dapat dimuat. Coba lagi.",
+                            )
+                        }
+                        return@launch
+                    }
+                    thumbnails.preload(personal.items)
+                    _uiState.update {
+                        it.copy(isLoading = false, items = personal.items)
+                    }
+                    return@launch
+                }
                 val page = backend.getHomeFeed(page = null)
                 // Mesin Selera: the mixture is candidate generation;
                 // this ranking pass is Bunny's local second stage,

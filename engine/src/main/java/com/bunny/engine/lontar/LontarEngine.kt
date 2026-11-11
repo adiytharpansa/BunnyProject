@@ -1,6 +1,7 @@
 package com.bunny.engine.lontar
 
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.Page
@@ -36,6 +37,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class LontarEngine(
     private val httpClient: OkHttpClient,
+    /** Fase 5 login cookies for the metadata plane (app-owned). */
+    val auth: LontarAuth = LontarAuth(),
 ) : ExtractionBackend {
 
     override val id: String = "lontar"
@@ -204,6 +207,37 @@ class LontarEngine(
             throw e
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * The signed-in home: with login cookies attached, the very browse
+     * that answers EMPTY for a guest (probed four ways, 2026-11-11)
+     * returns the account's own server-composed grid. Order is the
+     * server's and is never re-ranked locally. Signed out, or an empty
+     * answer, reads as an empty page — the caller shows its empty
+     * state rather than a local substitute.
+     */
+    override suspend fun getPersonalHomeFeed(page: String?): Page<VideoItem> {
+        if (!auth.isSignedIn) return Page(items = emptyList(), nextPage = null)
+        val body = baseBody()
+        if (page != null) {
+            body.put("continuation", page)
+        } else {
+            body.put("browseId", "FEwhat_to_watch")
+        }
+        return InnertubeParser.parseFeedPage(post("browse", body))
+    }
+
+    /** The account's own header, from its authenticated account menu. */
+    override suspend fun getAccountInfo(): AccountInfo? {
+        if (!auth.isSignedIn) return null
+        return try {
+            InnertubeParser.parseAccountInfo(post("account/account_menu", baseBody()))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -445,6 +479,7 @@ class LontarEngine(
             clientVersion = activeSession.clientVersion,
             body = body,
             endpointLabel = endpoint,
+            auth = auth.cookies,
         )
     }
 
@@ -455,6 +490,7 @@ class LontarEngine(
         clientVersion: String,
         body: JSONObject,
         endpointLabel: String,
+        auth: AuthCookies? = null,
     ): JSONObject {
         // Distribution hardening (2026-11-10): transient refusals —
         // HTTP 429 (rate limit), 5xx (server trouble) and network I/O
@@ -469,12 +505,28 @@ class LontarEngine(
         while (true) {
             try {
                 return withContext(Dispatchers.IO) {
-                    val request = Request.Builder()
+                    val requestBuilder = Request.Builder()
                         .url(url)
                         .header("User-Agent", userAgent)
                         .header("X-YouTube-Client-Name", clientNameId)
                         .header("X-YouTube-Client-Version", clientVersion)
                         .header("Content-Type", "application/json")
+                    // Fase 5: a signed-in session signs its WEB requests
+                    // with the cookies + SAPISIDHASH, like YouTube's own
+                    // web client. Cookie values are never logged.
+                    if (auth != null) {
+                        requestBuilder
+                            .header("Cookie", auth.cookieHeader)
+                            .header(
+                                "Authorization",
+                                SapisidHash.authorizationHeader(
+                                    auth.sapisid,
+                                    System.currentTimeMillis() / 1000,
+                                ),
+                            )
+                            .header("X-Origin", SapisidHash.ORIGIN)
+                    }
+                    val request = requestBuilder
                         .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
                         .build()
                     httpClient.newCall(request).execute().use { response ->

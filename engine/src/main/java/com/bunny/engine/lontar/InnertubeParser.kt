@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar
 
+import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.Page
@@ -41,6 +42,12 @@ object InnertubeParser {
                 }
                 if (node.has("playlistVideoRenderer")) {
                     parsePlaylistVideoRenderer(node.getJSONObject("playlistVideoRenderer"))
+                        ?.let(out::add)
+                }
+                if (node.has("lockupViewModel")) {
+                    // Newer grids (the signed-in home among them) carry
+                    // the same rows as lockups instead of videoRenderers.
+                    parseLockupVideo(node.getJSONObject("lockupViewModel"))
                         ?.let(out::add)
                 }
                 val keys = node.keys()
@@ -278,6 +285,20 @@ object InnertubeParser {
             }
         }
         return best
+    }
+
+    /**
+     * The signed-in account's own header from the account-menu
+     * response: name and photo as YouTube reports them. Best-effort —
+     * any shape drift reads as null, never as an invented identity.
+     */
+    fun parseAccountInfo(response: JSONObject): AccountInfo? {
+        val header = findObject(response) { it.has("activeAccountHeaderRenderer") }
+            ?.optJSONObject("activeAccountHeaderRenderer") ?: return null
+        val name = textOf(header.optJSONObject("accountName"))
+            .takeIf { it.isNotEmpty() } ?: return null
+        val avatar = bestThumbnail(header.optJSONObject("accountPhoto"))
+        return AccountInfo(name = name, avatarUrl = avatar)
     }
 
     /**

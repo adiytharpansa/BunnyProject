@@ -1,6 +1,7 @@
 package com.bunny.app.core.di
 
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.engine.lontar.LontarAuth
 import com.bunny.engine.lontar.LontarEngine
 import dagger.Module
 import dagger.Provides
@@ -28,8 +29,12 @@ object BackendModule {
 
     @Provides
     @Singleton
-    fun provideLontarEngine(httpClient: OkHttpClient): LontarEngine =
-        LontarEngine(httpClient)
+    fun provideLontarAuth(): LontarAuth = LontarAuth()
+
+    @Provides
+    @Singleton
+    fun provideLontarEngine(httpClient: OkHttpClient, auth: LontarAuth): LontarEngine =
+        LontarEngine(httpClient, auth)
 
     @Provides
     @Singleton

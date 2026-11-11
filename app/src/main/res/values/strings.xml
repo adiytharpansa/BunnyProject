@@ -63,6 +63,14 @@
     <string name="profile_title">Profil</string>
     <string name="profile_name">Pengguna Bunny</string>
     <string name="profile_hint">Akun lokal di perangkat ini</string>
+    <string name="profile_login_button">Masuk dengan Google</string>
+    <string name="profile_login_hint">Dengan masuk, Beranda dan saran video memakai daftar pribadi asli dari akun YouTube Anda. Tetap opsional — tanpa masuk pun Bunny berjalan seperti biasa. Kue login tersimpan terenkripsi di perangkat ini dan bisa dihapus kapan pun dengan tombol Keluar.</string>
+    <string name="profile_signed_in_hint">Beranda &amp; saran memakai akun ini</string>
+    <string name="profile_signout">Keluar</string>
+    <string name="profile_account_fallback">Akun Google</string>
+    <string name="login_title">Masuk ke YouTube</string>
+    <string name="login_close">Tutup</string>
+    <string name="login_hint">Masuk dengan akun Google Anda di halaman resmi Google. Bunny tidak melihat kata sandi Anda. Setelah masuk selesai, halaman ini tertutup sendiri.</string>
     <string name="player_back">Kembali</string>
     <string name="player_more">…selengkapnya</string>
     <string name="player_less">Lebih sedikit</string>
