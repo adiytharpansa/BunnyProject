@@ -87,7 +87,9 @@ class DesktopSignInViewModel @Inject constructor(
                 if (mine != null) {
                     auth.signInDesktop(
                         refreshToken = granted.refreshToken,
+                        channelId = mine.id,
                         name = mine.title,
+                        handle = mine.handle,
                         avatarUrl = mine.avatarUrl,
                     )
                     _state.value = State.Idle

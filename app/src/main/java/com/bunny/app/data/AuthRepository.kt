@@ -133,11 +133,19 @@ class AuthRepository @Inject constructor(
      */
     fun signInDesktop(
         refreshToken: String?,
+        channelId: String?,
         name: String?,
+        handle: String?,
         avatarUrl: String?,
     ) {
         if (refreshToken != null) desktopRefreshStored = refreshToken
         _desktopSignedIn.value = desktopRefreshStored != null
+        // The identity snapshot is what restore() rebuilds the
+        // signed-in state from after a restart.
+        apiIdStored = channelId
+        apiNameStored = name
+        apiHandleStored = handle
+        apiAvatarStored = avatarUrl
         if (name != null) {
             _state.value = State.SignedIn(name, avatarUrl)
         }

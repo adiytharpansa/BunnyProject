@@ -133,22 +133,22 @@ fun ProfileScreen(
                         onClick = { onPersonalClick("subs") },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(stringResource(R.string.profile_subs_button))
+                        Text(stringResource(R.string.personal_subs_button))
                     }
                     OutlinedButton(
                         onClick = { onPersonalClick("latest") },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(stringResource(R.string.profile_latest_button))
+                        Text(stringResource(R.string.personal_latest_button))
                     }
                     OutlinedButton(
                         onClick = { onPersonalClick("liked") },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(stringResource(R.string.profile_liked_button))
+                        Text(stringResource(R.string.personal_liked_button))
                     }
                     TextButton(onClick = { viewModel.signOut() }) {
-                        Text(stringResource(R.string.profile_logout_button))
+                        Text(stringResource(R.string.profile_signout))
                     }
                 }
                 AuthRepository.State.SignedOut -> {
