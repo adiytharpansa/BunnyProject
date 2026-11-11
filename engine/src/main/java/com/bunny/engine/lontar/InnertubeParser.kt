@@ -1,9 +1,11 @@
 package com.bunny.engine.lontar
 
 import com.bunny.core.model.ChannelInfo
+import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
+import com.bunny.core.model.VideoComment
 import com.bunny.core.model.VideoItem
 import org.json.JSONArray
 import org.json.JSONObject
@@ -197,6 +199,147 @@ object InnertubeParser {
             is JSONArray -> {
                 for (i in 0 until node.length()) {
                     collectMetadataPartTexts(node.opt(i), out)
+                }
+            }
+        }
+    }
+
+    /**
+     * The token that opens a video's comment section, from a watch-page
+     * (next) response: the continuation inside the section whose
+     * sectionIdentifier is "comment-item-section". Null when the video
+     * has no comment section (e.g. comments are turned off).
+     */
+    fun findCommentsToken(response: JSONObject): String? {
+        val section = findObject(response) {
+            it.optString("sectionIdentifier") == "comment-item-section"
+        } ?: return null
+        return findContinuation(section)
+    }
+
+    /**
+     * The watch page's owner photo: videoSecondaryInfoRenderer's
+     * videoOwnerRenderer thumbnails (verified live 2026-11-11).
+     */
+    fun parseOwnerAvatarUrl(response: JSONObject): String? {
+        val secondary = findObject(response) {
+            it.optJSONObject("videoSecondaryInfoRenderer") != null
+        }?.optJSONObject("videoSecondaryInfoRenderer") ?: return null
+        val owner = secondary.optJSONObject("owner")
+            ?.optJSONObject("videoOwnerRenderer") ?: return null
+        return bestThumbnail(owner.optJSONObject("thumbnail"))
+    }
+
+    /**
+     * One page of comments from a comment-section continuation response.
+     * Threads arrive as view models carrying only keys; the bodies live
+     * in commentEntityPayload objects (framework updates) joined by
+     * that key — both halves verified live 2026-11-11 (20 threads, 20
+     * payloads, keys matching).
+     */
+    fun parseCommentsPage(response: JSONObject): CommentsPage {
+        val payloads = HashMap<String, JSONObject>()
+        walkObjects(response) { obj ->
+            obj.optJSONObject("commentEntityPayload")?.let { payload ->
+                payload.optString("key").takeIf { it.isNotEmpty() }
+                    ?.let { key -> payloads[key] = payload }
+            }
+        }
+        val items = mutableListOf<VideoComment>()
+        var nextPage: String? = null
+        val action = findObject(response) {
+            it.has("appendContinuationItemsAction") ||
+                it.has("reloadContinuationItemsCommand")
+        }
+        val container = action?.optJSONObject("appendContinuationItemsAction")
+            ?: action?.optJSONObject("reloadContinuationItemsCommand")
+        val list = container?.optJSONArray("continuationItems")
+        if (list != null) {
+            for (i in 0 until list.length()) {
+                val child = list.optJSONObject(i) ?: continue
+                child.optJSONObject("commentThreadRenderer")?.let { thread ->
+                    parseCommentThread(thread, payloads)?.let(items::add)
+                }
+                if (child.has("continuationItemRenderer")) {
+                    nextPage = findContinuation(child) ?: nextPage
+                }
+            }
+        } else {
+            walkObjects(response) { obj ->
+                obj.optJSONObject("commentThreadRenderer")?.let { thread ->
+                    parseCommentThread(thread, payloads)?.let(items::add)
+                }
+            }
+        }
+        return CommentsPage(items = items, nextPage = nextPage)
+    }
+
+    private fun parseCommentThread(
+        thread: JSONObject,
+        payloads: Map<String, JSONObject>,
+    ): VideoComment? {
+        val vm = thread.optJSONObject("commentViewModel")
+            ?.optJSONObject("commentViewModel") ?: return null
+        val payload = vm.optString("commentKey")
+            .takeIf { it.isNotEmpty() }
+            ?.let { payloads[it] } ?: return null
+        val props = payload.optJSONObject("properties") ?: return null
+        val author = payload.optJSONObject("author")
+        val toolbar = payload.optJSONObject("toolbar")
+        return VideoComment(
+            id = props.optString("commentId")
+                .ifEmpty { vm.optString("commentId") },
+            authorName = author?.optString("displayName").orEmpty(),
+            authorAvatarUrl = author?.optString("avatarThumbnailUrl")
+                ?.takeIf { it.isNotEmpty() },
+            authorChannelId = author?.optString("channelId")
+                ?.takeIf { it.isNotEmpty() },
+            publishedText = props.optString("publishedTime")
+                .takeIf { it.isNotEmpty() },
+            text = props.optJSONObject("content")?.optString("content").orEmpty(),
+            likeCountText = toolbar?.optString("likeCountNotliked")
+                ?.takeIf { it.isNotEmpty() },
+            replyCount = toolbar?.optString("replyCount")?.toIntOrNull() ?: 0,
+            isCreatorHearted = !toolbar?.optString("heartActiveTooltip")
+                .isNullOrEmpty(),
+        )
+    }
+
+    /** First object in the tree matching [predicate], depth-first. */
+    private fun findObject(
+        node: Any?,
+        predicate: (JSONObject) -> Boolean,
+    ): JSONObject? {
+        when (node) {
+            is JSONObject -> {
+                if (predicate(node)) return node
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    findObject(node.opt(keys.next()), predicate)?.let { return it }
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    findObject(node.opt(i), predicate)?.let { return it }
+                }
+            }
+        }
+        return null
+    }
+
+    /** Visits every object in the tree, parents before children. */
+    private fun walkObjects(node: Any?, visit: (JSONObject) -> Unit) {
+        when (node) {
+            is JSONObject -> {
+                visit(node)
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    walkObjects(node.opt(keys.next()), visit)
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    walkObjects(node.opt(i), visit)
                 }
             }
         }

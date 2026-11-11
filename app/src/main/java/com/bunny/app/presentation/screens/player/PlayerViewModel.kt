@@ -15,6 +15,7 @@ import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.VideoComment
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import com.google.common.util.concurrent.ListenableFuture
@@ -54,6 +55,16 @@ data class PlayerOptionsState(
     /** Manually pinned height; null means adaptive ("Otomatis"). */
     val selectedQuality: Int? = null,
     val speed: Float = 1.0f,
+)
+
+/** Komentar asli di bawah pemutar + foto pemilik dari halaman tonton. */
+data class CommentsUiState(
+    val isLoading: Boolean = true,
+    val items: List<VideoComment> = emptyList(),
+    val nextPage: String? = null,
+    val isLoadingMore: Boolean = false,
+    /** The watch page's owner photo for the channel row. */
+    val ownerAvatarUrl: String? = null,
 )
 
 /** Rekomendasi di bawah pemutar: tiga tampilan dari satu sumber data. */
@@ -240,6 +251,66 @@ private fun loadRelated(id: String, details: VideoDetails) {
     }
 }
 
+// ------------------------------------------------ komentar asli
+
+private val _comments = MutableStateFlow(CommentsUiState())
+val comments: StateFlow<CommentsUiState> = _comments.asStateFlow()
+private var commentsJob: Job? = null
+
+/**
+ * Komentar adalah hiasan di bawah pemutar, pola yang sama dengan
+ * rekomendasi: job terpisah setelah video siap; kegagalannya berarti
+ * daftar kosong, tidak pernah error pemutar. Halaman pertama juga
+ * membawa foto asli pemilik video untuk baris kanal.
+ */
+private fun loadComments(id: String) {
+    commentsJob?.cancel()
+    _comments.value = CommentsUiState(isLoading = true)
+    commentsJob = viewModelScope.launch {
+        val page = try {
+            backend.getComments(id, null)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        _comments.value = CommentsUiState(
+            isLoading = false,
+            items = page?.items.orEmpty(),
+            nextPage = page?.nextPage,
+            ownerAvatarUrl = page?.ownerAvatarUrl,
+        )
+    }
+}
+
+fun loadMoreComments() {
+    val id = videoId ?: return
+    val current = _comments.value
+    val next = current.nextPage ?: return
+    if (current.isLoadingMore || current.isLoading) return
+    _comments.update { it.copy(isLoadingMore = true) }
+    viewModelScope.launch {
+        val page = try {
+            backend.getComments(id, next)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        _comments.update {
+            it.copy(
+                isLoadingMore = false,
+                items = if (page != null) {
+                    (it.items + page.items).distinctBy { c -> c.id }
+                } else {
+                    it.items
+                },
+                nextPage = page?.nextPage ?: it.nextPage,
+            )
+        }
+    }
+}
+
 private suspend fun safeItems(block: suspend () -> List<VideoItem>): List<VideoItem> =
     try {
         block()
@@ -353,6 +424,7 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
                     quotaBytes = quota,
                 )
                 loadRelated(id, details)
+                loadComments(id)
             } catch (e: CancellationException) {
                 // Cancellation is control flow, not a playback failure: it
                 // must never become an error state (its message is a

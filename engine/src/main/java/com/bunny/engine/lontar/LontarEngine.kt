@@ -2,6 +2,7 @@ package com.bunny.engine.lontar
 
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.ChannelInfo
+import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -158,6 +159,34 @@ class LontarEngine(
             throw e
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /**
+     * Comments ride the watch page's own continuation chain: the first
+     * page opens with a next(videoId) call whose response carries both
+     * the comment section's token and the owner's photo; later pages
+     * follow the token each page hands back. Best-effort like the other
+     * decorations — any failure reads as "no comments".
+     */
+    override suspend fun getComments(videoId: String, page: String?): CommentsPage {
+        return try {
+            if (page != null) {
+                val body = baseBody().put("continuation", page)
+                InnertubeParser.parseCommentsPage(post("next", body))
+            } else {
+                val watch = post("next", baseBody().put("videoId", videoId))
+                val ownerAvatar = InnertubeParser.parseOwnerAvatarUrl(watch)
+                val token = InnertubeParser.findCommentsToken(watch)
+                    ?: return CommentsPage(ownerAvatarUrl = ownerAvatar)
+                val body = baseBody().put("continuation", token)
+                InnertubeParser.parseCommentsPage(post("next", body))
+                    .copy(ownerAvatarUrl = ownerAvatar)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            CommentsPage()
         }
     }
 

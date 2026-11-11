@@ -35,6 +35,7 @@ import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -60,6 +61,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -72,11 +74,13 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
+import com.bunny.core.model.VideoComment
 
 @OptIn(ExperimentalMaterial3Api::class)
 @UnstableApi
@@ -93,6 +97,7 @@ fun PlayerScreen(
     val diagnostics by viewModel.diagnostics.collectAsState()
     val controller by viewModel.controllerPlayer.collectAsState()
     val related by viewModel.related.collectAsState()
+    val comments by viewModel.comments.collectAsState()
     // Scroll kembali ke atas setiap kali pindah ke video lain.
     val scrollState = remember(videoId) { ScrollState(0) }
 
@@ -348,10 +353,9 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            // Plain circle for now: no letter stand-in
-                            // (user rule 2026-11-11). The channel's real
-                            // photo fills this once the watch-page data
-                            // path lands with the comments work.
+                            // The channel's real photo from the watch
+                            // page; plain until it arrives (no letter
+                            // stand-in — user rule 2026-11-11).
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
@@ -359,7 +363,16 @@ fun PlayerScreen(
                                     .background(
                                         MaterialTheme.colorScheme.primaryContainer,
                                     ),
-                            )
+                            ) {
+                                comments.ownerAvatarUrl?.let { url ->
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                }
+                            }
                             Text(
                                 current.details.channelName,
                                 style = MaterialTheme.typography.titleSmall,
@@ -560,6 +573,10 @@ fun PlayerScreen(
                             pastFailures = null
                         },
                     )
+                    CommentsSection(
+                        state = comments,
+                        onLoadMore = { viewModel.loadMoreComments() },
+                    )
                     RelatedSection(
                         state = related,
                         channelName = current.details.channelName,
@@ -567,6 +584,105 @@ fun PlayerScreen(
                         onRetry = { viewModel.retryRelated() },
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Komentar asli dari halaman tonton: penulis, foto, waktu, isi dan
+ * jumlah suka persis seperti diterbitkan. Balasan ditampilkan sebagai
+ * hitungan; membukanya satu per satu belum didukung.
+ */
+@Composable
+private fun CommentsSection(
+    state: CommentsUiState,
+    onLoadMore: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            stringResource(R.string.player_comments_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        when {
+            state.isLoading -> CircularProgressIndicator()
+            state.items.isEmpty() -> Text(
+                stringResource(R.string.player_comments_unavailable),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> {
+                state.items.forEach { comment -> CommentRow(comment) }
+                if (state.nextPage != null) {
+                    OutlinedButton(
+                        onClick = onLoadMore,
+                        enabled = !state.isLoadingMore,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.player_comments_load_more))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentRow(comment: VideoComment) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            comment.authorAvatarUrl?.let { url ->
+                AsyncImage(
+                    model = url,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            val head = listOfNotNull(
+                comment.authorName.takeIf { it.isNotEmpty() },
+                comment.publishedText,
+            ).joinToString(" • ")
+            if (head.isNotEmpty()) {
+                Text(
+                    head,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(comment.text, style = MaterialTheme.typography.bodyMedium)
+            val meta = listOfNotNull(
+                comment.likeCountText?.takeIf { it != "0" }?.let {
+                    stringResource(R.string.player_comment_likes, it)
+                },
+                if (comment.replyCount > 0) {
+                    stringResource(R.string.player_comment_replies, comment.replyCount)
+                } else {
+                    null
+                },
+                if (comment.isCreatorHearted) {
+                    stringResource(R.string.player_comment_hearted)
+                } else {
+                    null
+                },
+            ).joinToString(" • ")
+            if (meta.isNotEmpty()) {
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

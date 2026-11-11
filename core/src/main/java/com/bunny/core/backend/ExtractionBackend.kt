@@ -1,6 +1,7 @@
 package com.bunny.core.backend
 
 import com.bunny.core.model.ChannelInfo
+import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -64,4 +65,13 @@ interface ExtractionBackend {
      * channel source or the page carried no metadata.
      */
     suspend fun getChannelInfo(channelId: String): ChannelInfo? = null
+
+    /**
+     * A video's real comments, newest page first; [page] is the opaque
+     * token from the previous page (null = first page). Backends
+     * without a comment source return an empty page. The first page
+     * also carries the watch page's owner photo.
+     */
+    suspend fun getComments(videoId: String, page: String? = null): CommentsPage =
+        CommentsPage()
 }

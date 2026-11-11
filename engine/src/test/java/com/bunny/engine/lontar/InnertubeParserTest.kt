@@ -235,6 +235,137 @@ class InnertubeParserTest {
     }
 
     @Test
+    fun comments_watchPageYieldsTokenAndOwnerAvatar() {
+        // Shape verified live 2026-11-11: the comments token sits in the
+        // "comment-item-section" of the watch page; the owner's photo in
+        // videoSecondaryInfoRenderer.owner.videoOwnerRenderer.
+        val json = """
+        {
+          "contents": {
+            "twoColumnWatchNextResults": {
+              "results": {
+                "results": {
+                  "contents": [
+                    {
+                      "itemSectionRenderer": {
+                        "sectionIdentifier": "comment-item-section",
+                        "contents": [
+                          {
+                            "continuationItemRenderer": {
+                              "continuationEndpoint": {
+                                "continuationCommand": {
+                                  "token": "COMMENTS_TOKEN"
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "videoSecondaryInfoRenderer": {
+                        "owner": {
+                          "videoOwnerRenderer": {
+                            "thumbnail": {
+                              "thumbnails": [
+                                { "url": "https://yt3.example/owner48.jpg" },
+                                { "url": "https://yt3.example/owner176.jpg" }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+        """.trimIndent()
+        val watch = JSONObject(json)
+        assertEquals("COMMENTS_TOKEN", InnertubeParser.findCommentsToken(watch))
+        assertEquals(
+            "https://yt3.example/owner176.jpg",
+            InnertubeParser.parseOwnerAvatarUrl(watch),
+        )
+    }
+
+    @Test
+    fun parseCommentsPage_joinsThreadsWithEntityPayloads() {
+        // Shape verified live 2026-11-11: threads carry only keys; the
+        // bodies live in commentEntityPayload mutations joined by key.
+        val json = """
+        {
+          "onResponseReceivedEndpoints": [
+            {
+              "appendContinuationItemsAction": {
+                "continuationItems": [
+                  {
+                    "commentThreadRenderer": {
+                      "commentViewModel": {
+                        "commentViewModel": {
+                          "commentKey": "KEY1",
+                          "commentId": "UgK1"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationEndpoint": {
+                        "continuationCommand": { "token": "PAGE2" }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "frameworkUpdates": {
+            "entityBatchUpdate": {
+              "mutations": [
+                {
+                  "payload": {
+                    "commentEntityPayload": {
+                      "key": "KEY1",
+                      "properties": {
+                        "commentId": "UgK1",
+                        "content": { "content": "Komentar pertama" },
+                        "publishedTime": "6 bulan yang lalu"
+                      },
+                      "author": {
+                        "displayName": "@penonton",
+                        "avatarThumbnailUrl": "https://yt3.example/a88.jpg",
+                        "channelId": "UCpenonton"
+                      },
+                      "toolbar": {
+                        "likeCountNotliked": "12",
+                        "replyCount": "2"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """.trimIndent()
+        val page = InnertubeParser.parseCommentsPage(JSONObject(json))
+        assertEquals(1, page.items.size)
+        val c = page.items[0]
+        assertEquals("UgK1", c.id)
+        assertEquals("@penonton", c.authorName)
+        assertEquals("https://yt3.example/a88.jpg", c.authorAvatarUrl)
+        assertEquals("UCpenonton", c.authorChannelId)
+        assertEquals("6 bulan yang lalu", c.publishedText)
+        assertEquals("Komentar pertama", c.text)
+        assertEquals("12", c.likeCountText)
+        assertEquals(2, c.replyCount)
+        assertEquals("PAGE2", page.nextPage)
+    }
+
+    @Test
     fun parseCount_handlesSuffixesAndLocales() {
         assertEquals(1_200_000L, InnertubeParser.parseCount("1.2M views"))
         assertEquals(321_000L, InnertubeParser.parseCount("321K watching"))

@@ -68,6 +68,12 @@
     <string name="player_back">Kembali</string>
     <string name="player_more">…selengkapnya</string>
     <string name="player_less">Lebih sedikit</string>
+    <string name="player_comments_title">Komentar</string>
+    <string name="player_comments_unavailable">Komentar tidak tersedia untuk video ini.</string>
+    <string name="player_comments_load_more">Muat lebih banyak</string>
+    <string name="player_comment_likes">%1$s suka</string>
+    <string name="player_comment_replies">%1$d balasan</string>
+    <string name="player_comment_hearted">Diberi hati oleh pemilik video</string>
     <string name="player_enable_short">Aktifkan</string>
     <string name="notif_title">Notifikasi</string>
     <string name="notif_back">Kembali</string>
