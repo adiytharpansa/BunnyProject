@@ -59,6 +59,17 @@ data class PlayerOptionsState(
     val speed: Float = 1.0f,
 )
 
+/** Balasan satu utas komentar, dimuat saat utasnya dibuka. */
+data class RepliesUiState(
+    val isLoading: Boolean = false,
+    val items: List<VideoComment> = emptyList(),
+    val nextPage: String? = null,
+    val isLoadingMore: Boolean = false,
+    val expanded: Boolean = false,
+    /** Pemuatan pertama selesai tanpa hasil — tampilkan pesan jujur. */
+    val failed: Boolean = false,
+)
+
 /** Komentar asli di bawah pemutar + foto pemilik dari halaman tonton. */
 data class CommentsUiState(
     val isLoading: Boolean = true,
@@ -67,6 +78,8 @@ data class CommentsUiState(
     val isLoadingMore: Boolean = false,
     /** The watch page's owner photo for the channel row. */
     val ownerAvatarUrl: String? = null,
+    /** Per-thread reply state, keyed by comment id. */
+    val replies: Map<String, RepliesUiState> = emptyMap(),
 )
 
 /** Rekomendasi di bawah pemutar: tiga tampilan dari satu sumber data. */
@@ -402,6 +415,87 @@ class PlayerViewModel @Inject constructor(
                         it.items
                     },
                     nextPage = page?.nextPage ?: it.nextPage,
+                )
+            }
+        }
+    }
+
+    /**
+     * Opens or closes one thread's replies. First open loads them
+     * through the thread's own continuation token; later opens reuse
+     * what is already loaded. A load that returns nothing is shown
+     * honestly as unavailable — never filled with anything else.
+     */
+    fun toggleReplies(comment: VideoComment) {
+        val token = comment.repliesContinuation ?: return
+        val current = _comments.value.replies[comment.id]
+        if (current != null && (current.items.isNotEmpty() || current.failed)) {
+            _comments.update {
+                it.copy(
+                    replies = it.replies + (comment.id to
+                        current.copy(expanded = !current.expanded)),
+                )
+            }
+            return
+        }
+        if (current?.isLoading == true) return
+        _comments.update {
+            it.copy(
+                replies = it.replies + (comment.id to
+                    RepliesUiState(isLoading = true, expanded = true)),
+            )
+        }
+        viewModelScope.launch {
+            val page = try {
+                backend.getCommentReplies(token)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _comments.update {
+                it.copy(
+                    replies = it.replies + (comment.id to RepliesUiState(
+                        items = page?.items.orEmpty(),
+                        nextPage = page?.nextPage,
+                        expanded = true,
+                        failed = page == null || page.items.isEmpty(),
+                    )),
+                )
+            }
+        }
+    }
+
+    fun loadMoreReplies(commentId: String) {
+        val current = _comments.value.replies[commentId] ?: return
+        val next = current.nextPage ?: return
+        if (current.isLoadingMore || current.isLoading) return
+        _comments.update {
+            it.copy(
+                replies = it.replies + (commentId to
+                    current.copy(isLoadingMore = true)),
+            )
+        }
+        viewModelScope.launch {
+            val page = try {
+                backend.getCommentReplies(next)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _comments.update { state ->
+                val latest = state.replies[commentId] ?: return@update state
+                state.copy(
+                    replies = state.replies + (commentId to latest.copy(
+                        isLoadingMore = false,
+                        items = if (page != null) {
+                            (latest.items + page.items).distinctBy { c -> c.id }
+                        } else {
+                            latest.items
+                        },
+                        nextPage = page?.nextPage ?: latest.nextPage,
+                    )),
                 )
             }
         }

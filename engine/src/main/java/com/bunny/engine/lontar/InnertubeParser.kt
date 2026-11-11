@@ -390,13 +390,7 @@ object InnertubeParser {
      * payloads, keys matching).
      */
     fun parseCommentsPage(response: JSONObject): CommentsPage {
-        val payloads = HashMap<String, JSONObject>()
-        walkObjects(response) { obj ->
-            obj.optJSONObject("commentEntityPayload")?.let { payload ->
-                payload.optString("key").takeIf { it.isNotEmpty() }
-                    ?.let { key -> payloads[key] = payload }
-            }
-        }
+        val payloads = commentPayloads(response)
         val items = mutableListOf<VideoComment>()
         var nextPage: String? = null
         // A real continuation response carries SEVERAL item containers:
@@ -405,16 +399,9 @@ object InnertubeParser {
         // container must be read — taking only the first one found
         // yields the header alone and zero comments (device test
         // 2026-11-11: "tidak tersedia" on every video).
-        var sawContainer = false
-        walkObjects(response) { obj ->
-            val container = obj.optJSONObject("appendContinuationItemsAction")
-                ?: obj.optJSONObject("reloadContinuationItemsCommand")
-                ?: return@walkObjects
-            val list = container.optJSONArray("continuationItems")
-                ?: return@walkObjects
-            sawContainer = true
-            for (i in 0 until list.length()) {
-                val child = list.optJSONObject(i) ?: continue
+        val children = continuationChildren(response)
+        if (children.isNotEmpty()) {
+            for (child in children) {
                 child.optJSONObject("commentThreadRenderer")?.let { thread ->
                     parseCommentThread(thread, payloads)?.let(items::add)
                 }
@@ -422,8 +409,7 @@ object InnertubeParser {
                     nextPage = findContinuation(child) ?: nextPage
                 }
             }
-        }
-        if (!sawContainer) {
+        } else {
             walkObjects(response) { obj ->
                 obj.optJSONObject("commentThreadRenderer")?.let { thread ->
                     parseCommentThread(thread, payloads)?.let(items::add)
@@ -436,12 +422,99 @@ object InnertubeParser {
         )
     }
 
+    /**
+     * One page of a thread's replies. Verified live 2026-11-11: the
+     * replies continuation answers with ONE append container whose
+     * items are BARE comment view models (no thread wrapper) joined
+     * to entity payloads exactly like the parent page, plus a trailing
+     * continuation item for the next replies page.
+     */
+    fun parseRepliesPage(response: JSONObject): CommentsPage {
+        val payloads = commentPayloads(response)
+        val items = mutableListOf<VideoComment>()
+        var nextPage: String? = null
+        for (child in continuationChildren(response)) {
+            child.optJSONObject("commentViewModel")?.let { vm ->
+                parseCommentFromViewModel(vm, payloads)?.let(items::add)
+            }
+            if (child.has("continuationItemRenderer")) {
+                nextPage = findContinuation(child) ?: nextPage
+            }
+        }
+        return CommentsPage(
+            items = items.distinctBy { it.id },
+            nextPage = nextPage,
+        )
+    }
+
+    /** Every entity payload in the response, keyed by its join key. */
+    private fun commentPayloads(response: JSONObject): Map<String, JSONObject> {
+        val payloads = HashMap<String, JSONObject>()
+        walkObjects(response) { obj ->
+            obj.optJSONObject("commentEntityPayload")?.let { payload ->
+                payload.optString("key").takeIf { it.isNotEmpty() }
+                    ?.let { key -> payloads[key] = payload }
+            }
+        }
+        return payloads
+    }
+
+    /**
+     * The item children of EVERY continuation container in the
+     * response, in order (see the two-container lesson in
+     * [parseCommentsPage]).
+     */
+    private fun continuationChildren(response: JSONObject): List<JSONObject> {
+        val out = mutableListOf<JSONObject>()
+        walkObjects(response) { obj ->
+            val container = obj.optJSONObject("appendContinuationItemsAction")
+                ?: obj.optJSONObject("reloadContinuationItemsCommand")
+                ?: return@walkObjects
+            val list = container.optJSONArray("continuationItems")
+                ?: return@walkObjects
+            for (i in 0 until list.length()) {
+                list.optJSONObject(i)?.let(out::add)
+            }
+        }
+        return out
+    }
+
     private fun parseCommentThread(
         thread: JSONObject,
         payloads: Map<String, JSONObject>,
     ): VideoComment? {
-        val vm = thread.optJSONObject("commentViewModel")
-            ?.optJSONObject("commentViewModel") ?: return null
+        val base = parseCommentFromViewModel(
+            thread.optJSONObject("commentViewModel"),
+            payloads,
+        ) ?: return null
+        // The thread's replies door: a continuation token inside the
+        // replies renderer (verified live 2026-11-11).
+        val repliesToken = thread.optJSONObject("replies")?.let { replies ->
+            var token: String? = null
+            walkObjects(replies) { obj ->
+                if (token == null) {
+                    token = obj.optJSONObject("continuationCommand")
+                        ?.optString("token")
+                        ?.takeIf { it.isNotEmpty() }
+                }
+            }
+            token
+        }
+        return base.copy(repliesContinuation = repliesToken)
+    }
+
+    /**
+     * One comment from its view model, which arrives in two spellings:
+     * nested (`commentViewModel.commentViewModel`, inside a thread) or
+     * bare (a replies page item). The body always comes from the
+     * entity payload the view model's key points at.
+     */
+    private fun parseCommentFromViewModel(
+        viewModel: JSONObject?,
+        payloads: Map<String, JSONObject>,
+    ): VideoComment? {
+        if (viewModel == null) return null
+        val vm = viewModel.optJSONObject("commentViewModel") ?: viewModel
         val payload = vm.optString("commentKey")
             .takeIf { it.isNotEmpty() }
             ?.let { payloads[it] } ?: return null

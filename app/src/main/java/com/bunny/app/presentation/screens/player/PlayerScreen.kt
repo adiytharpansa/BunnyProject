@@ -631,6 +631,8 @@ fun PlayerScreen(
                     CommentsSection(
                         state = comments,
                         onLoadMore = { viewModel.loadMoreComments() },
+                        onToggleReplies = { viewModel.toggleReplies(it) },
+                        onLoadMoreReplies = { viewModel.loadMoreReplies(it) },
                     )
                     RelatedSection(
                         state = related,
@@ -647,13 +649,15 @@ fun PlayerScreen(
 
 /**
  * Komentar asli dari halaman tonton: penulis, foto, waktu, isi dan
- * jumlah suka persis seperti diterbitkan. Balasan ditampilkan sebagai
- * hitungan; membukanya satu per satu belum didukung.
+ * jumlah suka persis seperti diterbitkan. Balasan bisa dibuka di
+ * tempat: utas dimuat lewat token lanjutannya sendiri saat diketuk.
  */
 @Composable
 private fun CommentsSection(
     state: CommentsUiState,
     onLoadMore: () -> Unit,
+    onToggleReplies: (VideoComment) -> Unit,
+    onLoadMoreReplies: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(
@@ -669,7 +673,14 @@ private fun CommentsSection(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             else -> {
-                state.items.forEach { comment -> CommentRow(comment) }
+                state.items.forEach { comment ->
+                    CommentRow(
+                        comment = comment,
+                        replies = state.replies[comment.id],
+                        onToggleReplies = { onToggleReplies(comment) },
+                        onLoadMoreReplies = { onLoadMoreReplies(comment.id) },
+                    )
+                }
                 if (state.nextPage != null) {
                     OutlinedButton(
                         onClick = onLoadMore,
@@ -685,7 +696,12 @@ private fun CommentsSection(
 }
 
 @Composable
-private fun CommentRow(comment: VideoComment) {
+private fun CommentRow(
+    comment: VideoComment,
+    replies: RepliesUiState? = null,
+    onToggleReplies: () -> Unit = {},
+    onLoadMoreReplies: () -> Unit = {},
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
             modifier = Modifier
@@ -739,6 +755,43 @@ private fun CommentRow(comment: VideoComment) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            // Balasan: tombol buka/tutup hanya bila server memberi
+            // pintu masuknya (token) — utas tanpa token tidak berpura-
+            // pura bisa dibuka.
+            if (comment.replyCount > 0 && comment.repliesContinuation != null) {
+                TextButton(onClick = onToggleReplies) {
+                    Text(
+                        if (replies?.expanded == true) {
+                            stringResource(R.string.player_replies_hide)
+                        } else {
+                            stringResource(R.string.player_replies_show, comment.replyCount)
+                        },
+                    )
+                }
+            }
+            if (replies?.expanded == true) {
+                when {
+                    replies.isLoading -> CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                    )
+                    replies.failed -> Text(
+                        stringResource(R.string.player_replies_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> {
+                        replies.items.forEach { reply -> CommentRow(reply) }
+                        if (replies.nextPage != null) {
+                            TextButton(
+                                onClick = onLoadMoreReplies,
+                                enabled = !replies.isLoadingMore,
+                            ) {
+                                Text(stringResource(R.string.player_replies_load_more))
+                            }
+                        }
+                    }
+                }
             }
         }
     }

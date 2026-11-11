@@ -77,6 +77,16 @@ interface ExtractionBackend {
         CommentsPage()
 
     /**
+     * One page of a comment thread's replies, loaded with the opaque
+     * [continuation] a top-level comment carries. Replies arrive as
+     * bare comment view models (no thread wrapper) joined to the same
+     * entity payloads as the parent page — verified live 2026-11-11.
+     * Best-effort: an empty page means the replies could not be read.
+     */
+    suspend fun getCommentReplies(continuation: String): CommentsPage =
+        CommentsPage()
+
+    /**
      * The watch page's own related list for [videoId] — the videos
      * YouTube's recommender itself lines up next, IN THE SERVER'S ORDER
      * (that order is the algorithm's output; re-sorting it locally would

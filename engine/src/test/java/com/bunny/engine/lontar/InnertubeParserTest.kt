@@ -376,6 +376,145 @@ class InnertubeParserTest {
     }
 
     @Test
+    fun parseCommentsPage_threadCarriesRepliesContinuation() {
+        // Shape verified live 2026-11-11: the thread's replies door is
+        // a continuation token inside commentRepliesRenderer.
+        val json = """
+        {
+          "onResponseReceivedEndpoints": [
+            {
+              "reloadContinuationItemsCommand": {
+                "continuationItems": [
+                  {
+                    "commentThreadRenderer": {
+                      "commentViewModel": {
+                        "commentViewModel": {
+                          "commentKey": "KEY1",
+                          "commentId": "UgK1"
+                        }
+                      },
+                      "replies": {
+                        "commentRepliesRenderer": {
+                          "contents": [
+                            {
+                              "continuationItemRenderer": {
+                                "continuationEndpoint": {
+                                  "continuationCommand": { "token": "REPLIES1" }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "frameworkUpdates": {
+            "entityBatchUpdate": {
+              "mutations": [
+                {
+                  "payload": {
+                    "commentEntityPayload": {
+                      "key": "KEY1",
+                      "properties": {
+                        "commentId": "UgK1",
+                        "content": { "content": "Komentar induk" },
+                        "publishedTime": "1 hari yang lalu"
+                      },
+                      "author": { "displayName": "@induk" },
+                      "toolbar": { "replyCount": "3" }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """.trimIndent()
+        val page = InnertubeParser.parseCommentsPage(JSONObject(json))
+        assertEquals(1, page.items.size)
+        assertEquals("REPLIES1", page.items[0].repliesContinuation)
+        assertEquals(3, page.items[0].replyCount)
+    }
+
+    @Test
+    fun parseRepliesPage_readsBareViewModelsAndNextToken() {
+        // Shape verified live 2026-11-11: replies arrive as BARE
+        // commentViewModel items in one append container (no thread
+        // wrapper), joined to payloads by key, with a trailing
+        // continuation item for the next replies page.
+        val json = """
+        {
+          "onResponseReceivedEndpoints": [
+            {
+              "appendContinuationItemsAction": {
+                "continuationItems": [
+                  { "commentViewModel": { "commentKey": "RKEY1", "commentId": "UgR1" } },
+                  { "commentViewModel": { "commentKey": "RKEY2", "commentId": "UgR2" } },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationEndpoint": {
+                        "continuationCommand": { "token": "REPLIES_PAGE2" }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "frameworkUpdates": {
+            "entityBatchUpdate": {
+              "mutations": [
+                {
+                  "payload": {
+                    "commentEntityPayload": {
+                      "key": "RKEY1",
+                      "properties": {
+                        "commentId": "UgR1",
+                        "content": { "content": "Balasan pertama" },
+                        "publishedTime": "2 jam yang lalu"
+                      },
+                      "author": {
+                        "displayName": "@pembalas",
+                        "avatarThumbnailUrl": "https://yt3.example/b88.jpg"
+                      },
+                      "toolbar": { "likeCountNotliked": "5" }
+                    }
+                  }
+                },
+                {
+                  "payload": {
+                    "commentEntityPayload": {
+                      "key": "RKEY2",
+                      "properties": {
+                        "commentId": "UgR2",
+                        "content": { "content": "Balasan kedua" },
+                        "publishedTime": "1 jam yang lalu"
+                      },
+                      "author": { "displayName": "@lain" },
+                      "toolbar": {}
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+        """.trimIndent()
+        val page = InnertubeParser.parseRepliesPage(JSONObject(json))
+        assertEquals(2, page.items.size)
+        assertEquals("Balasan pertama", page.items[0].text)
+        assertEquals("@pembalas", page.items[0].authorName)
+        assertEquals("https://yt3.example/b88.jpg", page.items[0].authorAvatarUrl)
+        assertEquals("5", page.items[0].likeCountText)
+        assertEquals("Balasan kedua", page.items[1].text)
+        assertEquals("REPLIES_PAGE2", page.nextPage)
+    }
+
+    @Test
     fun parseCount_handlesSuffixesAndLocales() {
         assertEquals(1_200_000L, InnertubeParser.parseCount("1.2M views"))
         assertEquals(321_000L, InnertubeParser.parseCount("321K watching"))

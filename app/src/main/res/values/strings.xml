@@ -79,6 +79,10 @@
     <string name="player_comments_load_more">Muat lebih banyak</string>
     <string name="player_comment_likes">%1$s suka</string>
     <string name="player_comment_replies">%1$d balasan</string>
+    <string name="player_replies_show">Lihat %1$d balasan</string>
+    <string name="player_replies_hide">Sembunyikan balasan</string>
+    <string name="player_replies_load_more">Muat lebih banyak balasan</string>
+    <string name="player_replies_unavailable">Balasan tidak dapat dimuat.</string>
     <string name="player_comment_hearted">Diberi hati oleh pemilik video</string>
     <string name="notif_title">Notifikasi</string>
     <string name="notif_back">Kembali</string>

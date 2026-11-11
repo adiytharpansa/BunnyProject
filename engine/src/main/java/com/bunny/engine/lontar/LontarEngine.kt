@@ -193,6 +193,19 @@ class LontarEngine(
         }
     }
 
+    /** One page of a thread's replies, via the thread's own token. */
+    override suspend fun getCommentReplies(continuation: String): CommentsPage {
+        return try {
+            InnertubeParser.parseRepliesPage(
+                post("next", baseBody().put("continuation", continuation)),
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            CommentsPage()
+        }
+    }
+
     /**
      * The related list rides the same watch-page call as comments: one
      * next(videoId) response already carries YouTube's own ranked list

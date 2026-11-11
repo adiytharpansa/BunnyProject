@@ -15,6 +15,12 @@ data class VideoComment(
     val replyCount: Int = 0,
     /** True when the video's owner gave this comment a heart. */
     val isCreatorHearted: Boolean = false,
+    /**
+     * Continuation token that loads this thread's replies, present
+     * only on top-level comments the server offers replies for.
+     * Feed it to the backend's replies call; never display it.
+     */
+    val repliesContinuation: String? = null,
 )
 
 /** One page of a video's comments. */
