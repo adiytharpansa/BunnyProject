@@ -90,19 +90,15 @@ fun ChannelScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    // Plain circle for now: no letter stand-in (user rule
+                    // 2026-11-11). The channel's real photo fills this when
+                    // the channel-header data (metadata) work lands.
                     Box(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            displayName.firstOrNull()?.uppercase() ?: "?",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
+                    )
                     Column(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {

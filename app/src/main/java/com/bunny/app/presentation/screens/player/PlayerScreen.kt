@@ -284,6 +284,14 @@ fun PlayerScreen(
                                 )
                             }
                             if (infoExpanded) {
+                                // The video's real description, as written
+                                // by the channel (from the player data).
+                                if (current.details.description.isNotBlank()) {
+                                    Text(
+                                        current.details.description,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
                                 Text(
                                     current.sourceNote,
                                     style = MaterialTheme.typography.bodySmall,
@@ -340,6 +348,10 @@ fun PlayerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
+                            // Plain circle for now: no letter stand-in
+                            // (user rule 2026-11-11). The channel's real
+                            // photo fills this once the watch-page data
+                            // path lands with the comments work.
                             Box(
                                 modifier = Modifier
                                     .size(40.dp)
@@ -347,16 +359,7 @@ fun PlayerScreen(
                                     .background(
                                         MaterialTheme.colorScheme.primaryContainer,
                                     ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    current.details.channelName
-                                        .firstOrNull()?.uppercase() ?: "?",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme
-                                        .onPrimaryContainer,
-                                )
-                            }
+                            )
                             Text(
                                 current.details.channelName,
                                 style = MaterialTheme.typography.titleSmall,

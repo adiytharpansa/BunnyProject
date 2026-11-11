@@ -240,35 +240,16 @@ fun VideoCard(
                         .background(avatarColor(item.channelName)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    // The channel's real photo when the engine brought one;
-                    // the initial letter stays as the loading/error fallback.
-                    val initial = item.channelName.firstOrNull()?.uppercase() ?: "?"
+                    // Only the channel's real photo lives here — no letter
+                    // stand-in (user rule 2026-11-11: no fallbacks; the
+                    // loading path itself gets made stable instead). While
+                    // the photo loads, the circle stays plain.
                     if (item.channelAvatarUrl != null) {
                         SubcomposeAsyncImage(
                             model = item.channelAvatarUrl,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
-                            loading = {
-                                Text(
-                                    initial,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = Color(0xFFF5F1EA),
-                                )
-                            },
-                            error = {
-                                Text(
-                                    initial,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = Color(0xFFF5F1EA),
-                                )
-                            },
-                        )
-                    } else {
-                        Text(
-                            initial,
-                            style = MaterialTheme.typography.titleSmall,
-                            color = Color(0xFFF5F1EA),
                         )
                     }
                 }
