@@ -264,17 +264,18 @@ private fun GuestWarmingPanel(
             modifier = Modifier.fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
+        val historyCount = current.historyItemCount
         Text(
             when {
-                current.historyItemCount == null -> stringResource(
+                historyCount == null -> stringResource(
                     R.string.guest_history_refused,
                     current.historyHttpCode ?: 0,
                 )
-                current.historyItemCount == 0 ->
+                historyCount == 0 ->
                     stringResource(R.string.guest_history_empty)
                 else -> stringResource(
                     R.string.guest_history_ok,
-                    current.historyItemCount,
+                    historyCount,
                 )
             },
             style = MaterialTheme.typography.bodyMedium,
