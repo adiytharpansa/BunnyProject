@@ -1,6 +1,8 @@
 package com.bunny.app.presentation.screens.player
 
 import android.app.Activity
+import android.content.Intent
+import android.media.AudioManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +39,9 @@ import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.Repeat
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -88,6 +94,9 @@ import com.bunny.app.R
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.playback.PlaybackDiagnostics
+import com.bunny.app.playback.PlayerTouchGestures
+import com.bunny.core.model.Chapters
+import kotlin.math.roundToInt
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoComment
@@ -210,6 +219,17 @@ fun PlayerScreen(
     val playerOptions by viewModel.options.collectAsState()
     var showQualityDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
+    var showSleepDialog by remember { mutableStateOf(false) }
+
+    // Gestur pemutar (paket §8): teks HUD sesaat + penanda tahan-2x.
+    val gestureHud = remember { mutableStateOf<String?>(null) }
+    val speedBoost = remember { mutableStateOf(false) }
+    LaunchedEffect(gestureHud.value) {
+        if (gestureHud.value != null) {
+            kotlinx.coroutines.delay(700)
+            gestureHud.value = null
+        }
+    }
 
     // YouTube-style: the title clamps to two lines and the grey
     // description box expands in place.
@@ -257,6 +277,83 @@ fun PlayerScreen(
                         // Munculkan tombol layar penuh di bilah kontrol.
                         setFullscreenButtonClickListener { toggleFullscreen() }
 
+                        // Gestur (paket §8): ketuk dua kali ±10 dtk,
+                        // tahan = 2x sementara, geser vertikal kanan =
+                        // volume, kiri = kecerahan. Listener hanya
+                        // mengonsumsi gestur yang ia kenal; sentuhan
+                        // lain tetap milik kontrol bawaan PlayerView.
+                        val gestureActivity = generateSequence(ctx) {
+                            (it as? ContextWrapper)?.baseContext
+                        }.filterIsInstance<Activity>().firstOrNull()
+                        val gestureAudio =
+                            ctx.getSystemService(AudioManager::class.java)
+                        setOnTouchListener(
+                            PlayerTouchGestures(
+                                ctx,
+                                object : PlayerTouchGestures.Callbacks {
+                                    override fun onDoubleTapSeek(forward: Boolean) {
+                                        viewModel.seekBy(
+                                            if (forward) 10_000 else -10_000,
+                                        )
+                                        gestureHud.value = ctx.getString(
+                                            if (forward) {
+                                                R.string.gesture_forward
+                                            } else {
+                                                R.string.gesture_back
+                                            },
+                                        )
+                                    }
+
+                                    override fun onHoldSpeed(holding: Boolean) {
+                                        viewModel.setHoldSpeed(holding)
+                                        speedBoost.value = holding
+                                    }
+
+                                    override fun onVolumeDelta(fraction: Float) {
+                                        val am = gestureAudio ?: return
+                                        val max = am.getStreamMaxVolume(
+                                            AudioManager.STREAM_MUSIC,
+                                        )
+                                        if (max <= 0) return
+                                        val now = am.getStreamVolume(
+                                            AudioManager.STREAM_MUSIC,
+                                        ).toFloat() / max
+                                        val next = (now + fraction)
+                                            .coerceIn(0f, 1f)
+                                        am.setStreamVolume(
+                                            AudioManager.STREAM_MUSIC,
+                                            (next * max).roundToInt(),
+                                            0,
+                                        )
+                                        gestureHud.value = ctx.getString(
+                                            R.string.gesture_volume,
+                                            (next * 100).toInt(),
+                                        )
+                                    }
+
+                                    override fun onBrightnessDelta(fraction: Float) {
+                                        val act = gestureActivity ?: return
+                                        val attrs = act.window.attributes
+                                        val now = if (attrs.screenBrightness < 0f) {
+                                            0.5f
+                                        } else {
+                                            attrs.screenBrightness
+                                        }
+                                        val next = (now + fraction)
+                                            .coerceIn(0.01f, 1f)
+                                        attrs.screenBrightness = next
+                                        act.window.attributes = attrs
+                                        gestureHud.value = ctx.getString(
+                                            R.string.gesture_brightness,
+                                            (next * 100).toInt(),
+                                        )
+                                    }
+
+                                    override fun onGestureEnd() = Unit
+                                },
+                            ),
+                        )
+
                         // Bilah progres diberi jarak 16dp dari tepi layar supaya
                         // pegangannya tidak menempel ke tepi (dan bentrok dengan
                         // gestur kembali Android). Tidak berbuat apa-apa bila
@@ -284,6 +381,40 @@ fun PlayerScreen(
             )
             if (state is PlayerUiState.Loading) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            }
+            gestureHud.value?.let { hud ->
+                Surface(
+                    modifier = Modifier.align(Alignment.Center),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.Black.copy(alpha = 0.7f),
+                ) {
+                    Text(
+                        hud,
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp,
+                            vertical = 8.dp,
+                        ),
+                        color = Color.White,
+                    )
+                }
+            }
+            if (speedBoost.value) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 12.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color.Black.copy(alpha = 0.7f),
+                ) {
+                    Text(
+                        stringResource(R.string.gesture_speed_boost),
+                        modifier = Modifier.padding(
+                            horizontal = 16.dp,
+                            vertical = 8.dp,
+                        ),
+                        color = Color.White,
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -610,6 +741,60 @@ fun PlayerScreen(
                                 },
                             )
                         }
+                        item {
+                            ActionPill(
+                                icon = Icons.Outlined.Share,
+                                label = stringResource(R.string.player_share),
+                                onClick = {
+                                    val send = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(
+                                            Intent.EXTRA_SUBJECT,
+                                            current.details.title,
+                                        )
+                                        putExtra(
+                                            Intent.EXTRA_TEXT,
+                                            "${current.details.title}\n" +
+                                                "https://youtu.be/${current.details.id}",
+                                        )
+                                    }
+                                    context.startActivity(
+                                        Intent.createChooser(
+                                            send,
+                                            context.getString(
+                                                R.string.share_chooser,
+                                            ),
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                        item {
+                            ActionPill(
+                                icon = Icons.Outlined.Repeat,
+                                label = stringResource(R.string.player_loop) +
+                                    ": " + stringResource(
+                                        if (playerOptions.loop) {
+                                            R.string.state_on
+                                        } else {
+                                            R.string.state_off
+                                        },
+                                    ),
+                                onClick = { viewModel.toggleLoop() },
+                            )
+                        }
+                        item {
+                            ActionPill(
+                                icon = Icons.Outlined.Bedtime,
+                                label = stringResource(R.string.player_sleep) +
+                                    (
+                                        playerOptions.sleepMinutes?.let {
+                                            ": $it mnt"
+                                        } ?: ""
+                                        ),
+                                onClick = { showSleepDialog = true },
+                            )
+                        }
                     }
 
                     if (showQualityDialog) {
@@ -674,6 +859,80 @@ fun PlayerScreen(
                                 }
                             },
                         )
+                    }
+
+                    if (showSleepDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showSleepDialog = false },
+                            title = { Text(stringResource(R.string.player_sleep)) },
+                            text = {
+                                Column {
+                                    PlayerOptionRow(
+                                        label = stringResource(
+                                            R.string.player_sleep_off,
+                                        ),
+                                        selected = playerOptions.sleepMinutes == null,
+                                        onClick = {
+                                            viewModel.setSleepTimer(null)
+                                            showSleepDialog = false
+                                        },
+                                    )
+                                    listOf(15, 30, 45, 60).forEach { minutes ->
+                                        PlayerOptionRow(
+                                            label = stringResource(
+                                                R.string.player_sleep_minutes,
+                                                minutes,
+                                            ),
+                                            selected =
+                                                playerOptions.sleepMinutes == minutes,
+                                            onClick = {
+                                                viewModel.setSleepTimer(minutes)
+                                                showSleepDialog = false
+                                            },
+                                        )
+                                    }
+                                }
+                            },
+                            confirmButton = {},
+                            dismissButton = {
+                                TextButton(onClick = { showSleepDialog = false }) {
+                                    Text(stringResource(R.string.dialog_close))
+                                }
+                            },
+                        )
+                    }
+
+                    // Bab video dari deskripsi ASLI (paket §9): hanya
+                    // tampil bila daftar cap waktunya memenuhi aturan
+                    // bab YouTube; mengetuk bab = loncat ke detiknya.
+                    val chapters = remember(
+                        current.details.id,
+                        current.details.description,
+                    ) {
+                        Chapters.parse(current.details.description, 0)
+                    }
+                    if (chapters.isNotEmpty()) {
+                        Text(
+                            stringResource(R.string.player_chapters),
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(chapters) { chapter ->
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.seekTo(chapter.startMs)
+                                    },
+                                ) {
+                                    Text(
+                                        "${formatChapterTime(chapter.startMs)}" +
+                                            " · ${chapter.title}",
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -942,6 +1201,18 @@ private val PLAYER_SPEEDS =
 
 private fun formatSpeed(speed: Float): String =
     if (speed == speed.toInt().toFloat()) "${speed.toInt()}x" else "${speed}x"
+
+private fun formatChapterTime(ms: Long): String {
+    val totalSec = ms / 1000
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    val s = totalSec % 60
+    return if (h > 0) {
+        "%d:%02d:%02d".format(h, m, s)
+    } else {
+        "%d:%02d".format(m, s)
+    }
+}
 
 private fun formatCount(count: Long): String = when {
     count >= 1_000_000_000 -> "%.1f M".format(count / 1_000_000_000.0)

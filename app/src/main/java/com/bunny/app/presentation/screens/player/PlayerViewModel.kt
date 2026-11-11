@@ -14,6 +14,7 @@ import androidx.media3.session.SessionToken
 import com.bunny.app.data.DownloadEntity
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.data.WatchPositionStore
 import java.io.File
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
@@ -29,6 +30,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +62,10 @@ data class PlayerOptionsState(
     /** Manually pinned height; null means adaptive ("Otomatis"). */
     val selectedQuality: Int? = null,
     val speed: Float = 1.0f,
+    /** Ulangi video ini (paket pemutar 2026-11-12). */
+    val loop: Boolean = false,
+    /** Timer tidur aktif, dalam menit; null berarti mati. */
+    val sleepMinutes: Int? = null,
 )
 
 /** Balasan satu utas komentar, dimuat saat utasnya dibuka. */
@@ -105,6 +111,7 @@ class PlayerViewModel @Inject constructor(
     private val playbackManager: PlaybackManager,
     private val library: LibraryRepository,
     private val downloadManager: DownloadManager,
+    private val positions: WatchPositionStore,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -146,6 +153,8 @@ class PlayerViewModel @Inject constructor(
             if (playbackState == Player.STATE_ENDED &&
                 _uiState.value is PlayerUiState.Ready
             ) {
+                // A finished video has no resume position.
+                videoId?.let { positions.clear(it) }
                 PlaybackDiagnostics.log("Video selesai: putar otomatis berikutnya")
                 skipToNext(auto = true)
             }
@@ -157,6 +166,120 @@ class PlayerViewModel @Inject constructor(
         playbackManager.queueHandler = queueHandler
         playbackManager.onSuspectedGvs = { persona -> onSuspectedGvs(persona) }
         playbackManager.player.addListener(endListener)
+        // Resume bookkeeping: shelve the position every five
+        // seconds of an open video (main thread — the scope's
+        // default; the player refuses other threads).
+        viewModelScope.launch {
+            while (true) {
+                delay(5_000)
+                saveCurrentPosition()
+            }
+        }
+    }
+
+    // ------------------------------------- posisi terakhir (resume)
+
+    private fun saveCurrentPosition() {
+        val id = videoId ?: return
+        val player = playbackManager.player
+        if (player.mediaItemCount == 0) return
+        val duration = player.duration
+        if (duration <= 0) return
+        positions.save(id, player.currentPosition, duration)
+    }
+
+    /**
+     * Seeks a freshly opened video to its shelved position. The
+     * player's duration can lag the play call, so the seek waits
+     * (briefly) for a known duration before judging the position;
+     * a position within the last fifteen seconds counts as
+     * finished and is not resumed.
+     */
+    private fun applyResume(id: String) {
+        val stored = positions.get(id)
+        if (stored < 10_000) return
+        viewModelScope.launch {
+            val player = playbackManager.player
+            var waitedMs = 0L
+            while (waitedMs < 3_000 && videoId == id) {
+                val duration = player.duration
+                if (duration > 0) {
+                    if (stored < duration - 15_000) {
+                        player.seekTo(stored)
+                        PlaybackDiagnostics.log(
+                            "Melanjutkan dari posisi ${stored}ms",
+                        )
+                    } else {
+                        positions.clear(id)
+                    }
+                    return@launch
+                }
+                delay(200)
+                waitedMs += 200
+            }
+        }
+    }
+
+    // --------------------------------------- ulangi & timer tidur
+
+    private var sleepJob: Job? = null
+
+    fun toggleLoop() {
+        val player = playbackManager.player
+        val enabled = player.repeatMode != Player.REPEAT_MODE_ONE
+        player.repeatMode =
+            if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        _options.update { it.copy(loop = enabled) }
+    }
+
+    /** Timer tidur dengan redup suara di 10 detik terakhir (paket §10). */
+    fun setSleepTimer(minutes: Int?) {
+        sleepJob?.cancel()
+        sleepJob = null
+        _options.update { it.copy(sleepMinutes = minutes) }
+        if (minutes == null) return
+        val player = playbackManager.player
+        sleepJob = viewModelScope.launch {
+            delay((minutes * 60_000L - 10_000L).coerceAtLeast(0))
+            val original = player.volume
+            for (step in 10 downTo 1) {
+                player.volume = original * step / 10f
+                delay(1_000)
+            }
+            player.pause()
+            player.volume = original
+            _options.update { it.copy(sleepMinutes = null) }
+        }
+    }
+
+    // ------------------------------------------------- gestur
+
+    fun seekBy(deltaMs: Long) {
+        val player = playbackManager.player
+        val duration = player.duration.coerceAtLeast(0)
+        player.seekTo(
+            (player.currentPosition + deltaMs).coerceIn(0, duration),
+        )
+    }
+
+    fun seekTo(positionMs: Long) {
+        playbackManager.player.seekTo(positionMs)
+    }
+
+    private var speedBeforeHold: Float? = null
+
+    /** Tahan = 2x sementara; lepas mengembalikan kecepatan asal. */
+    fun setHoldSpeed(holding: Boolean) {
+        val player = playbackManager.player
+        if (holding) {
+            if (speedBeforeHold == null) {
+                speedBeforeHold = player.playbackParameters.speed
+                player.setPlaybackSpeed(2.0f)
+            }
+        } else {
+            speedBeforeHold?.let { player.setPlaybackSpeed(it) }
+            speedBeforeHold = null
+        }
     }
 
     // -------------------------------------------------- pemulihan putar
@@ -269,6 +392,8 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun stopPlayback() {
+        saveCurrentPosition()
+        setSleepTimer(null)
         requestedId = null
         playbackManager.stop()
     }
@@ -721,6 +846,7 @@ class PlayerViewModel @Inject constructor(
                     monthUsedBytes = used,
                     quotaBytes = quota,
                 )
+                applyResume(id)
                 loadRelated(id, details)
                 loadComments(id)
             } catch (e: CancellationException) {
