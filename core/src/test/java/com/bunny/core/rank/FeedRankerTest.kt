@@ -91,6 +91,31 @@ class FeedRankerTest {
     }
 
     @Test
+    fun rank_shownButUnopened_isDemoted() {
+        // The published churn rule: an item Home already showed and the
+        // viewer skipped sinks below an equal item not yet shown.
+        val stale = item("stale", views = 100_000, uploaded = "2 hari yang lalu")
+        val fresh = item("fresh", views = 100_000, uploaded = "2 hari yang lalu")
+        val ranked = FeedRanker.rank(
+            listOf(stale, fresh),
+            TasteProfile(demotedIds = setOf("stale")),
+        )
+        assertEquals("fresh", ranked.first().id)
+    }
+
+    @Test
+    fun score_expectedWatchTime_rewardsDurationAtEqualViews() {
+        // The published objective is expected watch time, not raw views:
+        // at equal demand, the video that holds a sitting longer wins.
+        val long = item("long", views = 10_000, duration = 1500)
+        val short = item("short", views = 10_000, duration = 60)
+        assertTrue(
+            FeedRanker.score(long, TasteProfile()) >
+                FeedRanker.score(short, TasteProfile()),
+        )
+    }
+
+    @Test
     fun score_freshnessPrefersRecentUploads() {
         val fresh = item("fresh", uploaded = "3 jam yang lalu")
         val stale = item("stale", uploaded = "2 tahun yang lalu")

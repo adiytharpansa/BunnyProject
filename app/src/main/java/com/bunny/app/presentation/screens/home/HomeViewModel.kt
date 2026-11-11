@@ -147,6 +147,11 @@ class HomeViewModel @Inject constructor(
                         .flatMap { query -> query.lowercase().split(Regex("\\s+")) }
                         .filter { it.length >= 3 }
                         .toSet(),
+                    // Aturan churn dari model resmi YouTube: yang sudah
+                    // tampil di Beranda muatan sebelumnya tapi tak pernah
+                    // dibuka turun peringkatnya di muatan ini.
+                    demotedIds = library.feedImpressions.first().toSet() -
+                        library.openedVideoIds.first().toSet(),
                 )
                 val ranked = FeedRanker.rank(page.items, taste)
                 // Tunggu thumbnail layar pertama (paralel) lalu tampilkan
@@ -154,6 +159,10 @@ class HomeViewModel @Inject constructor(
                 // tampil selama menunggu.
                 thumbnails.preload(ranked)
                 _uiState.update { it.copy(isLoading = false, items = ranked) }
+                // Catat tayangan muatan ini untuk aturan churn berikutnya
+                // (sesudah peringkat dihitung, supaya daftar ini tidak
+                // menghukum dirinya sendiri).
+                library.recordFeedImpressions(ranked.map { it.id })
             } catch (e: CancellationException) {
                 // Cancellation is control flow, never a feed error.
                 throw e

@@ -130,6 +130,33 @@ class LibraryRepository @Inject constructor(
         settingDao.upsert(SettingEntity(KEY_TASTE_CHANNELS, encoded))
     }
 
+    /** Videos the viewer has actually opened (Jatah's charge ledger). */
+    val openedVideoIds: Flow<List<String>> = watchChargeDao.observeOpenedVideoIds()
+
+    // -------------------------------------------------- tayangan beranda
+
+    /**
+     * Ids shown on Home, newest load first — Mesin Selera's impression
+     * memory for the churn rule (shown earlier + never opened = demoted
+     * on the next load). One newline-joined settings value, capped;
+     * never leaves the device.
+     */
+    val feedImpressions: Flow<List<String>> =
+        settingDao.observeValue(KEY_FEED_IMPRESSIONS).map { raw ->
+            raw?.split('\n')?.map { it.trim() }?.filter { it.isNotEmpty() }
+                ?: emptyList()
+        }
+
+    suspend fun recordFeedImpressions(shownIds: List<String>) {
+        if (shownIds.isEmpty()) return
+        val current = feedImpressions.first()
+        val updated = (shownIds + current.filterNot { it in shownIds })
+            .take(MAX_FEED_IMPRESSIONS)
+        settingDao.upsert(
+            SettingEntity(KEY_FEED_IMPRESSIONS, updated.joinToString("\n")),
+        )
+    }
+
     private fun parseChannelCounts(raw: String?): Map<String, Int> {
         if (raw.isNullOrBlank()) return emptyMap()
         val out = LinkedHashMap<String, Int>()
@@ -149,5 +176,7 @@ class LibraryRepository @Inject constructor(
         const val MAX_RECENT_SEARCHES = 10
         const val KEY_TASTE_CHANNELS = "taste_channel_counts"
         const val MAX_TASTE_CHANNELS = 50
+        const val KEY_FEED_IMPRESSIONS = "feed_impressions"
+        const val MAX_FEED_IMPRESSIONS = 200
     }
 }

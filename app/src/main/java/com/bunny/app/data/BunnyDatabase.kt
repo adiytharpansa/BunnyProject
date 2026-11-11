@@ -65,6 +65,10 @@ interface WatchChargeDao {
 
     @Insert
     suspend fun insert(entity: WatchChargeEntity)
+
+    /** Every video ever opened (one charge per open) — Mesin Selera's "watched" set. */
+    @Query("SELECT DISTINCT videoId FROM watch_charges")
+    fun observeOpenedVideoIds(): Flow<List<String>>
 }
 
 @Dao
