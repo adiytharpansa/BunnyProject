@@ -30,14 +30,16 @@
             </intent-filter>
             <!-- Satu Pintu: the Desktop-client OAuth redirect lands
                  here (reversed-client-id scheme, injected by Gradle
-                 from the same value the code reads). -->
+                 from the same value the code reads). Scheme-only on
+                 purpose: the redirect URI (...:/oauth2redirect) has
+                 no host, and a path without a host trips lint's
+                 AppLinkUrlError; the scheme itself is unique to our
+                 client, and DesktopAuth validates the payload. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="${desktopRedirectScheme}"
-                    android:path="/oauth2redirect" />
+                <data android:scheme="${desktopRedirectScheme}" />
             </intent-filter>
         </activity>
 
