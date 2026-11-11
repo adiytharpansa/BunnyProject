@@ -1,0 +1,63 @@
+# Azure Pipelines — dapur kedua Bunny (ditetapkan pengguna
+# 2026-11-12): perintah verifikasi yang SAMA PERSIS dengan
+# .github/workflows/ci.yml (lint + unit test + assembleDebug,
+# keystore debug tetap direstorasi, pasangan Desktop disuntik
+# sebagai env), berjalan di mesin Microsoft bila antrean GitHub
+# macet. Rahasia hidup sebagai variabel rahasia pipeline di
+# Azure DevOps, tidak pernah di berkas ini.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  GRADLE_VERSION: '8.13'
+
+steps:
+  - bash: |
+      set -e
+      export JAVA_HOME="$JAVA_HOME_17_X64"
+      echo "##vso[task.setvariable variable=JAVA_HOME]$JAVA_HOME"
+      java -version
+      curl -fsSL "https://services.gradle.org/distributions/gradle-$(GRADLE_VERSION)-bin.zip" -o /tmp/gradle.zip
+      sudo unzip -q /tmp/gradle.zip -d /opt
+      echo "##vso[task.prependpath]/opt/gradle-$(GRADLE_VERSION)/bin"
+      gradle --version
+    displayName: 'Set up JDK 17 + Gradle 8.13'
+
+  - bash: |
+      if [ -n "$BUNNY_DEBUG_KEYSTORE_B64" ]; then
+        echo "$BUNNY_DEBUG_KEYSTORE_B64" | base64 -d > bunny-debug.keystore
+        echo "Fixed debug keystore restored."
+      else
+        echo "No fixed debug keystore secret; using ephemeral CI debug key."
+      fi
+    displayName: 'Restore fixed debug keystore'
+    env:
+      BUNNY_DEBUG_KEYSTORE_B64: $(BUNNY_DEBUG_KEYSTORE_B64)
+
+  - bash: |
+      gradle lint testDebugUnitTest assembleDebug --stacktrace
+    displayName: 'Lint, unit test, build'
+    env:
+      BUNNY_DESKTOP_CLIENT_ID: $(BUNNY_DESKTOP_CLIENT_ID)
+      BUNNY_DESKTOP_CLIENT_SECRET: $(BUNNY_DESKTOP_CLIENT_SECRET)
+
+  - bash: |
+      mkdir -p "$(Build.ArtifactStagingDirectory)/reports"
+      find . -type d -path '*/build/reports' -exec cp -r {} "$(Build.ArtifactStagingDirectory)/reports/" \; || true
+      find . -type f -path '*/build/outputs/apk/debug/*.apk' -exec cp {} "$(Build.ArtifactStagingDirectory)/reports/" \; || true
+      ls -la "$(Build.ArtifactStagingDirectory)/reports/"
+    displayName: 'Collect reports and debug APK'
+    condition: always()
+
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish reports artifact'
+    condition: always()
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)/reports'
+      artifact: 'reports'
