@@ -79,6 +79,18 @@ class AuthRepository @Inject constructor(
     private var apiHandleStored: String? = null
     private var apiAvatarStored: String? = null
 
+    // Layar Besar (Jalan B): the TV session's refresh token and the
+    // identity the TV door named. The access token itself is
+    // short-lived and lives in the engine, refreshed by TvAuth.
+    private var tvRefreshStored: String? = null
+    private var tvNameStored: String? = null
+    private var tvAvatarStored: String? = null
+
+    private val _tvSignedIn = MutableStateFlow(false)
+    val tvSignedIn: StateFlow<Boolean> = _tvSignedIn.asStateFlow()
+
+    fun tvRefreshToken(): String? = tvRefreshStored
+
     init {
         restore()
     }
@@ -100,6 +112,12 @@ class AuthRepository @Inject constructor(
             lontarAuth.bearerToken = token
             lontarAuth.bearerContext = bearerContextStored
         }
+        tvRefreshStored = stored.optString("tvRefresh")
+            .takeIf { it.isNotEmpty() }
+        tvNameStored = stored.optString("tvName").takeIf { it.isNotEmpty() }
+        tvAvatarStored = stored.optString("tvAvatar")
+            .takeIf { it.isNotEmpty() }
+        _tvSignedIn.value = tvRefreshStored != null
         apiIdStored = stored.optString("apiId").takeIf { it.isNotEmpty() }
         apiNameStored = stored.optString("apiName").takeIf { it.isNotEmpty() }
         apiHandleStored = stored.optString("apiHandle")
@@ -172,6 +190,28 @@ class AuthRepository @Inject constructor(
         persistAll(mine.title, mine.avatarUrl)
     }
 
+    /**
+     * Jalan B granted and proven: keep the TV refresh token and the
+     * identity accounts_list named. The main profile identity
+     * follows the TV account when nothing else is signed in.
+     */
+    fun signInTv(
+        refreshToken: String?,
+        name: String?,
+        avatarUrl: String?,
+    ) {
+        if (refreshToken != null) tvRefreshStored = refreshToken
+        tvNameStored = name
+        tvAvatarStored = avatarUrl
+        _tvSignedIn.value = tvRefreshStored != null
+        val current = _state.value
+        if (current !is State.SignedIn && name != null) {
+            _state.value = State.SignedIn(name, avatarUrl)
+        }
+        val main = _state.value as? State.SignedIn
+        persistAll(main?.name, main?.avatarUrl)
+    }
+
     /** One-tap wipe: blob, engine session, WebView cookies, GMS grant. */
     fun signOut() {
         val token = bearerTokenStored ?: dataToken
@@ -188,6 +228,10 @@ class AuthRepository @Inject constructor(
         apiNameStored = null
         apiHandleStored = null
         apiAvatarStored = null
+        tvRefreshStored = null
+        tvNameStored = null
+        tvAvatarStored = null
+        _tvSignedIn.value = false
         _state.value = State.SignedOut
         prefs().edit().remove(KEY_BLOB).apply()
         CookieManager.getInstance().removeAllCookies(null)
@@ -233,6 +277,9 @@ class AuthRepository @Inject constructor(
             .put("apiName", apiNameStored ?: "")
             .put("apiHandle", apiHandleStored ?: "")
             .put("apiAvatar", apiAvatarStored ?: "")
+            .put("tvRefresh", tvRefreshStored ?: "")
+            .put("tvName", tvNameStored ?: "")
+            .put("tvAvatar", tvAvatarStored ?: "")
             .toString()
         val blob = encrypt(plain) ?: return
         prefs().edit().putString(KEY_BLOB, blob).apply()

@@ -326,7 +326,7 @@ fun PersonalFeedScreen(
 }
 
 @Composable
-private fun LoadingBox() {
+fun LoadingBox() {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -346,7 +346,7 @@ private fun LoadingBox() {
 }
 
 @Composable
-private fun FailedBox(httpCode: Int?, retry: () -> Unit) {
+fun FailedBox(httpCode: Int?, retry: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -370,7 +370,7 @@ private fun FailedBox(httpCode: Int?, retry: () -> Unit) {
 }
 
 @Composable
-private fun EmptyBox(textRes: Int) {
+fun EmptyBox(textRes: Int) {
     Box(
         modifier = Modifier
             .fillMaxSize()

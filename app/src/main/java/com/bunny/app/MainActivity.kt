@@ -91,6 +91,7 @@ import com.bunny.app.presentation.screens.player.PlayerViewModel
 import com.bunny.app.presentation.screens.profile.PersonalFeedScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.profile.SubscriptionsScreen
+import com.bunny.app.presentation.screens.profile.TvFeedScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -254,15 +255,20 @@ class MainActivity : ComponentActivity() {
                                     onVideoClick = { openVideoId = it },
                                 )
                             } else if (openPersonal != null) {
-                                if (openPersonal == "subs") {
-                                    SubscriptionsScreen(
+                                when (openPersonal) {
+                                    "subs" -> SubscriptionsScreen(
                                         onBack = { openPersonal = null },
                                         onChannelClick = { id, name ->
                                             openChannel = id to name
                                         },
                                     )
-                                } else {
-                                    PersonalFeedScreen(
+                                    "tvhome", "tvsubs", "tvhistory" ->
+                                        TvFeedScreen(
+                                            mode = openPersonal!!,
+                                            onBack = { openPersonal = null },
+                                            onVideoClick = { openVideoId = it },
+                                        )
+                                    else -> PersonalFeedScreen(
                                         mode = openPersonal!!,
                                         onBack = { openPersonal = null },
                                         onVideoClick = { openVideoId = it },

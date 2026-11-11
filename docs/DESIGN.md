@@ -133,7 +133,13 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   Data API v3 dengan token yang sama — identitas kanal asli,
   Langganan Asli, Terbaru dari Langganan, Video yang Disukai;
   Beranda server + riwayat tetap wilayah pintu cadangan Layar
-  Besar (klien TV).**
+  Besar (klien TV).** **Jalan B DIBANGUN 2026-11-11 (perintah
+  pengguna "Semuanya kerjakan"): klien TV proyek sendiri
+  (bunny-pribadi) + alur kode perangkat RFC 8628 + browse TVHTML5
+  Bearer — Beranda Pribadi (browseId default), Langganan TV
+  (FEsubscriptions), Riwayat (FEhistory); parser tileRenderer
+  rekursif teruji fixture; token segar disimpan terenkripsi,
+  Keluar mencabut grant TV di Google. Menunggu uji perangkat.**
 - **Fase 6** — Sisa utang + Lontar Hidup (keputusan pengguna
   2026-11-11: "Semua nya"): **6-A** balasan komentar bisa dibuka persis
   struktur jawaban asli; **6-B** Panen Bertingkat (audio dulu, naik ke

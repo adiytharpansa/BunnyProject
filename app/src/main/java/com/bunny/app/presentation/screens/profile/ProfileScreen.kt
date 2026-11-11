@@ -43,7 +43,11 @@ fun ProfileScreen(
     onDownloadsClick: () -> Unit = {},
     onPersonalClick: (String) -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
+    tvViewModel: TvLoginViewModel = hiltViewModel(),
 ) {
+    val tvState by tvViewModel.state.collectAsState()
+    val tvSignedIn by tvViewModel.tvSignedIn.collectAsState()
+    val tvVerdicts by tvViewModel.verdicts.collectAsState()
     val authState by viewModel.state.collectAsState()
     // Satu Ketuk: the consent sheet belongs to the system; the screen
     // only launches the PendingIntent the authorization call returns.
@@ -134,6 +138,24 @@ fun ProfileScreen(
                     OutlinedButton(onClick = { onPersonalClick("liked") }) {
                         Text(stringResource(R.string.personal_liked_button))
                     }
+                    // Jalan B: the TV session unlocks the server's
+                    // own personal surfaces.
+                    if (tvSignedIn) {
+                        OutlinedButton(onClick = { onPersonalClick("tvhome") }) {
+                            Text(stringResource(R.string.tv_home_button))
+                        }
+                        OutlinedButton(onClick = { onPersonalClick("tvsubs") }) {
+                            Text(stringResource(R.string.tv_subs_button))
+                        }
+                        OutlinedButton(onClick = { onPersonalClick("tvhistory") }) {
+                            Text(stringResource(R.string.tv_history_button))
+                        }
+                    } else {
+                        OutlinedButton(onClick = { tvViewModel.start() }) {
+                            Text(stringResource(R.string.tv_activate_button))
+                        }
+                    }
+                    TvStatusText(tvState)
                     OutlinedButton(onClick = { viewModel.signOut() }) {
                         Text(stringResource(R.string.profile_signout))
                     }
@@ -202,6 +224,15 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
+                    Text(
+                        stringResource(R.string.tv_or_divider),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedButton(onClick = { tvViewModel.start() }) {
+                        Text(stringResource(R.string.tv_login_button))
+                    }
+                    TvStatusText(tvState)
                 }
             }
             if (verdicts.isNotEmpty()) {
@@ -245,12 +276,127 @@ fun ProfileScreen(
                     }
                 }
             }
+            if (tvVerdicts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.onetap_verdicts_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                    tvVerdicts.forEach { verdict ->
+                        val status = verdict.httpStatus
+                        Text(
+                            when {
+                                verdict.accepted -> stringResource(
+                                    R.string.onetap_verdict_accepted,
+                                    verdict.contextName,
+                                    verdict.accountName ?: "",
+                                )
+                                status != null -> stringResource(
+                                    R.string.onetap_verdict_rejected,
+                                    verdict.contextName,
+                                    status,
+                                )
+                                else -> stringResource(
+                                    R.string.onetap_verdict_network,
+                                    verdict.contextName,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
             OutlinedButton(onClick = onDownloadsClick) {
                 Text(stringResource(R.string.profile_downloads_button))
             }
             EngineHealthPanel()
         }
     }
+    // Layar Besar: the code dialog lives above whichever sign-in
+    // state opened it.
+    when (val current = tvState) {
+        is TvLoginViewModel.TvState.Requesting,
+        is TvLoginViewModel.TvState.ShowingCode,
+        -> {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { tvViewModel.cancel() },
+                title = { Text(stringResource(R.string.tv_dialog_title)) },
+                text = {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        if (current is TvLoginViewModel.TvState.ShowingCode) {
+                            Text(
+                                stringResource(
+                                    R.string.tv_dialog_instruction,
+                                    current.code.verificationUrl,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                current.code.userCode,
+                                style = MaterialTheme.typography.displaySmall,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                        Text(
+                            stringResource(
+                                if (current is TvLoginViewModel.TvState.ShowingCode) {
+                                    R.string.tv_waiting
+                                } else {
+                                    R.string.tv_requesting
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = { tvViewModel.cancel() },
+                    ) {
+                        Text(stringResource(R.string.tv_cancel))
+                    }
+                },
+            )
+        }
+        else -> Unit
+    }
+}
+
+/** The TV flow's quiet status line: denial, expiry, or failure. */
+@Composable
+private fun TvStatusText(state: TvLoginViewModel.TvState) {
+    val text = when (state) {
+        is TvLoginViewModel.TvState.Denied ->
+            stringResource(R.string.tv_denied)
+        is TvLoginViewModel.TvState.Expired ->
+            stringResource(R.string.tv_expired)
+        is TvLoginViewModel.TvState.Failed -> state.message
+        else -> null
+    } ?: return
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
 }
 
 /**

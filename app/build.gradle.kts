@@ -23,6 +23,19 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Layar Besar (Jalan B): the TV OAuth client of the user's own
+        // Cloud project. GitHub secret scanning keeps the values out
+        // of the repo; CI passes them as environment variables (repo
+        // secrets BUNNY_TV_CLIENT_ID / BUNNY_TV_CLIENT_SECRET). A
+        // build without them leaves the TV door unconfigured.
+        val tvClientId = providers.environmentVariable("BUNNY_TV_CLIENT_ID")
+            .getOrElse("")
+        val tvClientSecret =
+            providers.environmentVariable("BUNNY_TV_CLIENT_SECRET")
+                .getOrElse("")
+        buildConfigField("String", "TV_CLIENT_ID", "\"$tvClientId\"")
+        buildConfigField("String", "TV_CLIENT_SECRET", "\"$tvClientSecret\"")
     }
 
     signingConfigs {
