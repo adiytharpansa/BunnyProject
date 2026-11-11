@@ -575,48 +575,6 @@ class LontarEngine(
         return verdicts
     }
 
-    override suspend fun getTvHomeFeed(): List<VideoItem> =
-        tvBrowse("default", "Beranda pribadi Anda")
-
-    override suspend fun getTvSubscriptionsFeed(): List<VideoItem> =
-        tvBrowse("FEsubscriptions", "Dari langganan Anda")
-
-    override suspend fun getTvHistory(): List<VideoItem> =
-        tvBrowse("FEhistory", "Riwayat tontonan Anda")
-
-    /**
-     * One TV browse under the Bearer session the Layar Besar sign-in
-     * established. No session (or a non-TV context) yields an honest
-     * empty list; a refusal propagates with its HTTP code so the UI
-     * can ask for a fresh code instead of guessing.
-     */
-    private suspend fun tvBrowse(
-        browseId: String,
-        reason: String,
-    ): List<VideoItem> {
-        val token = auth.bearerToken ?: return emptyList()
-        if (auth.bearerContext != "TVHTML5") return emptyList()
-        val session = ensureSession()
-        val door = bearerDoors(session.clientVersion).first()
-        val client = JSONObject()
-            .put("clientName", door.contextName)
-            .put("clientVersion", door.clientVersion)
-            .put("hl", "id")
-            .put("gl", "ID")
-            .put("visitorData", session.visitorData)
-        val body = JSONObject()
-            .put("context", JSONObject().put("client", client))
-            .put("browseId", browseId)
-        val response = postBearerJson(
-            url = "https://www.youtube.com/youtubei/v1/browse" +
-                "?key=${session.apiKey}&prettyPrint=false",
-            door = door,
-            body = body,
-            accessToken = token,
-        )
-        return InnertubeParser.parseTvTiles(response, reason)
-    }
-
     /** One Bearer-carrying InnerTube POST; the probe's measuring tool. */
     private suspend fun postBearerJson(
         url: String,

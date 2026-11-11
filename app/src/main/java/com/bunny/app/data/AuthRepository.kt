@@ -79,18 +79,6 @@ class AuthRepository @Inject constructor(
     private var apiHandleStored: String? = null
     private var apiAvatarStored: String? = null
 
-    // Layar Besar (Jalan B): the TV session's refresh token and the
-    // identity the TV door named. The access token itself is
-    // short-lived and lives in the engine, refreshed by TvAuth.
-    private var tvRefreshStored: String? = null
-    private var tvNameStored: String? = null
-    private var tvAvatarStored: String? = null
-
-    private val _tvSignedIn = MutableStateFlow(false)
-    val tvSignedIn: StateFlow<Boolean> = _tvSignedIn.asStateFlow()
-
-    fun tvRefreshToken(): String? = tvRefreshStored
-
     // Satu Pintu: the Desktop-client session's refresh token. The
     // access token lives in DesktopAuth's memory; this is the
     // durable half, kept in the same encrypted blob.
@@ -109,9 +97,11 @@ class AuthRepository @Inject constructor(
         val blob = prefs().getString(KEY_BLOB, null) ?: return
         val plain = decrypt(blob) ?: return
         val stored = runCatching { JSONObject(plain) }.getOrNull() ?: return
+        // The Fase 5 cookie session and the Satu Ketuk bearer slot
+        // are read only so sign-out can still revoke those grants;
+        // neither is applied as a session any more (unification
+        // 2026-11-12: one door, no spares).
         cookieHeaderStored = stored.optString("cookie")
-        val cookies = AuthCookies.fromCookieHeader(cookieHeaderStored)
-        if (cookies != null) lontarAuth.cookies = cookies
         val token = stored.optString("bearerToken").takeIf { it.isNotEmpty() }
         if (token != null) {
             bearerTokenStored = token
@@ -119,15 +109,7 @@ class AuthRepository @Inject constructor(
                 .takeIf { it.isNotEmpty() }
             bearerEmailStored = stored.optString("bearerEmail")
                 .takeIf { it.isNotEmpty() }
-            lontarAuth.bearerToken = token
-            lontarAuth.bearerContext = bearerContextStored
         }
-        tvRefreshStored = stored.optString("tvRefresh")
-            .takeIf { it.isNotEmpty() }
-        tvNameStored = stored.optString("tvName").takeIf { it.isNotEmpty() }
-        tvAvatarStored = stored.optString("tvAvatar")
-            .takeIf { it.isNotEmpty() }
-        _tvSignedIn.value = tvRefreshStored != null
         desktopRefreshStored = stored.optString("desktopRefresh")
             .takeIf { it.isNotEmpty() }
         _desktopSignedIn.value = desktopRefreshStored != null
@@ -137,98 +119,17 @@ class AuthRepository @Inject constructor(
             .takeIf { it.isNotEmpty() }
         apiAvatarStored = stored.optString("apiAvatar")
             .takeIf { it.isNotEmpty() }
-        if (cookies != null || token != null) {
-            _state.value = State.SignedIn(
-                name = stored.optString("name").takeIf { it.isNotEmpty() },
-                avatarUrl = stored.optString("avatar").takeIf { it.isNotEmpty() },
-            )
-        } else if (apiIdStored != null) {
-            // Satu Ketuk session: the grant survives restarts even
-            // though the short-lived token itself does not.
+        if (apiIdStored != null) {
+            // The signed-in identity snapshot survives restarts
+            // even though the short-lived token itself does not.
             _state.value = State.SignedIn(apiNameStored, apiAvatarStored)
         }
     }
 
     /**
-     * Takes the cookie header harvested from the sign-in WebView.
-     * False means the header was not actually a signed-in session —
-     * nothing is stored and the engine stays anonymous.
-     */
-    suspend fun signIn(cookieHeader: String): Boolean {
-        val cookies = AuthCookies.fromCookieHeader(cookieHeader) ?: return false
-        lontarAuth.cookies = cookies
-        cookieHeaderStored = cookieHeader
-        _state.value = State.SignedIn(null, null)
-        persistAll(null, null)
-        // Best-effort identity for the profile header; a failure just
-        // leaves the header generic, the session itself is valid.
-        val info = try {
-            backend.getAccountInfo()
-        } catch (e: Exception) {
-            null
-        }
-        if (info != null) {
-            _state.value = State.SignedIn(info.name, info.avatarUrl)
-            persistAll(info.name, info.avatarUrl)
-        }
-        return true
-    }
-
-    /**
-     * Satu Ketuk: the probe accepted [verdict]'s context — keep the
-     * token, the winning context, and the identity the door named.
-     */
-    fun signInBearer(verdict: BearerContextVerdict, accessToken: String) {
-        lontarAuth.bearerToken = accessToken
-        lontarAuth.bearerContext = verdict.contextName
-        bearerTokenStored = accessToken
-        bearerContextStored = verdict.contextName
-        bearerEmailStored = verdict.accountEmail
-        _state.value = State.SignedIn(verdict.accountName, verdict.avatarUrl)
-        persistAll(verdict.accountName, verdict.avatarUrl)
-    }
-
-    /**
-     * Jalan A: the Data API accepted the Satu Ketuk token — the
-     * session is the user's own channel identity, and the token
-     * stays live in memory for the personal layer.
-     */
-    fun signInDataApi(mine: MineChannel, accessToken: String) {
-        dataToken = accessToken
-        apiIdStored = mine.id
-        apiNameStored = mine.title
-        apiHandleStored = mine.handle
-        apiAvatarStored = mine.avatarUrl
-        _state.value = State.SignedIn(mine.title, mine.avatarUrl)
-        persistAll(mine.title, mine.avatarUrl)
-    }
-
-    /**
-     * Jalan B granted and proven: keep the TV refresh token and the
-     * identity accounts_list named. The main profile identity
-     * follows the TV account when nothing else is signed in.
-     */
-    fun signInTv(
-        refreshToken: String?,
-        name: String?,
-        avatarUrl: String?,
-    ) {
-        if (refreshToken != null) tvRefreshStored = refreshToken
-        tvNameStored = name
-        tvAvatarStored = avatarUrl
-        _tvSignedIn.value = tvRefreshStored != null
-        val current = _state.value
-        if (current !is State.SignedIn && name != null) {
-            _state.value = State.SignedIn(name, avatarUrl)
-        }
-        val main = _state.value as? State.SignedIn
-        persistAll(main?.name, main?.avatarUrl)
-    }
-
-    /**
-     * Satu Pintu proven at the Data API table (and at InnerTube too
-     * when the probe's winner exists): keep the desktop refresh
-     * token and the identity the Data API named.
+     * Satu Pintu — the one door (unified 2026-11-12): keep the
+     * desktop refresh token and the identity the Data API named;
+     * that identity IS the signed-in state.
      */
     fun signInDesktop(
         refreshToken: String?,
@@ -237,8 +138,7 @@ class AuthRepository @Inject constructor(
     ) {
         if (refreshToken != null) desktopRefreshStored = refreshToken
         _desktopSignedIn.value = desktopRefreshStored != null
-        val current = _state.value
-        if (current !is State.SignedIn && name != null) {
+        if (name != null) {
             _state.value = State.SignedIn(name, avatarUrl)
         }
         val main = _state.value as? State.SignedIn
@@ -261,10 +161,6 @@ class AuthRepository @Inject constructor(
         apiNameStored = null
         apiHandleStored = null
         apiAvatarStored = null
-        tvRefreshStored = null
-        tvNameStored = null
-        tvAvatarStored = null
-        _tvSignedIn.value = false
         desktopRefreshStored = null
         _desktopSignedIn.value = false
         _state.value = State.SignedOut
@@ -312,9 +208,6 @@ class AuthRepository @Inject constructor(
             .put("apiName", apiNameStored ?: "")
             .put("apiHandle", apiHandleStored ?: "")
             .put("apiAvatar", apiAvatarStored ?: "")
-            .put("tvRefresh", tvRefreshStored ?: "")
-            .put("tvName", tvNameStored ?: "")
-            .put("tvAvatar", tvAvatarStored ?: "")
             .put("desktopRefresh", desktopRefreshStored ?: "")
             .toString()
         val blob = encrypt(plain) ?: return

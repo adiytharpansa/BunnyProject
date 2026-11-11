@@ -166,3 +166,5 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   profesional (perintah pengguna).
 - Lisensi: hak cipta penuh pemilik untuk sekarang (lihat `LICENSE`);
   keputusan lisensi publik diambil sebelum rilis publik apa pun.
+
+Catatan Fase 5 (Satu Pintu, 2026-11-12): login kini SATU pintu. Probe perangkat membuktikan kunci kelahiran Desktop DITOLAK InnerTube di semua konteks (403/403/403) — sama seperti kelahiran Android; gerbang Bearer InnerTube hanya menerima kelahiran TV. Atas perintah pengguna ("satukan jadi satu tombol", "jangan pernah ada cadangan"), pintu-pintu lama DICABUT, bukan disimpan sebagai cadangan: lembar sistem Satu Ketuk, kode TV, dan panen cookie Fase 5 semuanya dihapus dari aplikasi. Yang tinggal: satu tombol "Masuk dengan Google" (lembar peramban sistem, klien Desktop, kode + PKCE) yang kuncinya dibuktikan ke Data API v3 dan menghidupkan Langganan Asli, Terbaru dari Langganan, dan Video yang Disukai. Beranda server dan riwayat tontonan tidak dijanjikan — tidak ada pintu jujur yang terbukti membukanya.

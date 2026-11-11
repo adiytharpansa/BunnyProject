@@ -180,6 +180,10 @@ class DesktopAuth @Inject constructor(
         if (accessToken != null &&
             now < accessExpiryMillis - 300_000L
         ) {
+            // The personal layer reads the token from the
+            // repository's slot; keep it mirrored even when the
+            // repository dropped its copy after a 401.
+            authRepository.dataToken = accessToken
             return true
         }
         val (code, root) = try {
@@ -198,6 +202,7 @@ class DesktopAuth @Inject constructor(
         if (code != 200) return false
         val fresh = granted(root)
         accessToken = fresh.accessToken
+        authRepository.dataToken = fresh.accessToken
         if (contextName != null) {
             lontarAuth.bearerToken = fresh.accessToken
             lontarAuth.bearerContext = contextName
@@ -209,8 +214,15 @@ class DesktopAuth @Inject constructor(
     /** Remembers a freshly granted pair (call right after exchange). */
     fun adopt(token: String, expiresInSec: Long) {
         accessToken = token
+        authRepository.dataToken = token
         accessExpiryMillis =
             System.currentTimeMillis() + expiresInSec * 1000L
+    }
+
+    /** Drops the in-memory token (sign-out). */
+    fun forget() {
+        accessToken = null
+        accessExpiryMillis = 0L
     }
 
     /** Best-effort remote revocation on sign-out. */

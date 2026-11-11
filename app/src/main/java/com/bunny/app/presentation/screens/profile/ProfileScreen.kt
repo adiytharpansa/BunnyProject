@@ -1,25 +1,27 @@
 package com.bunny.app.presentation.screens.profile
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -27,7 +29,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -37,48 +41,36 @@ import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.data.AuthRepository
 
+/**
+ * Profile. Sign-in is ONE door (unified 2026-11-12 on the user's
+ * order — "satukan jadi satu tombol", "jangan pernah ada
+ * cadangan"): the "Masuk dengan Google" button opens Google's own
+ * page in the system browser sheet (Satu Pintu, Desktop client +
+ * PKCE), the returning key is proven at the official Data API, and
+ * that is the whole sign-in. Every earlier door — the Satu Ketuk
+ * system sheet (its key was refused by the internal doors), the TV
+ * code (kept briefly as an optional upgrade, then removed), the
+ * dead Fase 5 cookie harvest — is gone, not parked as a spare.
+ *
+ * Signed in, the personal rooms it powers are the three Data API
+ * surfaces: the account's own subscriptions, the newest uploads
+ * from them, and the videos the account liked. Server home and
+ * watch history are not among them — no honest door to them was
+ * ever proven, and Bunny shows nothing it cannot serve for real.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onDownloadsClick: () -> Unit = {},
     onPersonalClick: (String) -> Unit = {},
+    onDownloadsClick: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
-    tvViewModel: TvLoginViewModel = hiltViewModel(),
-    desktopViewModel: DesktopProbeViewModel = hiltViewModel(),
+    desktopViewModel: DesktopSignInViewModel = hiltViewModel(),
 ) {
-    val tvState by tvViewModel.state.collectAsState()
-    val tvSignedIn by tvViewModel.tvSignedIn.collectAsState()
-    val tvVerdicts by tvViewModel.verdicts.collectAsState()
-    val desktopState by desktopViewModel.state.collectAsState()
-    val desktopSignedIn by desktopViewModel.desktopSignedIn
-        .collectAsState()
-    val desktopVerdicts by desktopViewModel.verdicts.collectAsState()
-    val desktopDataVerdict by desktopViewModel.dataVerdict.collectAsState()
     val authState by viewModel.state.collectAsState()
-    // Satu Ketuk: the consent sheet belongs to the system; the screen
-    // only launches the PendingIntent the authorization call returns.
-    val oneTap by viewModel.oneTap.collectAsState()
-    val verdicts by viewModel.verdicts.collectAsState()
-    val activity = androidx.compose.ui.platform.LocalContext.current
-        as? android.app.Activity
-    val consentLauncher = androidx.activity.compose
-        .rememberLauncherForActivityResult(
-            androidx.activity.result.contract.ActivityResultContracts
-                .StartIntentSenderForResult(),
-        ) { result ->
-            if (activity != null) {
-                viewModel.onConsentResult(activity, result.data)
-            }
-        }
-    androidx.compose.runtime.LaunchedEffect(oneTap) {
-        val pending = oneTap as? AuthViewModel.OneTap.NeedsConsent
-            ?: return@LaunchedEffect
-        viewModel.consumeConsent()
-        consentLauncher.launch(
-            androidx.activity.result.IntentSenderRequest
-                .Builder(pending.intentSender).build(),
-        )
-    }
+    val desktopState by desktopViewModel.state.collectAsState()
+    val context = LocalContext.current
+    val activity = context as? Activity
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.profile_title)) })
@@ -110,19 +102,23 @@ fun ProfileScreen(
                             modifier = Modifier
                                 .size(96.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                .background(
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 Icons.Filled.Person,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                tint = MaterialTheme.colorScheme
+                                    .onPrimaryContainer,
                                 modifier = Modifier.size(56.dp),
                             )
                         }
                     }
                     Text(
-                        state.name ?: stringResource(R.string.profile_account_fallback),
+                        state.name
+                            ?: stringResource(R.string.profile_account_fallback),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -133,60 +129,36 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
-                    // Jalan A: the account's real personal layer,
-                    // served by the official Data API.
-                    OutlinedButton(onClick = { onPersonalClick("subs") }) {
-                        Text(stringResource(R.string.personal_subs_button))
+                    OutlinedButton(
+                        onClick = { onPersonalClick("subs") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.profile_subs_button))
                     }
-                    OutlinedButton(onClick = { onPersonalClick("latest") }) {
-                        Text(stringResource(R.string.personal_latest_button))
+                    OutlinedButton(
+                        onClick = { onPersonalClick("latest") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.profile_latest_button))
                     }
-                    OutlinedButton(onClick = { onPersonalClick("liked") }) {
-                        Text(stringResource(R.string.personal_liked_button))
+                    OutlinedButton(
+                        onClick = { onPersonalClick("liked") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.profile_liked_button))
                     }
-                    // Jalan B: the TV session unlocks the server's
-                    // own personal surfaces.
-                    if (tvSignedIn) {
-                        OutlinedButton(onClick = { onPersonalClick("tvhome") }) {
-                            Text(stringResource(R.string.tv_home_button))
-                        }
-                        OutlinedButton(onClick = { onPersonalClick("tvsubs") }) {
-                            Text(stringResource(R.string.tv_subs_button))
-                        }
-                        OutlinedButton(onClick = { onPersonalClick("tvhistory") }) {
-                            Text(stringResource(R.string.tv_history_button))
-                        }
-                    } else {
-                        OutlinedButton(onClick = { tvViewModel.start() }) {
-                            Text(stringResource(R.string.tv_activate_button))
-                        }
-                    }
-                    TvStatusText(tvState)
-                    if (desktopViewModel.configured && !desktopSignedIn) {
-                        OutlinedButton(
-                            onClick = {
-                                if (activity != null) {
-                                    desktopViewModel.start(activity)
-                                }
-                            },
-                        ) {
-                            Text(
-                                stringResource(R.string.desktop_login_button),
-                            )
-                        }
-                        DesktopStatusText(desktopState)
-                    }
-                    OutlinedButton(onClick = { viewModel.signOut() }) {
-                        Text(stringResource(R.string.profile_signout))
+                    TextButton(onClick = { viewModel.signOut() }) {
+                        Text(stringResource(R.string.profile_logout_button))
                     }
                 }
-
                 AuthRepository.State.SignedOut -> {
                     Box(
                         modifier = Modifier
                             .size(96.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer,
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -197,46 +169,10 @@ fun ProfileScreen(
                         )
                     }
                     Text(
-                        stringResource(R.string.profile_name),
+                        stringResource(R.string.profile_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
-                        stringResource(R.string.profile_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
-                    val busy = oneTap is AuthViewModel.OneTap.Working ||
-                        oneTap is AuthViewModel.OneTap.Probing
-                    Button(
-                        onClick = {
-                            if (activity != null) viewModel.beginOneTap(activity)
-                        },
-                        enabled = !busy,
-                    ) {
-                        Text(
-                            stringResource(
-                                when (oneTap) {
-                                    is AuthViewModel.OneTap.Probing ->
-                                        R.string.onetap_probing
-                                    is AuthViewModel.OneTap.Working ->
-                                        R.string.onetap_working
-                                    else -> R.string.profile_login_button
-                                },
-                            ),
-                        )
-                    }
-                    (oneTap as? AuthViewModel.OneTap.Failed)?.let { failed ->
-                        Text(
-                            failed.message,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
                     Text(
                         stringResource(R.string.profile_login_hint),
                         style = MaterialTheme.typography.bodySmall,
@@ -244,169 +180,18 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
-                    Text(
-                        stringResource(R.string.tv_or_divider),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedButton(onClick = { tvViewModel.start() }) {
-                        Text(stringResource(R.string.tv_login_button))
-                    }
-                    TvStatusText(tvState)
                     if (desktopViewModel.configured) {
-                        Text(
-                            stringResource(R.string.tv_or_divider),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                        )
                         Button(
                             onClick = {
                                 if (activity != null) {
                                     desktopViewModel.start(activity)
                                 }
                             },
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(
-                                stringResource(R.string.desktop_login_button),
-                            )
+                            Text(stringResource(R.string.profile_login_button))
                         }
                         DesktopStatusText(desktopState)
-                    }
-                }
-            }
-            if (verdicts.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.onetap_verdicts_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
-                    verdicts.forEach { verdict ->
-                        // Local copy: a public property from another
-                        // module cannot be smart-cast (CI #113).
-                        val status = verdict.httpStatus
-                        Text(
-                            when {
-                                verdict.accepted -> stringResource(
-                                    R.string.onetap_verdict_accepted,
-                                    verdict.contextName,
-                                    verdict.accountName ?: "",
-                                )
-                                status != null -> stringResource(
-                                    R.string.onetap_verdict_rejected,
-                                    verdict.contextName,
-                                    status,
-                                )
-                                else -> stringResource(
-                                    R.string.onetap_verdict_network,
-                                    verdict.contextName,
-                                )
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            }
-            if (tvVerdicts.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.onetap_verdicts_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
-                    tvVerdicts.forEach { verdict ->
-                        val status = verdict.httpStatus
-                        Text(
-                            when {
-                                verdict.accepted -> stringResource(
-                                    R.string.onetap_verdict_accepted,
-                                    verdict.contextName,
-                                    verdict.accountName ?: "",
-                                )
-                                status != null -> stringResource(
-                                    R.string.onetap_verdict_rejected,
-                                    verdict.contextName,
-                                    status,
-                                )
-                                else -> stringResource(
-                                    R.string.onetap_verdict_network,
-                                    verdict.contextName,
-                                )
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-            }
-            if (desktopVerdicts.isNotEmpty() ||
-                desktopDataVerdict != null
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.desktop_verdicts_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center,
-                    )
-                    desktopVerdicts.forEach { verdict ->
-                        val status = verdict.httpStatus
-                        Text(
-                            when {
-                                verdict.accepted -> stringResource(
-                                    R.string.onetap_verdict_accepted,
-                                    verdict.contextName,
-                                    verdict.accountName ?: "",
-                                )
-                                status != null -> stringResource(
-                                    R.string.onetap_verdict_rejected,
-                                    verdict.contextName,
-                                    status,
-                                )
-                                else -> stringResource(
-                                    R.string.onetap_verdict_network,
-                                    verdict.contextName,
-                                )
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                    desktopDataVerdict?.let { dataVerdict ->
-                        Text(
-                            stringResource(
-                                R.string.desktop_data_verdict,
-                                dataVerdict,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                        )
                     }
                 }
             }
@@ -416,104 +201,27 @@ fun ProfileScreen(
             EngineHealthPanel()
         }
     }
-    // Layar Besar: the code dialog lives above whichever sign-in
-    // state opened it.
-    when (val current = tvState) {
-        is TvLoginViewModel.TvState.Requesting,
-        is TvLoginViewModel.TvState.ShowingCode,
-        -> {
-            androidx.compose.material3.AlertDialog(
-                onDismissRequest = { tvViewModel.cancel() },
-                title = { Text(stringResource(R.string.tv_dialog_title)) },
-                text = {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (current is TvLoginViewModel.TvState.ShowingCode) {
-                            Text(
-                                stringResource(
-                                    R.string.tv_dialog_instruction,
-                                    current.code.verificationUrl,
-                                ),
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center,
-                            )
-                            Text(
-                                current.code.userCode,
-                                style = MaterialTheme.typography.displaySmall,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                        Text(
-                            stringResource(
-                                if (current is TvLoginViewModel.TvState.ShowingCode) {
-                                    R.string.tv_waiting
-                                } else {
-                                    R.string.tv_requesting
-                                },
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    androidx.compose.material3.TextButton(
-                        onClick = { tvViewModel.cancel() },
-                    ) {
-                        Text(stringResource(R.string.tv_cancel))
-                    }
-                },
-            )
-        }
-        else -> Unit
-    }
 }
 
-/** The TV flow's quiet status line: denial, expiry, or failure. */
+/** The one door's quiet status line: waiting, exchanging, failure. */
 @Composable
-private fun DesktopStatusText(state: DesktopProbeViewModel.State) {
+private fun DesktopStatusText(state: DesktopSignInViewModel.State) {
     val text = when (state) {
-        DesktopProbeViewModel.State.Idle -> null
-        DesktopProbeViewModel.State.Waiting ->
+        DesktopSignInViewModel.State.Idle -> null
+        DesktopSignInViewModel.State.Waiting ->
             stringResource(R.string.desktop_waiting)
-        DesktopProbeViewModel.State.Probing ->
-            stringResource(R.string.onetap_probing)
-        DesktopProbeViewModel.State.Done ->
-            stringResource(R.string.desktop_done)
-        is DesktopProbeViewModel.State.Failed -> state.message
+        DesktopSignInViewModel.State.Exchanging ->
+            stringResource(R.string.desktop_exchanging)
+        is DesktopSignInViewModel.State.Failed -> state.message
     } ?: return
     Text(
         text,
         style = MaterialTheme.typography.bodySmall,
-        color = if (state is DesktopProbeViewModel.State.Failed) {
+        color = if (state is DesktopSignInViewModel.State.Failed) {
             MaterialTheme.colorScheme.error
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = TextAlign.Center,
-    )
-}
-
-@Composable
-private fun TvStatusText(state: TvLoginViewModel.TvState) {
-    val text = when (state) {
-        is TvLoginViewModel.TvState.Denied ->
-            stringResource(R.string.tv_denied)
-        is TvLoginViewModel.TvState.Expired ->
-            stringResource(R.string.tv_expired)
-        is TvLoginViewModel.TvState.Failed -> state.message
-        else -> null
-    } ?: return
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
         modifier = Modifier.fillMaxWidth(),
         textAlign = TextAlign.Center,
     )

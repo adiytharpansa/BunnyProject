@@ -145,19 +145,6 @@ interface ExtractionBackend {
     ): List<com.bunny.core.model.BearerContextVerdict> = emptyList()
 
     /**
-     * Jalan B (Layar Besar): the TV personal surfaces, served by the
-     * engine's TVHTML5 Bearer session. Empty when no TV session is
-     * active; refusals surface as the engine's exception.
-     */
-    suspend fun getTvHomeFeed(): List<VideoItem> = emptyList()
-
-    /** The account's subscriptions feed, as the TV surface orders it. */
-    suspend fun getTvSubscriptionsFeed(): List<VideoItem> = emptyList()
-
-    /** The account's real watch history, newest first. */
-    suspend fun getTvHistory(): List<VideoItem> = emptyList()
-
-    /**
      * The watch page's own related list for [videoId] — the videos
      * YouTube's recommender itself lines up next, IN THE SERVER'S ORDER
      * (that order is the algorithm's output; re-sorting it locally would
