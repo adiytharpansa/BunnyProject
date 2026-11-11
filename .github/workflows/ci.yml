@@ -45,6 +45,9 @@ jobs:
             echo "No fixed debug keystore secret; using ephemeral CI debug key."
           fi
       - name: Lint, unit test, build
+        env:
+          BUNNY_TV_CLIENT_ID: ${{ secrets.BUNNY_TV_CLIENT_ID }}
+          BUNNY_TV_CLIENT_SECRET: ${{ secrets.BUNNY_TV_CLIENT_SECRET }}
         run: gradle lint testDebugUnitTest assembleDebug --stacktrace
 
       - name: Upload reports and debug APK
