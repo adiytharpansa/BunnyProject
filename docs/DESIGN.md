@@ -121,7 +121,13 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   tanda tangan SAPISIDHASH, Beranda pribadi asli dari server. *(Kode +
   CI selesai 2026-11-11, CI #106. UJI PERANGKAT 2026-11-11: Google
   menolak masuk dari WebView — halaman "browser tidak aman" sebelum
-  kredensial diketik. Keputusan perbaikan menunggu pengguna.)*
+  kredensial diketik. Pengganti atas keputusan pengguna =
+  rancangan **Satu Ketuk**: lembar akun sistem Google (Authorization
+  API) → token Bearer → probe bukti tiga konteks (TVHTML5/WEB/ANDROID)
+  ke accounts_list → konteks pemenang jadi sesi pribadi; layar
+  LoginScreen dihapus. Langkah 0 (tanda tangan debug tetap) dan
+  Langkah 1 (masuk + probe) selesai CI-hijau 2026-11-11 — CI #111
+  dan #114.)*
 - **Fase 6** — Sisa utang + Lontar Hidup (keputusan pengguna
   2026-11-11: "Semua nya"): **6-A** balasan komentar bisa dibuka persis
   struktur jawaban asli; **6-B** Panen Bertingkat (audio dulu, naik ke
