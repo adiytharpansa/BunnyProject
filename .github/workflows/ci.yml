@@ -32,9 +32,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.13
-
       # Uses the provisioned Gradle distribution: the wrapper JAR is a binary
       # that has not been uploaded to this repository yet.
+      - name: Restore fixed debug keystore
+        env:
+          BUNNY_DEBUG_KEYSTORE_B64: ${{ secrets.BUNNY_DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$BUNNY_DEBUG_KEYSTORE_B64" ]; then
+            echo "$BUNNY_DEBUG_KEYSTORE_B64" | base64 -d > bunny-debug.keystore
+            echo "Fixed debug keystore restored."
+          else
+            echo "No fixed debug keystore secret; using ephemeral CI debug key."
+          fi
       - name: Lint, unit test, build
         run: gradle lint testDebugUnitTest assembleDebug --stacktrace
 
