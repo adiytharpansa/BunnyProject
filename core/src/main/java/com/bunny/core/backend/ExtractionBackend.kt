@@ -1,5 +1,6 @@
 package com.bunny.core.backend
 
+import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -56,4 +57,11 @@ interface ExtractionBackend {
      * [VideoDetails]. Pagination is not offered; an edition is finite.
      */
     suspend fun getChannelVideos(channelId: String): Page<VideoItem>
+
+    /**
+     * The channel's real page header: name, photo, description and the
+     * published subscriber/video counts. Null when the backend has no
+     * channel source or the page carried no metadata.
+     */
+    suspend fun getChannelInfo(channelId: String): ChannelInfo? = null
 }

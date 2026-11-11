@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar
 
+import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -144,6 +145,61 @@ object InnertubeParser {
         return thumbs.optJSONObject(thumbs.length() - 1)
             ?.optString("url")
             ?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * A channel page's real identity. Name, description and avatar come
+     * from metadata.channelMetadataRenderer; the published counts live
+     * in the page header's metadata parts as localized text
+     * ("2,86 jt subscriber", "158 rb video") — both verified live
+     * 2026-11-11 against a real channel browse.
+     */
+    fun parseChannelInfo(response: JSONObject, channelId: String): ChannelInfo? {
+        val meta = response.optJSONObject("metadata")
+            ?.optJSONObject("channelMetadataRenderer") ?: return null
+        val name = meta.optString("title").takeIf { it.isNotEmpty() } ?: return null
+        val headerTexts = mutableListOf<String>()
+        collectMetadataPartTexts(response.optJSONObject("header"), headerTexts)
+        return ChannelInfo(
+            channelId = channelId,
+            name = name,
+            avatarUrl = bestThumbnail(meta.optJSONObject("avatar")),
+            description = meta.optString("description"),
+            subscriberText = headerTexts.firstOrNull {
+                it.contains("subscriber", ignoreCase = true)
+            },
+            videoCountText = headerTexts.firstOrNull {
+                !it.contains("subscriber", ignoreCase = true) &&
+                    it.contains("video", ignoreCase = true) &&
+                    it.any { ch -> ch.isDigit() }
+            },
+        )
+    }
+
+    /** Every metadataParts text.content in the tree, in document order. */
+    private fun collectMetadataPartTexts(node: Any?, out: MutableList<String>) {
+        when (node) {
+            is JSONObject -> {
+                val parts = node.optJSONArray("metadataParts")
+                if (parts != null) {
+                    for (i in 0 until parts.length()) {
+                        parts.optJSONObject(i)?.optJSONObject("text")
+                            ?.optString("content")
+                            ?.takeIf { it.isNotEmpty() }
+                            ?.let(out::add)
+                    }
+                }
+                val keys = node.keys()
+                while (keys.hasNext()) {
+                    collectMetadataPartTexts(node.opt(keys.next()), out)
+                }
+            }
+            is JSONArray -> {
+                for (i in 0 until node.length()) {
+                    collectMetadataPartTexts(node.opt(i), out)
+                }
+            }
+        }
     }
 
     /** First continuation token found anywhere in the tree, if any. */

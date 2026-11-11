@@ -1,6 +1,7 @@
 package com.bunny.app.presentation.screens.channel
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,23 +29,28 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
+import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
 
 /**
  * The channel page, shaped after the official app's channel header
  * (REA dissection 2026-11-10): identity block with the subscribe
- * action on top, the channel's uploads below. Bunny has no channel
- * avatars from the engine, so the header uses a letter tile in the
- * theme's primary container — honest placeholder, not a fake photo.
+ * action on top, the channel's uploads below. The header shows the
+ * channel's real published identity (photo, counts, description)
+ * from the engine whenever it arrives.
  */
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
@@ -90,15 +96,24 @@ fun ChannelScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    // Plain circle for now: no letter stand-in (user rule
-                    // 2026-11-11). The channel's real photo fills this when
-                    // the channel-header data (metadata) work lands.
+                    // The channel's real photo when the engine brought
+                    // it; the circle stays plain until then (no letter
+                    // stand-in — user rule 2026-11-11).
                     Box(
                         modifier = Modifier
                             .size(56.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
-                    )
+                    ) {
+                        state.info?.avatarUrl?.let { url ->
+                            AsyncImage(
+                                model = url,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        }
+                    }
                     Column(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
@@ -106,7 +121,20 @@ fun ChannelScreen(
                             displayName,
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        if (state.items.isNotEmpty()) {
+                        // The published counts as served by the channel
+                        // page itself; the loaded-list count only speaks
+                        // when no header data arrived.
+                        val infoLine = listOfNotNull(
+                            state.info?.subscriberText,
+                            state.info?.videoCountText,
+                        ).joinToString(" • ")
+                        if (infoLine.isNotEmpty()) {
+                            Text(
+                                infoLine,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else if (state.items.isNotEmpty()) {
                             Text(
                                 stringResource(
                                     R.string.channel_video_count,
@@ -138,6 +166,22 @@ fun ChannelScreen(
                             }
                         }
                     }
+                }
+            }
+            // The channel's own description, as published on its page;
+            // three lines until tapped.
+            state.info?.description?.takeIf { it.isNotBlank() }?.let { description ->
+                item {
+                    var expanded by remember(channelId) { mutableStateOf(false) }
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = if (expanded) Int.MAX_VALUE else 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(horizontal = 16.dp)
+                            .clickable { expanded = !expanded },
+                    )
                 }
             }
             when {

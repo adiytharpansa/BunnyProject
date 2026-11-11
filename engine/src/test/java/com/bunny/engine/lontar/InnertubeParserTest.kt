@@ -178,6 +178,63 @@ class InnertubeParserTest {
     }
 
     @Test
+    fun parseChannelInfo_readsMetadataAndHeaderCounts() {
+        // Shape verified live 2026-11-11 (Liputan6 browse): identity in
+        // metadata.channelMetadataRenderer, published counts as localized
+        // text.content inside the page header's metadataParts.
+        val json = """
+        {
+          "metadata": {
+            "channelMetadataRenderer": {
+              "title": "Liputan6",
+              "description": "Official account Liputan6.",
+              "avatar": {
+                "thumbnails": [
+                  { "url": "https://yt3.example/avatar.jpg", "width": 176 }
+                ]
+              }
+            }
+          },
+          "header": {
+            "pageHeaderRenderer": {
+              "content": {
+                "pageHeaderViewModel": {
+                  "metadata": {
+                    "contentMetadataViewModel": {
+                      "metadataRows": [
+                        {
+                          "metadataParts": [
+                            { "text": { "content": "@liputan6_news" } }
+                          ]
+                        },
+                        {
+                          "metadataParts": [
+                            { "text": { "content": "2,86 jt subscriber" } },
+                            { "text": { "content": "158 rb video" } }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """.trimIndent()
+        val info = InnertubeParser.parseChannelInfo(
+            JSONObject(json),
+            "UC1QpnGo11epfexw1bIiTHTg",
+        )
+        assertEquals("Liputan6", info?.name)
+        assertEquals("https://yt3.example/avatar.jpg", info?.avatarUrl)
+        assertEquals("Official account Liputan6.", info?.description)
+        assertEquals("2,86 jt subscriber", info?.subscriberText)
+        assertEquals("158 rb video", info?.videoCountText)
+        assertNull(InnertubeParser.parseChannelInfo(JSONObject("{}"), "UCx"))
+    }
+
+    @Test
     fun parseCount_handlesSuffixesAndLocales() {
         assertEquals(1_200_000L, InnertubeParser.parseCount("1.2M views"))
         assertEquals(321_000L, InnertubeParser.parseCount("321K watching"))

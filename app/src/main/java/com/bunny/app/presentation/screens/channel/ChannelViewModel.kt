@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.LibraryRepository
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -19,6 +20,8 @@ data class ChannelUiState(
     val items: List<VideoItem> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** The channel's real header data (photo, counts, description). */
+    val info: ChannelInfo? = null,
 )
 
 /**
@@ -60,6 +63,26 @@ class ChannelViewModel @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 _uiState.update { it.copy(isLoading = false, error = e.message) }
+            }
+        }
+        // The header data rides its own fetch: it decorates the page
+        // whenever it lands and its failure changes nothing else.
+        viewModelScope.launch {
+            val info = try {
+                backend.getChannelInfo(channelId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (info != null) {
+                _uiState.update {
+                    it.copy(
+                        info = info,
+                        channelName = info.name.takeIf { n -> n.isNotEmpty() }
+                            ?: it.channelName,
+                    )
+                }
             }
         }
     }

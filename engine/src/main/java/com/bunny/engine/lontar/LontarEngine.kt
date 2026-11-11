@@ -1,6 +1,7 @@
 package com.bunny.engine.lontar
 
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -141,6 +142,23 @@ class LontarEngine(
             }
         }
         return Page(items = emptyList(), nextPage = null)
+    }
+
+    /**
+     * The channel page's own browse carries its real header metadata.
+     * Best-effort by contract: any failure means "no header data",
+     * never an error on the channel page.
+     */
+    override suspend fun getChannelInfo(channelId: String): ChannelInfo? {
+        if (!channelId.startsWith("UC") || channelId.length < 4) return null
+        return try {
+            val body = baseBody().put("browseId", channelId)
+            InnertubeParser.parseChannelInfo(post("browse", body), channelId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
     }
 
     override suspend fun getSearchSuggestions(query: String): List<String> {
