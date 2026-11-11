@@ -247,25 +247,6 @@ class LontarEngine(
         }
     }
 
-    /**
-     * The signed-in home: with login cookies attached, the very browse
-     * that answers EMPTY for a guest (probed four ways, 2026-11-11)
-     * returns the account's own server-composed grid. Order is the
-     * server's and is never re-ranked locally. Signed out, or an empty
-     * answer, reads as an empty page — the caller shows its empty
-     * state rather than a local substitute.
-     */
-    override suspend fun getPersonalHomeFeed(page: String?): Page<VideoItem> {
-        if (!auth.isSignedIn) return Page(items = emptyList(), nextPage = null)
-        val body = baseBody()
-        if (page != null) {
-            body.put("continuation", page)
-        } else {
-            body.put("browseId", "FEwhat_to_watch")
-        }
-        return InnertubeParser.parseFeedPage(post("browse", body))
-    }
-
     /** The account's own header, from its authenticated account menu. */
     override suspend fun getAccountInfo(): AccountInfo? {
         if (!auth.isSignedIn) return null

@@ -34,6 +34,10 @@ data class ApiVideo(
     val publishedAtMillis: Long,
     val durationSeconds: Long? = null,
     val viewCount: Long? = null,
+    /** Author-supplied tags (liked videos feed the taste profile). */
+    val tags: List<String> = emptyList(),
+    /** YouTube's own category id for the video, when reported. */
+    val categoryId: String? = null,
 )
 
 /** A Data API refusal, carrying the HTTP status for honest display. */
@@ -275,6 +279,12 @@ internal fun parseLiked(root: JSONObject): List<ApiVideo> {
                 ?.optString("duration")?.let { parseIsoDuration(it) },
             viewCount = item.optJSONObject("statistics")
                 ?.optString("viewCount")?.toLongOrNull(),
+            tags = snippet.optJSONArray("tags")?.let { array ->
+                List(array.length()) { array.optString(it) }
+                    .filter { it.isNotEmpty() }
+            } ?: emptyList(),
+            categoryId = snippet.optString("categoryId")
+                .takeIf { it.isNotEmpty() },
         )
     }
     return result

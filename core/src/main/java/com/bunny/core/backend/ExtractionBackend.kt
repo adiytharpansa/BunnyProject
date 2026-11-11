@@ -156,17 +156,6 @@ interface ExtractionBackend {
     suspend fun getRelatedVideos(videoId: String): List<VideoItem> = emptyList()
 
     /**
-     * The signed-in account's own home list, in the server's order —
-     * the personal counterpart of the watch page's related list
-     * (Fase 5). Only meaningful while the engine holds login cookies;
-     * backends or sessions without a login return an empty page and
-     * the caller shows its empty state (no local substitute, by the
-     * same no-fallback rule as [getRelatedVideos]).
-     */
-    suspend fun getPersonalHomeFeed(page: String? = null): Page<VideoItem> =
-        Page(items = emptyList(), nextPage = null)
-
-    /**
      * The signed-in account's name and photo as YouTube reports them.
      * Null when signed out or when the account response carried none.
      */

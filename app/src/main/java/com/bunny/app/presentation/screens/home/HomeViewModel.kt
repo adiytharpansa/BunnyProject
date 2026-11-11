@@ -135,27 +135,12 @@ class HomeViewModel @Inject constructor(
             try {
                 val status = backend.healthCheck()
                 _uiState.update { it.copy(backendStatus = status) }
-                // Fase 5: while signed in, Home is the account's own
-                // server list in the server's order — no local ranking,
-                // and no local substitute when it comes back empty
-                // (the same no-fallback rule as the related list).
-                if (auth.isSignedIn) {
-                    val personal = backend.getPersonalHomeFeed(page = null)
-                    if (personal.items.isEmpty()) {
-                        _uiState.update {
-                            it.copy(
-                                isLoading = false,
-                                error = "Beranda pribadi tidak dapat dimuat. Coba lagi.",
-                            )
-                        }
-                        return@launch
-                    }
-                    thumbnails.preload(personal.items)
-                    _uiState.update {
-                        it.copy(isLoading = false, items = personal.items)
-                    }
-                    return@launch
-                }
+                // Home is ALWAYS the locally composed mixture,
+                // ranked by Mesin Selera — signed in or not. The
+                // Fase 5 server-home branch died with the cookie
+                // door (its engine session no longer exists, so it
+                // could only ever answer empty and strand signed-in
+                // users on an error); removed 2026-11-12.
                 val page = backend.getHomeFeed(page = null)
                 // Mesin Selera: the mixture is candidate generation;
                 // this ranking pass is Bunny's local second stage,

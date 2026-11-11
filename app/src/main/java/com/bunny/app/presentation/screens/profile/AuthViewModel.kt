@@ -3,6 +3,7 @@ package com.bunny.app.presentation.screens.profile
 import android.app.Activity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.bunny.app.data.AccountTasteRepository
 import com.bunny.app.data.AuthRepository
 import com.bunny.app.data.DesktopAuth
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +22,7 @@ import javax.inject.Inject
 class AuthViewModel @Inject constructor(
     private val auth: AuthRepository,
     private val desktopAuth: DesktopAuth,
+    private val accountTaste: AccountTasteRepository,
 ) : ViewModel() {
 
     val state: StateFlow<AuthRepository.State> = auth.state
@@ -51,6 +53,7 @@ class AuthViewModel @Inject constructor(
         val desktopRefresh = auth.desktopRefreshToken()
         auth.signOut()
         desktopAuth.forget()
+        accountTaste.clear()
         if (desktopRefresh != null) {
             viewModelScope.launch { desktopAuth.revoke(desktopRefresh) }
         }
