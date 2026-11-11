@@ -1,5 +1,6 @@
 package com.bunny.app.data
 
+import android.accounts.Account
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
@@ -7,8 +8,13 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.webkit.CookieManager
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.BearerContextVerdict
 import com.bunny.engine.lontar.AuthCookies
 import com.bunny.engine.lontar.LontarAuth
+import com.google.android.gms.auth.api.identity.ClearTokenRequest
+import com.google.android.gms.auth.api.identity.Identity
+import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.api.Scope
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +57,14 @@ class AuthRepository @Inject constructor(
 
     val isSignedIn: Boolean get() = _state.value is State.SignedIn
 
+    // The stored pieces, kept in step with the encrypted blob so the
+    // cookie session and the Satu Ketuk token never overwrite each
+    // other when one of them is refreshed.
+    private var cookieHeaderStored: String = ""
+    private var bearerTokenStored: String? = null
+    private var bearerContextStored: String? = null
+    private var bearerEmailStored: String? = null
+
     init {
         restore()
     }
@@ -59,13 +73,25 @@ class AuthRepository @Inject constructor(
         val blob = prefs().getString(KEY_BLOB, null) ?: return
         val plain = decrypt(blob) ?: return
         val stored = runCatching { JSONObject(plain) }.getOrNull() ?: return
-        val header = stored.optString("cookie")
-        val cookies = AuthCookies.fromCookieHeader(header) ?: return
-        lontarAuth.cookies = cookies
-        _state.value = State.SignedIn(
-            name = stored.optString("name").takeIf { it.isNotEmpty() },
-            avatarUrl = stored.optString("avatar").takeIf { it.isNotEmpty() },
-        )
+        cookieHeaderStored = stored.optString("cookie")
+        val cookies = AuthCookies.fromCookieHeader(cookieHeaderStored)
+        if (cookies != null) lontarAuth.cookies = cookies
+        val token = stored.optString("bearerToken").takeIf { it.isNotEmpty() }
+        if (token != null) {
+            bearerTokenStored = token
+            bearerContextStored = stored.optString("bearerContext")
+                .takeIf { it.isNotEmpty() }
+            bearerEmailStored = stored.optString("bearerEmail")
+                .takeIf { it.isNotEmpty() }
+            lontarAuth.bearerToken = token
+            lontarAuth.bearerContext = bearerContextStored
+        }
+        if (cookies != null || token != null) {
+            _state.value = State.SignedIn(
+                name = stored.optString("name").takeIf { it.isNotEmpty() },
+                avatarUrl = stored.optString("avatar").takeIf { it.isNotEmpty() },
+            )
+        }
     }
 
     /**
@@ -76,8 +102,9 @@ class AuthRepository @Inject constructor(
     suspend fun signIn(cookieHeader: String): Boolean {
         val cookies = AuthCookies.fromCookieHeader(cookieHeader) ?: return false
         lontarAuth.cookies = cookies
+        cookieHeaderStored = cookieHeader
         _state.value = State.SignedIn(null, null)
-        persist(cookieHeader, null, null)
+        persistAll(null, null)
         // Best-effort identity for the profile header; a failure just
         // leaves the header generic, the session itself is valid.
         val info = try {
@@ -87,18 +114,62 @@ class AuthRepository @Inject constructor(
         }
         if (info != null) {
             _state.value = State.SignedIn(info.name, info.avatarUrl)
-            persist(cookieHeader, info.name, info.avatarUrl)
+            persistAll(info.name, info.avatarUrl)
         }
         return true
     }
 
-    /** One-tap wipe: blob, engine session, and WebView cookies. */
+    /**
+     * Satu Ketuk: the probe accepted [verdict]'s context — keep the
+     * token, the winning context, and the identity the door named.
+     */
+    fun signInBearer(verdict: BearerContextVerdict, accessToken: String) {
+        lontarAuth.bearerToken = accessToken
+        lontarAuth.bearerContext = verdict.contextName
+        bearerTokenStored = accessToken
+        bearerContextStored = verdict.contextName
+        bearerEmailStored = verdict.accountEmail
+        _state.value = State.SignedIn(verdict.accountName, verdict.avatarUrl)
+        persistAll(verdict.accountName, verdict.avatarUrl)
+    }
+
+    /** One-tap wipe: blob, engine session, WebView cookies, GMS grant. */
     fun signOut() {
+        val token = bearerTokenStored
+        val email = bearerEmailStored
         lontarAuth.cookies = null
+        lontarAuth.bearerToken = null
+        lontarAuth.bearerContext = null
+        cookieHeaderStored = ""
+        bearerTokenStored = null
+        bearerContextStored = null
+        bearerEmailStored = null
         _state.value = State.SignedOut
         prefs().edit().remove(KEY_BLOB).apply()
         CookieManager.getInstance().removeAllCookies(null)
         CookieManager.getInstance().flush()
+        // Best-effort: drop the cached token and revoke the grant, so
+        // a future sign-in asks consent afresh. Local sign-out above
+        // already stands even if Play services refuses to talk.
+        if (token != null) {
+            try {
+                val client = Identity.getAuthorizationClient(context)
+                client.clearToken(
+                    ClearTokenRequest.builder().setToken(token).build(),
+                )
+                if (email != null) {
+                    client.revokeAccess(
+                        RevokeAccessRequest.builder()
+                            .setAccount(Account(email, "com.google"))
+                            .setScopes(listOf(Scope(YOUTUBE_READONLY_SCOPE)))
+                            .build(),
+                    )
+                }
+            } catch (e: Exception) {
+                // The grant can also be revoked from the Google
+                // account page; nothing here may fail the sign-out.
+            }
+        }
     }
 
     // ------------------------------------------------------------ storage
@@ -106,11 +177,14 @@ class AuthRepository @Inject constructor(
     private fun prefs(): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private fun persist(cookieHeader: String, name: String?, avatarUrl: String?) {
+    private fun persistAll(name: String?, avatarUrl: String?) {
         val plain = JSONObject()
-            .put("cookie", cookieHeader)
+            .put("cookie", cookieHeaderStored)
             .put("name", name ?: "")
             .put("avatar", avatarUrl ?: "")
+            .put("bearerToken", bearerTokenStored ?: "")
+            .put("bearerContext", bearerContextStored ?: "")
+            .put("bearerEmail", bearerEmailStored ?: "")
             .toString()
         val blob = encrypt(plain) ?: return
         prefs().edit().putString(KEY_BLOB, blob).apply()
@@ -157,7 +231,11 @@ class AuthRepository @Inject constructor(
         null
     }
 
-    private companion object {
+    companion object {
+        /** The only scope Satu Ketuk asks for: read the account's YouTube. */
+        const val YOUTUBE_READONLY_SCOPE =
+            "https://www.googleapis.com/auth/youtube.readonly"
+
         const val PREFS_NAME = "bunny_auth_secure"
         const val KEY_BLOB = "auth_blob_v1"
         const val KEY_ALIAS = "bunny_auth_key_v1"

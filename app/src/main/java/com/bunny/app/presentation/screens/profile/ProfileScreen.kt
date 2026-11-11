@@ -40,11 +40,34 @@ import com.bunny.app.data.AuthRepository
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onLoginClick: () -> Unit = {},
     onDownloadsClick: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val authState by viewModel.state.collectAsState()
+    // Satu Ketuk: the consent sheet belongs to the system; the screen
+    // only launches the PendingIntent the authorization call returns.
+    val oneTap by viewModel.oneTap.collectAsState()
+    val verdicts by viewModel.verdicts.collectAsState()
+    val activity = androidx.compose.ui.platform.LocalContext.current
+        as? android.app.Activity
+    val consentLauncher = androidx.activity.compose
+        .rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts
+                .StartIntentSenderForResult(),
+        ) { result ->
+            if (activity != null) {
+                viewModel.onConsentResult(activity, result.data)
+            }
+        }
+    androidx.compose.runtime.LaunchedEffect(oneTap) {
+        val pending = oneTap as? AuthViewModel.OneTap.NeedsConsent
+            ?: return@LaunchedEffect
+        viewModel.consumeConsent()
+        consentLauncher.launch(
+            androidx.activity.result.IntentSenderRequest
+                .Builder(pending.intentSender).build(),
+        )
+    }
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(stringResource(R.string.profile_title)) })
@@ -131,8 +154,34 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
-                    Button(onClick = onLoginClick) {
-                        Text(stringResource(R.string.profile_login_button))
+                    val busy = oneTap is AuthViewModel.OneTap.Working ||
+                        oneTap is AuthViewModel.OneTap.Probing
+                    Button(
+                        onClick = {
+                            if (activity != null) viewModel.beginOneTap(activity)
+                        },
+                        enabled = !busy,
+                    ) {
+                        Text(
+                            stringResource(
+                                when (oneTap) {
+                                    is AuthViewModel.OneTap.Probing ->
+                                        R.string.onetap_probing
+                                    is AuthViewModel.OneTap.Working ->
+                                        R.string.onetap_working
+                                    else -> R.string.profile_login_button
+                                },
+                            ),
+                        )
+                    }
+                    (oneTap as? AuthViewModel.OneTap.Failed)?.let { failed ->
+                        Text(
+                            failed.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
                     }
                     Text(
                         stringResource(R.string.profile_login_hint),
@@ -141,6 +190,44 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
+                }
+            }
+            if (verdicts.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.onetap_verdicts_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                    verdicts.forEach { verdict ->
+                        Text(
+                            when {
+                                verdict.accepted -> stringResource(
+                                    R.string.onetap_verdict_accepted,
+                                    verdict.contextName,
+                                    verdict.accountName ?: "",
+                                )
+                                verdict.httpStatus != null -> stringResource(
+                                    R.string.onetap_verdict_rejected,
+                                    verdict.contextName,
+                                    verdict.httpStatus,
+                                )
+                                else -> stringResource(
+                                    R.string.onetap_verdict_network,
+                                    verdict.contextName,
+                                )
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
             OutlinedButton(onClick = onDownloadsClick) {

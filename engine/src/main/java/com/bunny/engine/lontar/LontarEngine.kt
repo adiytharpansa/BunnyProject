@@ -449,6 +449,168 @@ class LontarEngine(
 
     override fun ladderDescription(): String = lastLadderDescription
 
+    // -------------------------------------------------------- satu ketuk
+
+    /**
+     * The three doors the Langkah 1 probe knocks on, in evidence
+     * order: TVHTML5 (the only context with published acceptance),
+     * WEB (the session's own), ANDROID (the token's birth family —
+     * an Android OAuth client's token may pair with its own context
+     * even where the TV pairing fails). Versions and agents are the
+     * live-verified shapes from the 2026-11-11 research references.
+     */
+    private data class BearerDoor(
+        val contextName: String,
+        val clientNameId: String,
+        val clientVersion: String,
+        val userAgent: String,
+        val referer: String?,
+        val androidContext: Boolean,
+    )
+
+    private fun bearerDoors(webVersion: String): List<BearerDoor> = listOf(
+        BearerDoor(
+            contextName = "TVHTML5",
+            clientNameId = "7",
+            clientVersion = "7.20260707.07.00",
+            userAgent = "Mozilla/5.0 (Linux armeabi-v7a; Android 7.1.2; " +
+                "Fire OS 6.0) Cobalt/22.lts.3.306369-gold (unlike Gecko) " +
+                "v8/8.8.278.8-jit gles Starboard/13, " +
+                "Amazon_ATV_mediatek8695_2019/NS6294 (Amazon, AFTMM, " +
+                "Wireless) com.amazon.firetv.youtube/22.3.r2.v66.0",
+            referer = "https://www.youtube.com/tv",
+            androidContext = false,
+        ),
+        BearerDoor(
+            contextName = "WEB",
+            clientNameId = "1",
+            clientVersion = webVersion,
+            userAgent = LontarPersona.USER_AGENT,
+            referer = null,
+            androidContext = false,
+        ),
+        BearerDoor(
+            contextName = "ANDROID",
+            clientNameId = "3",
+            clientVersion = "21.26.364",
+            userAgent = "com.google.android.youtube/21.26.364 " +
+                "(Linux; U; Android 11) gzip",
+            referer = null,
+            androidContext = true,
+        ),
+    )
+
+    /**
+     * Satu Ketuk Langkah 1 — token evidence. One honest attempt per
+     * door against `account/accounts_list`: the verdict records the
+     * HTTP status and, on acceptance, the account the door named.
+     * The first accepting door becomes the engine's personal session
+     * (token + context in [LontarAuth]). The token is never logged.
+     */
+    override suspend fun probeBearerContexts(
+        accessToken: String,
+    ): List<com.bunny.core.model.BearerContextVerdict> {
+        val session = ensureSession()
+        val verdicts = mutableListOf<com.bunny.core.model.BearerContextVerdict>()
+        for (door in bearerDoors(session.clientVersion)) {
+            val client = JSONObject()
+                .put("clientName", door.contextName)
+                .put("clientVersion", door.clientVersion)
+                .put("hl", "id")
+                .put("gl", "ID")
+                .put("visitorData", session.visitorData)
+            if (door.androidContext) {
+                client.put("androidSdkVersion", 30)
+                    .put("osName", "Android")
+                    .put("osVersion", "11")
+            }
+            val body = JSONObject()
+                .put("context", JSONObject().put("client", client))
+            val verdict = try {
+                val response = postBearerJson(
+                    url = "https://www.youtube.com/youtubei/v1/account/accounts_list" +
+                        "?key=${session.apiKey}&prettyPrint=false",
+                    door = door,
+                    body = body,
+                    accessToken = accessToken,
+                )
+                val account = InnertubeParser.parseAccountItem(response)
+                if (account != null) {
+                    com.bunny.core.model.BearerContextVerdict(
+                        contextName = door.contextName,
+                        httpStatus = 200,
+                        accepted = true,
+                        accountName = account.name,
+                        accountHandle = account.handle,
+                        accountEmail = account.email,
+                        avatarUrl = account.avatarUrl,
+                    )
+                } else {
+                    com.bunny.core.model.BearerContextVerdict(
+                        contextName = door.contextName,
+                        httpStatus = 200,
+                        accepted = false,
+                    )
+                }
+            } catch (e: LontarException) {
+                com.bunny.core.model.BearerContextVerdict(
+                    contextName = door.contextName,
+                    httpStatus = e.httpCode,
+                    accepted = false,
+                )
+            } catch (e: java.io.IOException) {
+                com.bunny.core.model.BearerContextVerdict(
+                    contextName = door.contextName,
+                    httpStatus = null,
+                    accepted = false,
+                )
+            }
+            verdicts += verdict
+            if (verdict.accepted) break
+        }
+        verdicts.firstOrNull { it.accepted }?.let { winner ->
+            auth.bearerToken = accessToken
+            auth.bearerContext = winner.contextName
+        }
+        return verdicts
+    }
+
+    /** One Bearer-carrying InnerTube POST; the probe's measuring tool. */
+    private suspend fun postBearerJson(
+        url: String,
+        door: BearerDoor,
+        body: JSONObject,
+        accessToken: String,
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val builder = Request.Builder()
+            .url(url)
+            .header("User-Agent", door.userAgent)
+            .header("X-YouTube-Client-Name", door.clientNameId)
+            .header("X-YouTube-Client-Version", door.clientVersion)
+            .header("Content-Type", "application/json")
+            .header("Authorization", "Bearer $accessToken")
+            .header("X-Goog-AuthUser", "0")
+            .header("X-YouTube-Bootstrap-Logged-In", "true")
+        if (door.referer != null) builder.header("Referer", door.referer)
+        val request = builder
+            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        httpClient.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                val detail = runCatching {
+                    JSONObject(text).getJSONObject("error").getString("message")
+                }.getOrNull()
+                throw LontarException(
+                    "Pintu ${door.contextName} menjawab HTTP ${response.code}" +
+                        (detail?.let { ": $it" } ?: ""),
+                    httpCode = response.code,
+                )
+            }
+            JSONObject(text)
+        }
+    }
+
     /** Statistics are evidence, never a failure surface of their own. */
     private suspend fun recordStat(
         persona: String,

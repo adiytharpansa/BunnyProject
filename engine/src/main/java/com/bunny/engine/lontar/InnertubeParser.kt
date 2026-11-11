@@ -794,6 +794,59 @@ object InnertubeParser {
      * as thousands separators; abbreviated ones use them as the decimal
      * separator.
      */
+    /**
+     * The identity inside an `account/accounts_list` reply (Satu
+     * Ketuk probe): accountItem objects sit under
+     * accountSectionListRenderer → accountItemSectionRenderer; the
+     * walk is recursive so the exact nesting depth is not assumed.
+     * The selected account wins; otherwise the first one is read.
+     * Shape distilled from a live-verified reference (2026-07-27):
+     * accountName/channelHandle/accountByline are simpleText fields,
+     * the byline carries the account's email.
+     */
+    fun parseAccountItem(root: JSONObject): BearerAccount? {
+        val items = mutableListOf<JSONObject>()
+        fun walk(node: Any?) {
+            when (node) {
+                is JSONObject -> {
+                    node.optJSONObject("accountItem")?.let { items += it }
+                    val keys = node.keys()
+                    while (keys.hasNext()) walk(node.opt(keys.next()))
+                }
+                is JSONArray -> for (i in 0 until node.length()) walk(node.opt(i))
+            }
+        }
+        walk(root)
+        val chosen = items.firstOrNull { it.optBoolean("isSelected") }
+            ?: items.firstOrNull()
+            ?: return null
+        val name = chosen.optJSONObject("accountName")
+            ?.optString("simpleText")?.takeIf { it.isNotEmpty() }
+            ?: return null
+        val photo = chosen.optJSONObject("accountPhoto")
+            ?.optJSONArray("thumbnails")
+        var avatar: String? = null
+        var bestWidth = -1
+        if (photo != null) {
+            for (i in 0 until photo.length()) {
+                val thumb = photo.optJSONObject(i) ?: continue
+                val width = thumb.optInt("width")
+                if (width >= bestWidth) {
+                    bestWidth = width
+                    avatar = thumb.optString("url").takeIf { it.isNotEmpty() }
+                }
+            }
+        }
+        return BearerAccount(
+            name = name,
+            handle = chosen.optJSONObject("channelHandle")
+                ?.optString("simpleText")?.takeIf { it.isNotEmpty() },
+            email = chosen.optJSONObject("accountByline")
+                ?.optString("simpleText")?.takeIf { it.isNotEmpty() },
+            avatarUrl = avatar,
+        )
+    }
+
     fun parseCount(text: String): Long? {
         val cleaned = text.trim().lowercase()
         if (cleaned.isEmpty()) return null
@@ -814,3 +867,11 @@ object InnertubeParser {
         }
     }
 }
+
+/** The identity an `account/accounts_list` reply names (Satu Ketuk). */
+data class BearerAccount(
+    val name: String,
+    val handle: String?,
+    val email: String?,
+    val avatarUrl: String?,
+)

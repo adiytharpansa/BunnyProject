@@ -64,7 +64,13 @@
     <string name="profile_name">Pengguna Bunny</string>
     <string name="profile_hint">Akun lokal di perangkat ini</string>
     <string name="profile_login_button">Masuk dengan Google</string>
-    <string name="profile_login_hint">Dengan masuk, Beranda dan saran video memakai daftar pribadi asli dari akun YouTube Anda. Tetap opsional — tanpa masuk pun Bunny berjalan seperti biasa. Kue login tersimpan terenkripsi di perangkat ini dan bisa dihapus kapan pun dengan tombol Keluar.</string>
+    <string name="profile_login_hint">Pilih akun Google yang sudah ada di HP ini — tanpa browser, tanpa kata sandi. Dengan masuk, Beranda dan saran video memakai daftar pribadi asli dari akun YouTube Anda. Tetap opsional — tanpa masuk pun Bunny berjalan seperti biasa. Kunci masuk tersimpan terenkripsi di perangkat ini dan bisa dihapus kapan pun dengan tombol Keluar.</string>
+    <string name="onetap_working">Menghubungi Google…</string>
+    <string name="onetap_probing">Menguji kunci ke mesin…</string>
+    <string name="onetap_verdicts_title">Hasil uji kunci</string>
+    <string name="onetap_verdict_accepted">Pintu %1$s: DITERIMA — %2$s</string>
+    <string name="onetap_verdict_rejected">Pintu %1$s: ditolak (HTTP %2$d)</string>
+    <string name="onetap_verdict_network">Pintu %1$s: gagal jaringan</string>
     <string name="profile_signed_in_hint">Beranda &amp; saran memakai akun ini</string>
     <string name="profile_signout">Keluar</string>
     <string name="profile_account_fallback">Akun Google</string>

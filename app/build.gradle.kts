@@ -122,6 +122,10 @@ dependencies {
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
 
+    // Google Identity Authorization API (Satu Ketuk): the system
+    // account sheet + scope consent that returns an OAuth access token.
+    implementation("com.google.android.gms:play-services-auth:22.0.0")
+
     // Bunny's own modules: contract/models (:core) and the Lontar engine
     // (:engine). The UI depends on the contract only — never on the engine's
     // internals. See docs/DESIGN.md.

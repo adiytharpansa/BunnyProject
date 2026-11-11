@@ -14,7 +14,23 @@ class LontarAuth {
     @Volatile
     var cookies: AuthCookies? = null
 
+    /**
+     * Satu Ketuk: the OAuth access token from the system account
+     * sheet, plus the InnerTube context that accepted it (decided by
+     * the Langkah 1 probe). Access tokens live about an hour; the
+     * grant behind them persists in Google Play services, so a fresh
+     * token is one silent authorize() away — no refresh token is
+     * ever stored. The token value is NEVER logged.
+     */
+    @Volatile
+    var bearerToken: String? = null
+
+    @Volatile
+    var bearerContext: String? = null
+
     val isSignedIn: Boolean get() = cookies != null
+
+    val isBearerSignedIn: Boolean get() = bearerToken != null
 }
 
 /**

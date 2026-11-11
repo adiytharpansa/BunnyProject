@@ -131,6 +131,19 @@ interface ExtractionBackend {
     /** Human-readable active ladder + why, for the Diagnostics block. */
     fun ladderDescription(): String = ""
 
+    // ------------------------------------------------------- satu ketuk
+
+    /**
+     * Token evidence (Satu Ketuk Langkah 1): tries [accessToken]
+     * against the account door under each InnerTube client context
+     * and reports one verdict per context. On the first acceptance
+     * the engine keeps the token and that context as the personal
+     * session. The token is never logged. Default: no evidence.
+     */
+    suspend fun probeBearerContexts(
+        accessToken: String,
+    ): List<com.bunny.core.model.BearerContextVerdict> = emptyList()
+
     /**
      * The watch page's own related list for [videoId] — the videos
      * YouTube's recommender itself lines up next, IN THE SERVER'S ORDER

@@ -83,7 +83,6 @@ import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
 import com.bunny.app.presentation.screens.live.LiveScreen
-import com.bunny.app.presentation.screens.login.LoginScreen
 import com.bunny.app.presentation.screens.downloads.DownloadsScreen
 import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
@@ -148,7 +147,6 @@ class MainActivity : ComponentActivity() {
                 var openVideoId by remember { mutableStateOf<String?>(null) }
                 var openSearch by remember { mutableStateOf(false) }
                 var openNotifications by remember { mutableStateOf(false) }
-                var openLogin by remember { mutableStateOf(false) }
                 var openDownloads by remember { mutableStateOf(false) }
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
@@ -184,15 +182,14 @@ class MainActivity : ComponentActivity() {
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
                 val barVisible =
-                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openLogin && !openDownloads
+                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
                 val canGoBack = videoId == null &&
-                    (openChannel != null || openSearch || openNotifications || openLogin || openDownloads || selectedTab != 0)
+                    (openChannel != null || openSearch || openNotifications || openDownloads || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
-                        openLogin -> openLogin = false
                         openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
                         openSearch -> openSearch = false
@@ -218,11 +215,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                 ),
                         ) {
-                            if (openLogin) {
-                                LoginScreen(
-                                    onFinished = { openLogin = false },
-                                )
-                            } else if (videoId != null && !playerMinimized) {
+                            if (videoId != null && !playerMinimized) {
                                 PlayerScreen(
                                     videoId = videoId,
                                     onBack = { openVideoId = null },
@@ -317,7 +310,6 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     ProfileScreen(
-                                        onLoginClick = { openLogin = true },
                                         onDownloadsClick = { openDownloads = true },
                                     )
                                 }
