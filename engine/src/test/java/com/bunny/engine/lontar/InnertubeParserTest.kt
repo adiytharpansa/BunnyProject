@@ -55,6 +55,22 @@ class InnertubeParserTest {
                                       }
                                     ]
                                   },
+                                  "channelThumbnailSupportedRenderers": {
+                                    "channelThumbnailWithLinkRenderer": {
+                                      "thumbnail": {
+                                        "thumbnails": [
+                                          {
+                                            "url": "https://yt3.ggpht.com/avatar-small.jpg",
+                                            "width": 40
+                                          },
+                                          {
+                                            "url": "https://yt3.ggpht.com/avatar-big.jpg",
+                                            "width": 176
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
                                   "lengthText": {
                                     "simpleText": "10:35"
                                   },
@@ -143,6 +159,7 @@ class InnertubeParserTest {
         assertEquals("Blender Foundation", first.channelName)
         assertEquals("UCtC9L7g", first.channelId)
         assertEquals("https://i.ytimg.com/big.jpg", first.thumbnailUrl)
+        assertEquals("https://yt3.ggpht.com/avatar-big.jpg", first.channelAvatarUrl)
         assertEquals(635L, first.durationSeconds)
         assertEquals(28_123_456L, first.viewCount)
         assertEquals("9 years ago", first.uploadedText)
@@ -154,6 +171,7 @@ class InnertubeParserTest {
         val page = InnertubeParser.parseFeedPage(JSONObject(feedJson))
         val live = page.items[1]
         assertTrue(live.isLive)
+        assertNull(live.channelAvatarUrl)
         assertNull(live.durationSeconds)
         assertEquals(1_300L, live.viewCount)
         assertEquals("Bunny TV", live.channelName)

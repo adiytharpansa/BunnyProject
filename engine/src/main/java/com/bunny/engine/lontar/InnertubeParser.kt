@@ -66,6 +66,7 @@ object InnertubeParser {
             channelName = textOf(renderer.optJSONObject("longBylineText")).ifEmpty {
                 textOf(renderer.optJSONObject("shortBylineText"))
             },
+            channelAvatarUrl = channelAvatarUrl(renderer),
             thumbnailUrl = bestThumbnail(renderer.optJSONObject("thumbnail")),
             durationSeconds = renderer.optJSONObject("lengthText")
                 ?.let { parseDuration(textOf(it)) },
@@ -113,6 +114,18 @@ object InnertubeParser {
         }
         return viewCountText?.contains("watching", ignoreCase = true) == true
     }
+
+    /**
+     * Search/browse video rows carry the channel's real avatar under
+     * channelThumbnailSupportedRenderers (verified live 2026-11-11: present
+     * on every search videoRenderer). Playlist rows do not carry it.
+     */
+    private fun channelAvatarUrl(renderer: JSONObject): String? =
+        bestThumbnail(
+            renderer.optJSONObject("channelThumbnailSupportedRenderers")
+                ?.optJSONObject("channelThumbnailWithLinkRenderer")
+                ?.optJSONObject("thumbnail"),
+        )
 
     private fun channelBrowseId(renderer: JSONObject): String? {
         val byline = renderer.optJSONObject("longBylineText")

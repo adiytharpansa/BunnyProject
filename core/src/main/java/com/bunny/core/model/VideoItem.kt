@@ -9,6 +9,8 @@ data class VideoItem(
     val title: String,
     val channelId: String?,
     val channelName: String,
+    /** The channel's real avatar image, when the source renderer carried one. */
+    val channelAvatarUrl: String? = null,
     val thumbnailUrl: String?,
     val durationSeconds: Long?,
     val viewCount: Long?,

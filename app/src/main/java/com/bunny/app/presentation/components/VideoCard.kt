@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -60,6 +61,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.bunny.app.R
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
@@ -238,11 +240,37 @@ fun VideoCard(
                         .background(avatarColor(item.channelName)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        item.channelName.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = Color(0xFFF5F1EA),
-                    )
+                    // The channel's real photo when the engine brought one;
+                    // the initial letter stays as the loading/error fallback.
+                    val initial = item.channelName.firstOrNull()?.uppercase() ?: "?"
+                    if (item.channelAvatarUrl != null) {
+                        SubcomposeAsyncImage(
+                            model = item.channelAvatarUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                            loading = {
+                                Text(
+                                    initial,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color(0xFFF5F1EA),
+                                )
+                            },
+                            error = {
+                                Text(
+                                    initial,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color(0xFFF5F1EA),
+                                )
+                            },
+                        )
+                    } else {
+                        Text(
+                            initial,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = Color(0xFFF5F1EA),
+                        )
+                    }
                 }
                 Spacer(Modifier.width(AvatarGap))
                 Column(
