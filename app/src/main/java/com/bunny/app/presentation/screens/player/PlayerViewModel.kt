@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentName
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
@@ -125,7 +126,18 @@ class PlayerViewModel @Inject constructor(
             future.addListener(
                 {
                     try {
-                        _controllerPlayer.value = future.get()
+                        val remote = future.get()
+                        _controllerPlayer.value = remote
+                        // Kecepatan awal + setiap perubahan (termasuk dari
+                        // menu roda gigi pemutar) masuk ke tombol "1x".
+                        _options.update { it.copy(speed = remote.playbackParameters.speed) }
+                        remote.addListener(object : Player.Listener {
+                            override fun onPlaybackParametersChanged(
+                                playbackParameters: PlaybackParameters,
+                            ) {
+                                _options.update { it.copy(speed = playbackParameters.speed) }
+                            }
+                        })
                         PlaybackDiagnostics.log("MediaController terhubung ke layanan")
                     } catch (e: Exception) {
                         PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")

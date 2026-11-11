@@ -1,5 +1,13 @@
 package com.bunny.app.presentation.screens.player
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
+import android.view.OrientationEventListener
+import android.view.View
+import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -42,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
@@ -64,7 +74,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -98,6 +112,88 @@ fun PlayerScreen(
     // (MainActivity); halaman pemutar tidak meminta izin.
     val context = LocalContext.current
 
+    // ---- Layar penuh: landscape = layar penuh. Tombol layar penuh dan
+    // putaran fisik HP sama-sama berujung pada orientasi layar.
+    val activity = LocalContext.current.findActivity()
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    // Ketuk tombol layar penuh / panah kembali saat landscape. Dihitung dari
+    // orientasi SAAT INI, bukan dari ikon, jadi tetap benar walau ikonnya
+    // belum menyusul setelah HP diputar.
+    val toggleFullscreen: () -> Unit = {
+        activity?.let { act ->
+            val landscapeNow =
+                act.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            act.requestedOrientation = if (landscapeNow) {
+                ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+        }
+    }
+
+    // Sembunyikan bilah sistem saat landscape, tampilkan lagi saat portrait.
+    DisposableEffect(isLandscape) {
+        val window = activity?.window
+        if (window != null) {
+            val insets = WindowCompat.getInsetsController(window, window.decorView)
+            if (isLandscape) {
+                insets.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                insets.hide(WindowInsetsCompat.Type.systemBars())
+            } else {
+                insets.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose { }
+    }
+
+    // Setelah keluar dari layar penuh lewat tombol, orientasi terkunci ke
+    // portrait. Begitu HP benar-benar tegak lagi, kembalikan ke putar otomatis.
+    // Saat halaman pemutar ditutup, orientasi dan bilah sistem dipulihkan.
+    DisposableEffect(activity) {
+        val listener = object : OrientationEventListener(activity ?: context) {
+            override fun onOrientationChanged(degrees: Int) {
+                if (degrees == ORIENTATION_UNKNOWN) return
+                val upright = degrees <= 30 || degrees >= 330 || degrees in 150..210
+                if (upright &&
+                    activity?.requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                ) {
+                    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+            }
+        }
+        if (activity != null) listener.enable()
+        onDispose {
+            listener.disable()
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            activity?.window?.let { window ->
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    // ---- Layar menyala hanya saat video benar-benar diputar.
+    var isPlaying by remember { mutableStateOf(false) }
+    DisposableEffect(controller) {
+        val player = controller
+        if (player == null) {
+            isPlaying = false
+            onDispose { }
+        } else {
+            isPlaying = player.isPlaying
+            val listener = object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+            }
+            player.addListener(listener)
+            onDispose { player.removeListener(listener) }
+        }
+    }
+
     // Fase 4 telemetry: terminal playback failures persist on-device
     // across restarts; read once when this screen opens.
     var pastFailures by remember { mutableStateOf(PlaybackFailureLog.read(context)) }
@@ -118,6 +214,9 @@ fun PlayerScreen(
         onBack()
     }
 
+    // Di layar penuh, Back keluar dari layar penuh, bukan menutup video.
+    BackHandler(enabled = isLandscape) { toggleFullscreen() }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -126,26 +225,53 @@ fun PlayerScreen(
         // Video first, edge to edge; the back button floats on it
         // (no separate app bar, like the official watch page).
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .background(Color.Black),
+            modifier = (
+                if (isLandscape) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                }
+                ).background(Color.Black),
         ) {
             AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
                         useController = true
-                        keepScreenOn = true
+                        // keepScreenOn TIDAK dipasang di sini; lihat `update`.
                         // Media3 1.5 made the Compose surface-sync workaround
                         // opt-in; without it, video rendered inside AndroidView
                         // can stretch/crop on API 34 devices.
                         setEnableComposeSurfaceSyncWorkaround(true)
+
+                        // Bunny hanya memutar satu video: tombol sebelumnya
+                        // dan berikutnya tidak berguna.
+                        setShowPreviousButton(false)
+                        setShowNextButton(false)
+
+                        // Munculkan tombol layar penuh di bilah kontrol.
+                        setFullscreenButtonClickListener { toggleFullscreen() }
+
+                        // Bilah progres diberi jarak 16dp dari tepi layar supaya
+                        // pegangannya tidak menempel ke tepi (dan bentrok dengan
+                        // gestur kembali Android). Tidak berbuat apa-apa bila
+                        // tata letak bawaan tidak punya bilah ber-id ini.
+                        findViewById<View>(androidx.media3.ui.R.id.exo_progress)?.let { bar ->
+                            val params = bar.layoutParams as? ViewGroup.MarginLayoutParams
+                            if (params != null) {
+                                val margin = (16 * resources.displayMetrics.density).toInt()
+                                params.marginStart = margin
+                                params.marginEnd = margin
+                                bar.layoutParams = params
+                            }
+                        }
                     }
                 },
                 update = { view ->
                     // Bind the MediaController once it connects; it drives
                     // the same underlying player PlaybackManager loads.
                     if (view.player !== controller) view.player = controller
+                    // Layar tetap menyala hanya selama video diputar.
+                    view.keepScreenOn = isPlaying
                 },
                 onRelease = { it.player = null },
                 modifier = Modifier.fillMaxSize(),
@@ -163,8 +289,12 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    viewModel.stopPlayback()
-                    onBack()
+                    if (isLandscape) {
+                        toggleFullscreen()
+                    } else {
+                        viewModel.stopPlayback()
+                        onBack()
+                    }
                 }) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -175,6 +305,7 @@ fun PlayerScreen(
             }
         }
 
+        if (!isLandscape) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -508,11 +639,12 @@ fun PlayerScreen(
                         onVideoClick = onVideoClick,
                         onRetry = { viewModel.retryRelated() },
                     )
-                }
-            }
-        }
-    }
-}
+                }      // menutup `is PlayerUiState.Ready ->`
+            }          // menutup `when`
+        }              // menutup Column kedua
+        }              // menutup `if (!isLandscape)`
+    }                  // menutup Column luar
+}                      // menutup fungsi PlayerScreen
 
 /**
  * Komentar asli dari halaman tonton: penulis, foto, waktu, isi dan
@@ -818,4 +950,11 @@ private fun Modifier.fullBleed(inset: Dp): Modifier = layout { measurable, const
     layout(constraints.maxWidth, placeable.height) {
         placeable.place(-insetPx, 0)
     }
+}
+
+/** Mencari Activity dari Context yang mungkin dibungkus. */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

@@ -249,6 +249,10 @@ class PlaybackManager @Inject constructor(
             .build()
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
+            // Lompat 10 detik ke dua arah, seperti YouTube (bawaan Media3
+            // 5 dan 15). Berlaku juga di notifikasi dan layar kunci.
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             // Fokus audio: berhenti/menurunkan suara saat telepon masuk atau
             // aplikasi media lain mulai, dan melanjutkan dengan benar.
             .setAudioAttributes(
