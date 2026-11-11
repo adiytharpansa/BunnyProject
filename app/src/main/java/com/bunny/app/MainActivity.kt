@@ -88,7 +88,9 @@ import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.screens.player.PlayerUiState
 import com.bunny.app.presentation.screens.player.PlayerViewModel
+import com.bunny.app.presentation.screens.profile.PersonalFeedScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
+import com.bunny.app.presentation.screens.profile.SubscriptionsScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -148,6 +150,7 @@ class MainActivity : ComponentActivity() {
                 var openSearch by remember { mutableStateOf(false) }
                 var openNotifications by remember { mutableStateOf(false) }
                 var openDownloads by remember { mutableStateOf(false) }
+                var openPersonal by remember { mutableStateOf<String?>(null) }
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
                 var playerMinimized by remember { mutableStateOf(false) }
@@ -182,14 +185,15 @@ class MainActivity : ComponentActivity() {
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
                 val barVisible =
-                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads
+                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
                 val canGoBack = videoId == null &&
-                    (openChannel != null || openSearch || openNotifications || openDownloads || selectedTab != 0)
+                    (openChannel != null || openSearch || openNotifications || openDownloads || openPersonal != null || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
+                        openPersonal != null -> openPersonal = null
                         openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
                         openSearch -> openSearch = false
@@ -249,6 +253,21 @@ class MainActivity : ComponentActivity() {
                                     onBack = { openDownloads = false },
                                     onVideoClick = { openVideoId = it },
                                 )
+                            } else if (openPersonal != null) {
+                                if (openPersonal == "subs") {
+                                    SubscriptionsScreen(
+                                        onBack = { openPersonal = null },
+                                        onChannelClick = { id, name ->
+                                            openChannel = id to name
+                                        },
+                                    )
+                                } else {
+                                    PersonalFeedScreen(
+                                        mode = openPersonal!!,
+                                        onBack = { openPersonal = null },
+                                        onVideoClick = { openVideoId = it },
+                                    )
+                                }
                             } else if (selectedTab == 0) {
                                 HomeScreen(
                                     onVideoClick = { openVideoId = it },
@@ -311,6 +330,7 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     ProfileScreen(
                                         onDownloadsClick = { openDownloads = true },
+                                        onPersonalClick = { openPersonal = it },
                                     )
                                 }
                             }

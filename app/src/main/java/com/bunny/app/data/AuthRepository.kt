@@ -65,6 +65,20 @@ class AuthRepository @Inject constructor(
     private var bearerContextStored: String? = null
     private var bearerEmailStored: String? = null
 
+    /**
+     * The live Satu Ketuk token for the Data API layer. Memory only:
+     * access tokens are short-lived, and a fresh one is fetched
+     * silently through the Authorization API whenever one is needed.
+     */
+    @Volatile
+    var dataToken: String? = null
+
+    // The Data API identity snapshot (the user's own channel).
+    private var apiIdStored: String? = null
+    private var apiNameStored: String? = null
+    private var apiHandleStored: String? = null
+    private var apiAvatarStored: String? = null
+
     init {
         restore()
     }
@@ -86,11 +100,21 @@ class AuthRepository @Inject constructor(
             lontarAuth.bearerToken = token
             lontarAuth.bearerContext = bearerContextStored
         }
+        apiIdStored = stored.optString("apiId").takeIf { it.isNotEmpty() }
+        apiNameStored = stored.optString("apiName").takeIf { it.isNotEmpty() }
+        apiHandleStored = stored.optString("apiHandle")
+            .takeIf { it.isNotEmpty() }
+        apiAvatarStored = stored.optString("apiAvatar")
+            .takeIf { it.isNotEmpty() }
         if (cookies != null || token != null) {
             _state.value = State.SignedIn(
                 name = stored.optString("name").takeIf { it.isNotEmpty() },
                 avatarUrl = stored.optString("avatar").takeIf { it.isNotEmpty() },
             )
+        } else if (apiIdStored != null) {
+            // Satu Ketuk session: the grant survives restarts even
+            // though the short-lived token itself does not.
+            _state.value = State.SignedIn(apiNameStored, apiAvatarStored)
         }
     }
 
@@ -133,17 +157,37 @@ class AuthRepository @Inject constructor(
         persistAll(verdict.accountName, verdict.avatarUrl)
     }
 
+    /**
+     * Jalan A: the Data API accepted the Satu Ketuk token — the
+     * session is the user's own channel identity, and the token
+     * stays live in memory for the personal layer.
+     */
+    fun signInDataApi(mine: MineChannel, accessToken: String) {
+        dataToken = accessToken
+        apiIdStored = mine.id
+        apiNameStored = mine.title
+        apiHandleStored = mine.handle
+        apiAvatarStored = mine.avatarUrl
+        _state.value = State.SignedIn(mine.title, mine.avatarUrl)
+        persistAll(mine.title, mine.avatarUrl)
+    }
+
     /** One-tap wipe: blob, engine session, WebView cookies, GMS grant. */
     fun signOut() {
-        val token = bearerTokenStored
+        val token = bearerTokenStored ?: dataToken
         val email = bearerEmailStored
         lontarAuth.cookies = null
         lontarAuth.bearerToken = null
         lontarAuth.bearerContext = null
+        dataToken = null
         cookieHeaderStored = ""
         bearerTokenStored = null
         bearerContextStored = null
         bearerEmailStored = null
+        apiIdStored = null
+        apiNameStored = null
+        apiHandleStored = null
+        apiAvatarStored = null
         _state.value = State.SignedOut
         prefs().edit().remove(KEY_BLOB).apply()
         CookieManager.getInstance().removeAllCookies(null)
@@ -185,6 +229,10 @@ class AuthRepository @Inject constructor(
             .put("bearerToken", bearerTokenStored ?: "")
             .put("bearerContext", bearerContextStored ?: "")
             .put("bearerEmail", bearerEmailStored ?: "")
+            .put("apiId", apiIdStored ?: "")
+            .put("apiName", apiNameStored ?: "")
+            .put("apiHandle", apiHandleStored ?: "")
+            .put("apiAvatar", apiAvatarStored ?: "")
             .toString()
         val blob = encrypt(plain) ?: return
         prefs().edit().putString(KEY_BLOB, blob).apply()

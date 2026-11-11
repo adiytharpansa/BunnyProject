@@ -73,4 +73,12 @@ object BackendModule {
     @Singleton
     fun provideExtractionBackend(engine: LontarEngine): ExtractionBackend =
         engine
+
+    /** Jalan A: the official Data API client for the personal layer. */
+    @Provides
+    @Singleton
+    fun provideYouTubeDataApi(
+        httpClient: OkHttpClient,
+    ): com.bunny.app.data.YouTubeDataApi =
+        com.bunny.app.data.YouTubeDataApi(httpClient)
 }

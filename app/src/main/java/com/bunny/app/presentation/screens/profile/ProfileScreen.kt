@@ -41,6 +41,7 @@ import com.bunny.app.data.AuthRepository
 @Composable
 fun ProfileScreen(
     onDownloadsClick: () -> Unit = {},
+    onPersonalClick: (String) -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val authState by viewModel.state.collectAsState()
@@ -122,6 +123,17 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center,
                     )
+                    // Jalan A: the account's real personal layer,
+                    // served by the official Data API.
+                    OutlinedButton(onClick = { onPersonalClick("subs") }) {
+                        Text(stringResource(R.string.personal_subs_button))
+                    }
+                    OutlinedButton(onClick = { onPersonalClick("latest") }) {
+                        Text(stringResource(R.string.personal_latest_button))
+                    }
+                    OutlinedButton(onClick = { onPersonalClick("liked") }) {
+                        Text(stringResource(R.string.personal_liked_button))
+                    }
                     OutlinedButton(onClick = { viewModel.signOut() }) {
                         Text(stringResource(R.string.profile_signout))
                     }

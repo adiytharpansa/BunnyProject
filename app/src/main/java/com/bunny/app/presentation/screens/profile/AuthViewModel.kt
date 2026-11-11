@@ -6,6 +6,8 @@ import android.content.IntentSender
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.AuthRepository
+import com.bunny.app.data.DataApiException
+import com.bunny.app.data.YouTubeDataApi
 import com.bunny.core.model.BearerContextVerdict
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
@@ -24,14 +26,15 @@ import javax.inject.Inject
  * Satu Ketuk — the system account sheet via Google's Authorization
  * API. One tap asks Play services for a YouTube-read token; when a
  * consent resolution is needed, the screen launches the system's own
- * sheet from [OneTap.NeedsConsent]. A fresh token is then PROBED
- * against the engine's account door (Langkah 1's evidence step)
- * before anything is called "signed in".
+ * sheet from [OneTap.NeedsConsent]. The token is then proven against
+ * the official Data API (Jalan A): the account's own channel
+ * answering is what signs the user in — InnerTube refused this
+ * token on every context (device probe 2026-11-11).
  */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val auth: AuthRepository,
-    private val backend: com.bunny.core.backend.ExtractionBackend,
+    private val dataApi: YouTubeDataApi,
 ) : ViewModel() {
 
     val state: StateFlow<AuthRepository.State> = auth.state
@@ -109,25 +112,92 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Jalan A (keputusan pengguna 2026-11-11): the token's home is
+     * the official Data API — InnerTube refused it on every context
+     * (device probe: 403/403/403). Acceptance here is proven by the
+     * account's own channel answering; that identity signs the user
+     * in. The verdict stays on screen as the honest record.
+     */
     private fun onAccessToken(token: String) {
+        auth.dataToken = token
         _oneTap.value = OneTap.Probing
         viewModelScope.launch {
-            val results = try {
-                backend.probeBearerContexts(token)
-            } catch (e: Exception) {
-                emptyList()
-            }
-            _verdicts.value = results
-            val winner = results.firstOrNull { it.accepted }
-            if (winner != null) {
-                auth.signInBearer(winner, token)
-                _oneTap.value = OneTap.Idle
-            } else {
-                failOneTap(
-                    "Kunci dari Google sah, tetapi semua pintu mesin menolaknya.",
+            try {
+                val mine = dataApi.mine(token)
+                if (mine != null) {
+                    _verdicts.value = listOf(
+                        BearerContextVerdict(
+                            contextName = "Data API v3",
+                            httpStatus = 200,
+                            accepted = true,
+                            accountName = mine.title,
+                            accountHandle = mine.handle,
+                            accountEmail = null,
+                            avatarUrl = mine.avatarUrl,
+                        ),
+                    )
+                    auth.signInDataApi(mine, token)
+                    _oneTap.value = OneTap.Idle
+                } else {
+                    _verdicts.value = listOf(
+                        BearerContextVerdict(
+                            contextName = "Data API v3",
+                            httpStatus = 200,
+                            accepted = false,
+                        ),
+                    )
+                    failOneTap("Akun ini belum mempunyai kanal YouTube.")
+                }
+            } catch (e: DataApiException) {
+                _verdicts.value = listOf(
+                    BearerContextVerdict(
+                        contextName = "Data API v3",
+                        httpStatus = e.httpCode,
+                        accepted = false,
+                    ),
                 )
+                failOneTap(
+                    "Kantor data resmi menolak kunci ini (HTTP ${e.httpCode}).",
+                )
+            } catch (e: Exception) {
+                _verdicts.value = listOf(
+                    BearerContextVerdict(
+                        contextName = "Data API v3",
+                        httpStatus = null,
+                        accepted = false,
+                    ),
+                )
+                failOneTap("Gagal menghubungi kantor data Google.")
             }
         }
+    }
+
+    /**
+     * A fresh token for the personal layer, without any UI: after
+     * the first consent, the Authorization API answers silently.
+     * Reports false when a fresh consent would be needed — the data
+     * screens then ask the user to sign in again from Profile.
+     */
+    fun ensureToken(activity: Activity, onResult: (Boolean) -> Unit) {
+        if (auth.dataToken != null) {
+            onResult(true)
+            return
+        }
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(AuthRepository.YOUTUBE_READONLY_SCOPE)))
+            .build()
+        Identity.getAuthorizationClient(activity).authorize(request)
+            .addOnSuccessListener { result ->
+                val token = result.accessToken
+                if (!result.hasResolution() && token != null) {
+                    auth.dataToken = token
+                    onResult(true)
+                } else {
+                    onResult(false)
+                }
+            }
+            .addOnFailureListener { onResult(false) }
     }
 
     private fun failOneTap(message: String) {

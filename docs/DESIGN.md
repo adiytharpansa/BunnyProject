@@ -127,7 +127,13 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
   ke accounts_list → konteks pemenang jadi sesi pribadi; layar
   LoginScreen dihapus. Langkah 0 (tanda tangan debug tetap) dan
   Langkah 1 (masuk + probe) selesai CI-hijau 2026-11-11 — CI #111
-  dan #114.)*
+  dan #114.)* **UJI PERANGKAT probe: token Android DITOLAK InnerTube
+  di semua konteks (403/403/403); penerimaan ditentukan klien
+  kelahiran token. Pengguna memilih **Jalan A**: lapisan pribadi
+  Data API v3 dengan token yang sama — identitas kanal asli,
+  Langganan Asli, Terbaru dari Langganan, Video yang Disukai;
+  Beranda server + riwayat tetap wilayah pintu cadangan Layar
+  Besar (klien TV).**
 - **Fase 6** — Sisa utang + Lontar Hidup (keputusan pengguna
   2026-11-11: "Semua nya"): **6-A** balasan komentar bisa dibuka persis
   struktur jawaban asli; **6-B** Panen Bertingkat (audio dulu, naik ke
