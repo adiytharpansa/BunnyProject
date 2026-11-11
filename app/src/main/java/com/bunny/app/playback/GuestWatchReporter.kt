@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.Locale
@@ -58,8 +59,20 @@ class GuestWatchReporter @Inject constructor(
             var lastSentPositionMs = 0L
             while (isActive) {
                 delay(TICK_MS)
-                if (!isPlaying()) continue
-                val nowMs = positionMs()
+                // The player lives on the main thread — ExoPlayer
+                // refuses state reads from any other (device crash
+                // 2026-11-12: "Player is accessed on the wrong
+                // thread" from this loop's worker). The state
+                // snapshot therefore hops to main; only the network
+                // fire stays on this lane.
+                val snapshot = try {
+                    withContext(Dispatchers.Main) {
+                        if (isPlaying()) positionMs() else null
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+                val nowMs = snapshot ?: continue
                 val startSec = lastSentPositionMs / 1000.0
                 val endSec = nowMs / 1000.0
                 if (endSec <= startSec) continue
