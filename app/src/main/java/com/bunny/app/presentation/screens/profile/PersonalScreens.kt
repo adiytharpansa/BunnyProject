@@ -247,6 +247,7 @@ fun SubscriptionsScreen(
     }
 }
 
+@androidx.media3.common.util.UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalFeedScreen(
