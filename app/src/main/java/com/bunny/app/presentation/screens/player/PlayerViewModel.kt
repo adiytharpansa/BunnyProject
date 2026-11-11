@@ -72,9 +72,9 @@ data class CommentsUiState(
 /** Rekomendasi di bawah pemutar: tiga tampilan dari satu sumber data. */
 data class RelatedUiState(
     val isLoading: Boolean = true,
-    /** Daftar utama (tab "Semua"): Berikutnya dari server, atau campuran lokal. */
+    /** Daftar utama (tab "Semua"): Berikutnya dari server YouTube. */
     val all: List<VideoItem> = emptyList(),
-    /** Tab "Terkait": daftar server di luar kanal ini / pencarian judul. */
+    /** Tab "Terkait": daftar server di luar kanal ini. */
     val similar: List<VideoItem> = emptyList(),
     /** Unggahan terbaru kanal yang sama (tab "Dari {kanal}"). */
     val fromChannel: List<VideoItem> = emptyList(),
@@ -296,10 +296,11 @@ class PlayerViewModel @Inject constructor(
      * terpisah SETELAH video siap, dan semua kegagalannya hanya berujung
      * daftar kosong, tidak pernah error pemutar.
      *
-     * Sumber utama adalah daftar Berikutnya dari server YouTube sendiri
+     * Sumbernya SATU: daftar Berikutnya dari server YouTube sendiri
      * (algoritma mereka, urutan mereka — tidak diacak ulang di sini).
-     * Hanya bila server tidak memberi daftar, Bunny menyusun campuran
-     * lokal seperti sebelumnya (pencarian serupa + unggahan kanal).
+     * TANPA CADANGAN lokal (aturan pengguna 2026-11-11: semua yang
+     * tampil harus data asli, jangan ada cadangan) — server kosong
+     * berarti daftar kosong dan keadaan kosong yang tampil.
      */
     private fun loadRelated(id: String, details: VideoDetails) {
         relatedJob?.cancel()
@@ -327,37 +328,21 @@ class PlayerViewModel @Inject constructor(
             val server = serverRaw
                 .filter { it.id != id && !it.isLive }
                 .distinctBy { it.id }
-            if (server.isNotEmpty()) {
-                val tagged = server.map { it.copy(reason = "Saran YouTube") }
-                _related.value = RelatedUiState(
-                    isLoading = false,
-                    all = tagged,
-                    // Tab "Terkait": daftar server tanpa video kanal ini
-                    // (yang dari kanal ini tempatnya di tab kanalnya).
-                    similar = tagged.filter {
-                        it.channelId == null || it.channelId != channelId
-                    },
-                    fromChannel = fromChannel,
-                    error = null,
-                )
-                return@launch
-            }
-
-            // Cadangan lokal: server tidak memberi daftar untuk video ini.
-            val query = relatedQuery(details.title).ifBlank { details.channelName }
-            val similarRaw = safeItems { backend.search(query, null).items }
-            val similar = similarRaw
-                .filter { it.id != id && !it.isLive }
-                .distinctBy { it.id }
-                .map { it.copy(reason = "Serupa dengan video ini") }
-            val all = mixRelated(similar, fromChannel)
-
+                .map { it.copy(reason = "Saran YouTube") }
             _related.value = RelatedUiState(
                 isLoading = false,
-                all = all,
-                similar = similar.take(30),
+                all = server,
+                // Tab "Terkait": daftar server tanpa video kanal ini
+                // (yang dari kanal ini tempatnya di tab kanalnya).
+                similar = server.filter {
+                    it.channelId == null || it.channelId != channelId
+                },
                 fromChannel = fromChannel,
-                error = if (all.isEmpty()) "Rekomendasi tidak dapat dimuat." else null,
+                error = if (server.isEmpty()) {
+                    "Rekomendasi tidak dapat dimuat."
+                } else {
+                    null
+                },
             )
         }
     }
@@ -431,29 +416,6 @@ class PlayerViewModel @Inject constructor(
             PlaybackDiagnostics.log("Rekomendasi gagal: ${e.javaClass.simpleName}: ${e.message}")
             emptyList()
         }
-
-    /** Judul bersih untuk pencarian: tanpa emoji/simbol, maksimal 6 kata. */
-    private fun relatedQuery(title: String): String =
-        title.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() }
-            .take(6)
-            .joinToString(" ")
-
-    /** Pola 2 serupa : 1 kanal, duplikat dibuang, maksimal 30 item. */
-    private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List<VideoItem> {
-        val out = ArrayList<VideoItem>()
-        val seen = HashSet<String>()
-        fun add(item: VideoItem?) {
-            if (item != null && seen.add(item.id)) out += item
-        }
-        for (i in 0 until maxOf((similar.size + 1) / 2, channel.size)) {
-            add(similar.getOrNull(i * 2))
-            add(similar.getOrNull(i * 2 + 1))
-            add(channel.getOrNull(i))
-        }
-        return out.take(30)
-    }
 
     override fun onCleared() {
         // Tripwire: if loads die with "Parent job is Cancelling" because this

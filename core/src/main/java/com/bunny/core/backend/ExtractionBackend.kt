@@ -80,8 +80,9 @@ interface ExtractionBackend {
      * YouTube's recommender itself lines up next, IN THE SERVER'S ORDER
      * (that order is the algorithm's output; re-sorting it locally would
      * throw the ranking away). Best-effort: backends without a related
-     * source return an empty list and the caller falls back to composing
-     * its own list.
+     * source return an empty list and the caller shows its empty state —
+     * Bunny never substitutes a locally composed list (user rule:
+     * everything shown is real data, no fallbacks).
      */
     suspend fun getRelatedVideos(videoId: String): List<VideoItem> = emptyList()
 }
