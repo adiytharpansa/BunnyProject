@@ -7,8 +7,6 @@
     <string name="playback_channel_name">Pemutaran Bunny</string>
     <string name="player_loading">Menyiapkan video…</string>
     <string name="player_diagnostics">Diagnostik pemutaran</string>
-    <string name="player_enable_background">Aktifkan putar latar &amp; notifikasi</string>
-    <string name="player_enable_background_hint">Agar suara tetap berjalan saat Anda pindah aplikasi, dengan kontrol di notifikasi. Sistem akan meminta izin satu kali.</string>
     <string name="crash_title">Crash terakhir tercatat</string>
     <string name="crash_hint">Mohon kirim tangkapan layar teks di bawah ini agar bug-nya bisa diperbaiki tepat sasaran.</string>
     <string name="crash_dismiss">Tutup &amp; hapus catatan</string>
@@ -74,9 +72,6 @@
     <string name="player_comment_likes">%1$s suka</string>
     <string name="player_comment_replies">%1$d balasan</string>
     <string name="player_comment_hearted">Diberi hati oleh pemilik video</string>
-    <string name="player_enable_short">Aktifkan</string>
-    <string name="player_notif_denied_hint">Izin notifikasi sudah ditolak, jadi tombol ini tidak bisa memintanya lagi. Hidupkan lewat Pengaturan > Aplikasi > Bunny > Notifikasi — atau ketuk tombol di bawah ini.</string>
-    <string name="player_open_settings">Buka Pengaturan</string>
     <string name="notif_title">Notifikasi</string>
     <string name="notif_back">Kembali</string>
     <string name="notif_subtitle">Video terbaru dari kanal langgananmu</string>

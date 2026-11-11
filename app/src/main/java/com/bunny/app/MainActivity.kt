@@ -1,12 +1,16 @@
 package com.bunny.app
 
+import android.Manifest
 import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -49,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -66,6 +71,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.bunny.app.playback.CrashRecorder
 import com.bunny.core.model.VideoItem
 import com.bunny.app.playback.PlaybackDiagnostics
@@ -98,6 +104,36 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
+                // Izin notifikasi diminta SEKALI saat Bunny pertama kali
+                // dibuka (Android 13+). Dialognya dibuat oleh sistem. Tanda
+                // "sudah diminta" disimpan sebelum dialog tampil, jadi tidak
+                // ada permintaan ulang di pembukaan berikutnya. Ini satu-satunya
+                // tempat Bunny meminta izin notifikasi.
+                val notificationLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { granted ->
+                    PlaybackDiagnostics.log(
+                        "Izin notifikasi (saat buka): " +
+                            if (granted) "diberikan" else "ditolak",
+                    )
+                }
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        val prefs = getSharedPreferences("bunny_prefs", MODE_PRIVATE)
+                        val alreadyAsked = prefs.getBoolean("notif_asked", false)
+                        val granted = ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (!alreadyAsked && !granted) {
+                            prefs.edit().putBoolean("notif_asked", true).apply()
+                            notificationLauncher.launch(
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            )
+                        }
+                    }
+                }
+
                 // Navigation: four tabs (Beranda, Live, Kanal, Profil) under
                 // one optional open video. Still a plain state machine — the
                 // screens own their scaffolds, this one only owns the tab
