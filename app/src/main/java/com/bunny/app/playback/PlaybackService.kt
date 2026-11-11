@@ -59,10 +59,13 @@ class PlaybackService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         // Standard Media3 behaviour: stop when the app is swiped away and
-        // nothing is playing; keep playing otherwise.
+        // nothing is playing; keep playing otherwise. Since Media3 1.6 the
+        // service keeps its foreground state for a while after playback
+        // stops, so plain stopSelf() is replaced by
+        // pauseAllPlayersAndStopSelf(), which terminates immediately.
         val player = playbackManager.player
         if (!player.playWhenReady || player.mediaItemCount == 0) {
-            stopSelf()
+            pauseAllPlayersAndStopSelf()
         }
     }
 
