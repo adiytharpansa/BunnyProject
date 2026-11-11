@@ -2,6 +2,7 @@ package com.bunny.app.playback
 
 import android.content.Context
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -36,11 +37,15 @@ import javax.inject.Singleton
  *   so the card can center-crop instead of stretching.
  * - [failed]: every source in the chain errored; the card must go back
  *   to its thumbnail and the video must not be retried.
+ * - [soundOn]: the user turned the preview's sound on (resets on every
+ *   [start] and [stop]).
  */
 data class PreviewStatus(
     val firstFrameRendered: Boolean = false,
     val videoAspect: Float? = null,
     val failed: Boolean = false,
+    /** True bila pengguna menyalakan suara cuplikan; selalu false saat cuplikan baru mulai. */
+    val soundOn: Boolean = false,
 )
 
 /**
@@ -89,6 +94,7 @@ class FeedPreviewManager @Inject constructor(
         chain = sources
         chainIndex = 0
         _status.value = PreviewStatus()
+        applySound(false)
         playCurrent()
         return true
     }
@@ -99,9 +105,39 @@ class FeedPreviewManager @Inject constructor(
         chainIndex = 0
         _status.value = PreviewStatus()
         if (playerLazy.isInitialized()) {
+            applySound(false)
             player.stop()
             player.clearMediaItems()
         }
+    }
+
+    /**
+     * Menyalakan atau mematikan suara cuplikan yang sedang berjalan.
+     * Dipanggil dari ikon speaker pada kartu. Tidak berefek bila tidak ada
+     * cuplikan.
+     */
+    fun setSoundEnabled(enabled: Boolean) {
+        if (chain.isEmpty()) return
+        applySound(enabled)
+        _status.update { it.copy(soundOn = enabled) }
+        PlaybackDiagnostics.log("Suara pratinjau: ${if (enabled) "menyala" else "mati"}")
+    }
+
+    /**
+     * Satu-satunya tempat suara diatur. Suara menyala = jalur audio
+     * diaktifkan (diunduh), volume penuh, dan fokus audio diminta supaya
+     * musik aplikasi lain berhenti dengan sopan. Suara mati = kembali ke
+     * keadaan hemat: tanpa jalur audio, volume 0, tanpa fokus audio (cuplikan
+     * bisu tidak boleh menghentikan musik pengguna).
+     */
+    private fun applySound(enabled: Boolean) {
+        val exo = player
+        exo.setAudioAttributes(PREVIEW_AUDIO_ATTRIBUTES, enabled)
+        exo.volume = if (enabled) 1f else 0f
+        exo.trackSelectionParameters = exo.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, !enabled)
+            .build()
     }
 
     private fun playCurrent() {
@@ -240,6 +276,11 @@ class FeedPreviewManager @Inject constructor(
     }
 
     private companion object {
+        val PREVIEW_AUDIO_ATTRIBUTES: AudioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
+
         const val MANIFEST_URI = "bunny://dash/manifest.mpd"
         const val DEFAULT_USER_AGENT = "Bunny/0.1 (Android)"
 

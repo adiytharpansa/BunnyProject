@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -91,6 +92,13 @@ fun VideoCard(
      * the hairline instead of recomposing the whole card.
      */
     previewProgress: (() -> Float?)? = null,
+    /** True bila suara cuplikan sedang menyala (ikon speaker menyala). */
+    previewSoundOn: Boolean = false,
+    /**
+     * Ketukan pada ikon speaker. Null berarti ikon hanya penanda "bisu"
+     * dan tidak bisa diketuk (dipakai kartu tanpa cuplikan).
+     */
+    onPreviewSoundToggle: (() -> Unit)? = null,
     /** Hide the Chip Alasan pill when the caller already shows it (active topic filter). */
     showReason: Boolean = true,
 ) {
@@ -146,23 +154,41 @@ fun VideoCard(
                 )
             }
             if (previewPlaying) {
-                // The preview is always muted: show that, like the
-                // official app's inline playback.
+                // Speaker: bisu secara default. Bila ada [onPreviewSoundToggle],
+                // ikon ini tombol sendiri (area ketuk 48dp) dan ketukannya TIDAK
+                // diteruskan ke kartu, jadi video tidak terbuka.
+                val soundDescription = stringResource(
+                    if (previewSoundOn) R.string.card_preview_sound_on
+                    else R.string.card_preview_sound_off,
+                )
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.55f)),
+                        .size(56.dp)
+                        .then(
+                            if (onPreviewSoundToggle != null) {
+                                Modifier.clickable(onClick = onPreviewSoundToggle)
+                            } else {
+                                Modifier
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        Icons.Filled.VolumeOff,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.55f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            if (previewSoundOn) Icons.Filled.VolumeUp
+                            else Icons.Filled.VolumeOff,
+                            contentDescription = soundDescription,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             }
             // durationSeconds lives in :core, so no smart cast across modules:

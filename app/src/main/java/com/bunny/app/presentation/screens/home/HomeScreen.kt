@@ -377,6 +377,10 @@ fun HomeScreen(
                             } else {
                                 null
                             },
+                            previewSoundOn = isPreviewingThis && previewStatus.soundOn,
+                            onPreviewSoundToggle = {
+                                viewModel.setPreviewSound(!previewStatus.soundOn)
+                            },
                             // The active topic's pill would repeat
                             // the filter the user already picked.
                             showReason = item.reason != topicFilter,

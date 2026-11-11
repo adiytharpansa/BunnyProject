@@ -103,6 +103,11 @@ class HomeViewModel @Inject constructor(
         previewManager.stop()
     }
 
+    /** Ikon speaker pada kartu: nyalakan atau matikan suara cuplikan yang sedang berjalan. */
+    fun setPreviewSound(enabled: Boolean) {
+        previewManager.setSoundEnabled(enabled)
+    }
+
     override fun onCleared() {
         previewManager.stop()
         super.onCleared()
