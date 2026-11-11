@@ -247,14 +247,20 @@ object InnertubeParser {
         }
         val items = mutableListOf<VideoComment>()
         var nextPage: String? = null
-        val action = findObject(response) {
-            it.has("appendContinuationItemsAction") ||
-                it.has("reloadContinuationItemsCommand")
-        }
-        val container = action?.optJSONObject("appendContinuationItemsAction")
-            ?: action?.optJSONObject("reloadContinuationItemsCommand")
-        val list = container?.optJSONArray("continuationItems")
-        if (list != null) {
+        // A real continuation response carries SEVERAL item containers:
+        // one endpoint reloads just the comments header, another the
+        // threads themselves (both verified live 2026-11-11). Every
+        // container must be read — taking only the first one found
+        // yields the header alone and zero comments (device test
+        // 2026-11-11: "tidak tersedia" on every video).
+        var sawContainer = false
+        walkObjects(response) { obj ->
+            val container = obj.optJSONObject("appendContinuationItemsAction")
+                ?: obj.optJSONObject("reloadContinuationItemsCommand")
+                ?: return@walkObjects
+            val list = container.optJSONArray("continuationItems")
+                ?: return@walkObjects
+            sawContainer = true
             for (i in 0 until list.length()) {
                 val child = list.optJSONObject(i) ?: continue
                 child.optJSONObject("commentThreadRenderer")?.let { thread ->
@@ -264,14 +270,18 @@ object InnertubeParser {
                     nextPage = findContinuation(child) ?: nextPage
                 }
             }
-        } else {
+        }
+        if (!sawContainer) {
             walkObjects(response) { obj ->
                 obj.optJSONObject("commentThreadRenderer")?.let { thread ->
                     parseCommentThread(thread, payloads)?.let(items::add)
                 }
             }
         }
-        return CommentsPage(items = items, nextPage = nextPage)
+        return CommentsPage(
+            items = items.distinctBy { it.id },
+            nextPage = nextPage,
+        )
     }
 
     private fun parseCommentThread(

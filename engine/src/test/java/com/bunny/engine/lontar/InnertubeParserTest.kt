@@ -295,11 +295,21 @@ class InnertubeParserTest {
     fun parseCommentsPage_joinsThreadsWithEntityPayloads() {
         // Shape verified live 2026-11-11: threads carry only keys; the
         // bodies live in commentEntityPayload mutations joined by key.
+        // The response carries TWO reload containers — the first holds
+        // only the comments header; reading just it was the device bug
+        // "komentar tidak tersedia" (regression guard).
         val json = """
         {
           "onResponseReceivedEndpoints": [
             {
-              "appendContinuationItemsAction": {
+              "reloadContinuationItemsCommand": {
+                "continuationItems": [
+                  { "commentsHeaderRenderer": { "title": { "runs": [] } } }
+                ]
+              }
+            },
+            {
+              "reloadContinuationItemsCommand": {
                 "continuationItems": [
                   {
                     "commentThreadRenderer": {
