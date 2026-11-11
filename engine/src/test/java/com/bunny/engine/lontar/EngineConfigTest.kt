@@ -88,6 +88,26 @@ class EngineConfigTest {
     }
 
     @Test
+    fun parse_radarAndCanaries_remoteWinsDefaultsOtherwise() {
+        val remote = EngineConfig.parse(
+            JSONObject(
+                """{"canaryVideoIds":["abc123","def456"],""" +
+                    """"radar":{"deepProbeOffsetBytes":5000000,"maxAgeHours":3}}""",
+            ),
+        )
+        assertEquals(listOf("abc123", "def456"), remote.canaryVideoIds)
+        assertEquals(5_000_000L, remote.radarDeepProbeOffsetBytes)
+        assertEquals(3, remote.radarMaxAgeHours)
+        val absent = EngineConfig.parse(JSONObject("""{}"""))
+        assertEquals(
+            listOf("b2DfMST_WE8", "aqz-KE-bpKQ"),
+            absent.canaryVideoIds,
+        )
+        assertEquals(3_000_000L, absent.radarDeepProbeOffsetBytes)
+        assertEquals(6, absent.radarMaxAgeHours)
+    }
+
+    @Test
     fun session_remoteFallback_usedWhenHomepageHasNoVersion() {
         val html = """<script>ytcfg.set({"INNERTUBE_API_KEY":"AIzaTEST",
             "INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtTEST123"}}});</script>"""

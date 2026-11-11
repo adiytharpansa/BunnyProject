@@ -31,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
 import androidx.compose.material.icons.outlined.Download
@@ -100,6 +101,8 @@ fun PlayerScreen(
     onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     onPipClick: () -> Unit = {},
     onVideoClick: (videoId: String) -> Unit = {},
+    /** Shrink to the mini player (playback continues); NOT a stop. */
+    onMinimize: () -> Unit = {},
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -304,6 +307,28 @@ fun PlayerScreen(
                         contentDescription = stringResource(R.string.player_back),
                         tint = Color.White,
                     )
+                }
+            }
+            // Kecilkan ke pemutar mini: putar berlanjut, halaman lain
+            // bisa dijelajahi. Berbeda dari tombol kembali, yang
+            // menghentikan putar.
+            if (!isLandscape) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.45f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    IconButton(onClick = onMinimize) {
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = stringResource(R.string.player_minimize),
+                            tint = Color.White,
+                        )
+                    }
                 }
             }
         }

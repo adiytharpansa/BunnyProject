@@ -4,6 +4,7 @@ import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.DownloadFormats
+import com.bunny.core.model.PersonaHealthReport
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -94,6 +95,41 @@ interface ExtractionBackend {
      */
     suspend fun getDownloadFormats(videoId: String): DownloadFormats =
         DownloadFormats()
+
+    // ------------------------------------------------------ lontar hidup
+
+    /** The Radar's latest per-persona verdicts, oldest evidence included. */
+    suspend fun engineHealth(): List<PersonaHealthReport> = emptyList()
+
+    /**
+     * Runs a fresh Engine Health Radar check now: for every ladder
+     * persona, a canary player call plus byte probes past the
+     * cold-start allowance. Costs on the order of a megabyte; the
+     * caller decides when that is appropriate (unmetered by default,
+     * or the user's own "check again" tap).
+     */
+    suspend fun runEngineHealthCheck(): List<PersonaHealthReport> = emptyList()
+
+    /**
+     * Playback evidence for the Radar: the stream of [personaName]
+     * was refused mid-play (HTTP 403 after real bytes had flowed).
+     * Recorded as a suspected GVS gating for this session and network.
+     */
+    suspend fun reportPlaybackSuspectedGvs(personaName: String) = Unit
+
+    /**
+     * Fresh streams for playback recovery: forgets any cached player
+     * response for [videoId], demotes [failedPersonaName] in this
+     * session's ladder, and resolves again — the recovery path then
+     * continues the same video from the saved position.
+     */
+    suspend fun getRefreshedPlaybackStreams(
+        videoId: String,
+        failedPersonaName: String?,
+    ): PlaybackStreams = getPlaybackStreams(videoId)
+
+    /** Human-readable active ladder + why, for the Diagnostics block. */
+    fun ladderDescription(): String = ""
 
     /**
      * The watch page's own related list for [videoId] — the videos

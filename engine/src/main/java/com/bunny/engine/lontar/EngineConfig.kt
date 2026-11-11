@@ -34,6 +34,17 @@ object EngineConfig {
         val iosClientVersion: String = "20.10.4",
         /** visionOS persona version (probed 2026-11-10; re-probed at 1.04 on 2026-11-11, see PlayerPersonas.VISIONOS). */
         val visionOsClientVersion: String = "1.04",
+        /**
+         * Lontar Hidup (Fase 6): the canary videos the Engine Health
+         * Radar probes — long-lived, stable uploads; replaceable from
+         * remote config when one disappears or stops representing the
+         * general case.
+         */
+        val canaryVideoIds: List<String> = listOf("b2DfMST_WE8", "aqz-KE-bpKQ"),
+        /** Byte offset of the Radar's deep probe (past the cold-start allowance). */
+        val radarDeepProbeOffsetBytes: Long = 3_000_000L,
+        /** A Radar result older than this is stale and may be refreshed. */
+        val radarMaxAgeHours: Int = 6,
     )
 
     val DEFAULTS = Values(
@@ -68,6 +79,15 @@ object EngineConfig {
                 if (name.isNotEmpty()) personas += name
             }
         }
+        val canaries = mutableListOf<String>()
+        val canaryArray = json.optJSONArray("canaryVideoIds")
+        if (canaryArray != null) {
+            for (i in 0 until canaryArray.length()) {
+                val id = canaryArray.optString(i).trim()
+                if (id.isNotEmpty()) canaries += id
+            }
+        }
+        val radar = json.optJSONObject("radar")
         return Values(
             fallbackClientVersion = json.optString("fallbackClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.fallbackClientVersion,
@@ -81,6 +101,14 @@ object EngineConfig {
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.iosClientVersion,
             visionOsClientVersion = json.optString("visionOsClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.visionOsClientVersion,
+            canaryVideoIds = canaries.takeIf { it.isNotEmpty() }
+                ?: DEFAULTS.canaryVideoIds,
+            radarDeepProbeOffsetBytes = radar
+                ?.optLong("deepProbeOffsetBytes")
+                ?.takeIf { it > 0 } ?: DEFAULTS.radarDeepProbeOffsetBytes,
+            radarMaxAgeHours = radar
+                ?.optInt("maxAgeHours")
+                ?.takeIf { it > 0 } ?: DEFAULTS.radarMaxAgeHours,
         )
     }
 }

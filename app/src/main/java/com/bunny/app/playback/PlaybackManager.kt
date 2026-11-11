@@ -129,6 +129,8 @@ class PlaybackManager @Inject constructor(
         channelName: String = "",
         artworkUrl: String? = null,
     ) {
+        currentPersonaName = streams.personaName
+        currentSourceIsLocal = false
         clearQualityOverride()
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -161,6 +163,8 @@ class PlaybackManager @Inject constructor(
         title: String,
         channelName: String = "",
     ) {
+        currentPersonaName = null
+        currentSourceIsLocal = true
         clearQualityOverride()
         val metadata = MediaMetadata.Builder()
             .setTitle(title)
@@ -353,6 +357,24 @@ class PlaybackManager @Inject constructor(
                                 subject = currentTitle,
                                 detail = "${error.errorCodeName} — ${error.message}",
                             )
+                            // Pemutus arus Lontar Hidup (Fase 6): an HTTP
+                            // 403 from the media host AFTER real playback
+                            // (past the cold-start allowance) is the GVS
+                            // gate's signature. The ViewModel's recovery
+                            // takes it from here — demote the persona,
+                            // re-resolve, continue from this position.
+                            val persona = currentPersonaName
+                            if (persona != null &&
+                                !currentSourceIsLocal &&
+                                httpStatusOf(error) == 403 &&
+                                exo.currentPosition > GVS_POSITION_THRESHOLD_MS
+                            ) {
+                                PlaybackDiagnostics.log(
+                                    "Dugaan gerbang GVS: HTTP 403 pada posisi " +
+                                        "${exo.currentPosition}ms (persona $persona)",
+                                )
+                                onSuspectedGvs?.invoke(persona)
+                            }
                         }
                     }
                 })
@@ -364,6 +386,38 @@ class PlaybackManager @Inject constructor(
     private var fallback: (() -> Unit)? = null
     private var chainGeneration = 0
     private var currentTitle: String = ""
+
+    // ----------------------------------------------------- lontar hidup
+
+    /** Persona that issued the current network streams (Radar evidence). */
+    @Volatile
+    private var currentPersonaName: String? = null
+
+    /** True while the current source is a local download (never GVS). */
+    @Volatile
+    private var currentSourceIsLocal: Boolean = false
+
+    /**
+     * Circuit breaker callback, owned by PlayerViewModel while a video
+     * is open: a mid-stream HTTP 403 past the cold-start allowance,
+     * attributed to the persona that issued the streams.
+     */
+    @Volatile
+    var onSuspectedGvs: ((personaName: String) -> Unit)? = null
+
+    /** The HTTP status inside a playback error's cause chain, if any. */
+    private fun httpStatusOf(error: Throwable?): Int? {
+        var e = error
+        while (e != null) {
+            if (e is androidx.media3.datasource.HttpDataSource
+                    .InvalidResponseCodeException
+            ) {
+                return e.responseCode
+            }
+            e = e.cause
+        }
+        return null
+    }
 
     private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
         currentTitle = title
@@ -460,6 +514,13 @@ class PlaybackManager @Inject constructor(
     companion object {
         private const val MANIFEST_URI = "bunny://dash/manifest.mpd"
         private const val DEFAULT_USER_AGENT = "Bunny/0.1 (Android)"
+
+        /**
+         * Past this position, an HTTP 403 is no longer a cold-start
+         * refusal — real playback happened, so the GVS gate is the
+         * working explanation (Lontar Hidup §8; allowance ≈ 60 s).
+         */
+        private const val GVS_POSITION_THRESHOLD_MS = 45_000L
     }
 }
 

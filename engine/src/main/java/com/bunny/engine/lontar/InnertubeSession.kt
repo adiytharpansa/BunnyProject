@@ -69,4 +69,8 @@ object LontarPersona {
     const val GL = "ID"
 }
 
-class LontarException(message: String) : Exception(message)
+class LontarException(
+    message: String,
+    /** The HTTP status behind this failure, when it was an HTTP refusal. */
+    val httpCode: Int? = null,
+) : Exception(message)

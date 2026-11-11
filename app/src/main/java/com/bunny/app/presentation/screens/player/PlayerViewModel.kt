@@ -155,7 +155,60 @@ class PlayerViewModel @Inject constructor(
     init {
         connectController()
         playbackManager.queueHandler = queueHandler
+        playbackManager.onSuspectedGvs = { persona -> onSuspectedGvs(persona) }
         playbackManager.player.addListener(endListener)
+    }
+
+    // -------------------------------------------------- pemulihan putar
+
+    /** The video the one allowed in-place recovery was spent on. */
+    @Volatile
+    private var recoveryUsedFor: String? = null
+
+    /**
+     * Pemulihan Putar (Lontar Hidup §8): a mid-stream GVS refusal is
+     * answered by demoting the persona that earned it, re-resolving the
+     * SAME video (the ladder now prefers another persona), and
+     * continuing from the saved position. Exactly one attempt per
+     * video open — a second refusal is the user's error to see, not a
+     * loop to hide it in.
+     */
+    private fun onSuspectedGvs(persona: String) {
+        val id = videoId ?: return
+        if (recoveryUsedFor == id) return
+        recoveryUsedFor = id
+        val position = playbackManager.player.currentPosition
+        PlaybackDiagnostics.log(
+            "Pemulihan putar: persona $persona diduga tergerbang GVS " +
+                "pada posisi ${position}ms — menyusun ulang aliran",
+        )
+        viewModelScope.launch {
+            val streams = try {
+                backend.getRefreshedPlaybackStreams(id, persona)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (streams == null || videoId != id) return@launch
+            val details = (_uiState.value as? PlayerUiState.Ready)?.details
+                ?: return@launch
+            playbackManager.configure(streams.playbackUserAgent)
+            playbackManager.play(
+                streams,
+                details.title,
+                details.channelName,
+                details.thumbnailUrl,
+            )
+            if (position > 0) {
+                playbackManager.player.seekTo(position)
+            }
+            PlaybackDiagnostics.log(
+                "Pemulihan putar selesai: aliran baru via " +
+                    (streams.personaName ?: "persona lain") +
+                    ", posisi dilanjutkan",
+            )
+        }
     }
 
     private fun connectController() {
@@ -204,6 +257,7 @@ class PlayerViewModel @Inject constructor(
     fun open(videoId: String) {
         if (requestedId == videoId && _uiState.value !is PlayerUiState.Error) return
         requestedId = videoId
+        recoveryUsedFor = null
         history.clear()
         playedIds.clear()
         this.videoId = videoId
@@ -543,6 +597,7 @@ class PlayerViewModel @Inject constructor(
         if (playbackManager.queueHandler === queueHandler) {
             playbackManager.queueHandler = null
         }
+        playbackManager.onSuspectedGvs = null
         playbackManager.player.removeListener(endListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
@@ -621,6 +676,11 @@ class PlayerViewModel @Inject constructor(
                 PlaybackDiagnostics.log(
                     "Stream tersedia: ${sources.joinToString(", ").ifEmpty { "tidak ada" }}",
                 )
+                // Tangga Adaptif, terbuka untuk diaudit (Lontar Hidup
+                // §6.3): persona apa yang dipilih, dan atas bukti apa.
+                backend.ladderDescription()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { PlaybackDiagnostics.log("Tangga mesin: $it") }
 
                 if (sources.isEmpty()) {
                     _uiState.value = PlayerUiState.Error(

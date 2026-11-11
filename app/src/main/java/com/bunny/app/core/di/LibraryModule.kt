@@ -7,6 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bunny.app.data.BunnyDatabase
 import com.bunny.app.data.ChannelGroupDao
 import com.bunny.app.data.DownloadDao
+import com.bunny.app.data.PersonaStatDao
 import com.bunny.app.data.SettingDao
 import com.bunny.app.data.SubscriptionDao
 import com.bunny.app.data.WatchChargeDao
@@ -26,7 +27,7 @@ object LibraryModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): BunnyDatabase =
         Room.databaseBuilder(context, BunnyDatabase::class.java, "bunny.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides
@@ -40,6 +41,10 @@ object LibraryModule {
     @Provides
     fun provideDownloadDao(database: BunnyDatabase): DownloadDao =
         database.downloadDao()
+
+    @Provides
+    fun providePersonaStatDao(database: BunnyDatabase): PersonaStatDao =
+        database.personaStatDao()
 
     @Provides
     fun provideWatchChargeDao(database: BunnyDatabase): WatchChargeDao =
@@ -82,6 +87,24 @@ object LibraryModule {
                     "progressBytes INTEGER NOT NULL, " +
                     "createdAtEpochMs INTEGER NOT NULL, " +
                     "updatedAtEpochMs INTEGER NOT NULL)",
+            )
+        }
+    }
+
+    /** v2 -> v3 (Lontar Hidup): the Adaptive Ladder's statistics table. */
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS persona_stats (" +
+                    "persona TEXT NOT NULL, " +
+                    "networkClass TEXT NOT NULL, " +
+                    "sehat INTEGER NOT NULL, " +
+                    "tergerbang INTEGER NOT NULL, " +
+                    "ditolak INTEGER NOT NULL, " +
+                    "gagal INTEGER NOT NULL, " +
+                    "lastCheckEpochMs INTEGER NOT NULL, " +
+                    "lastSuccessEpochMs INTEGER NOT NULL, " +
+                    "PRIMARY KEY(persona, networkClass))",
             )
         }
     }

@@ -117,6 +117,38 @@ interface ChannelGroupDao {
     suspend fun delete(id: Long)
 }
 
+/**
+ * Tangga Adaptif (Lontar Hidup): aggregate persona outcomes per
+ * network class — counts only, never video ids, SSIDs or addresses.
+ */
+@Entity(tableName = "persona_stats", primaryKeys = ["persona", "networkClass"])
+data class PersonaStatEntity(
+    val persona: String,
+    val networkClass: String,
+    val sehat: Int = 0,
+    val tergerbang: Int = 0,
+    val ditolak: Int = 0,
+    val gagal: Int = 0,
+    val lastCheckEpochMs: Long = 0,
+    val lastSuccessEpochMs: Long = 0,
+)
+
+@Dao
+interface PersonaStatDao {
+
+    @Query("SELECT * FROM persona_stats WHERE networkClass = :networkClass")
+    suspend fun forNetwork(networkClass: String): List<PersonaStatEntity>
+
+    @Query(
+        "SELECT * FROM persona_stats WHERE persona = :persona " +
+            "AND networkClass = :networkClass",
+    )
+    suspend fun get(persona: String, networkClass: String): PersonaStatEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: PersonaStatEntity)
+}
+
 @Dao
 interface DownloadDao {
 
@@ -173,8 +205,9 @@ interface SettingDao {
         SettingEntity::class,
         ChannelGroupEntity::class,
         DownloadEntity::class,
+        PersonaStatEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class BunnyDatabase : RoomDatabase() {
@@ -183,4 +216,5 @@ abstract class BunnyDatabase : RoomDatabase() {
     abstract fun settingDao(): SettingDao
     abstract fun channelGroupDao(): ChannelGroupDao
     abstract fun downloadDao(): DownloadDao
+    abstract fun personaStatDao(): PersonaStatDao
 }

@@ -9,12 +9,16 @@ import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
+import com.bunny.core.model.PersonaHealthReport
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -40,6 +44,10 @@ class LontarEngine(
     private val httpClient: OkHttpClient,
     /** Fase 5 login cookies for the metadata plane (app-owned). */
     val auth: LontarAuth = LontarAuth(),
+    /** Lontar Hidup (Fase 6): the Adaptive Ladder's on-device memory. */
+    private val statsStore: PersonaStatsStore = PersonaStatsStore.NONE,
+    /** Lontar Hidup: coarse network class for statistics bucketing. */
+    private val networkClass: NetworkClassProvider = NetworkClassProvider.UNKNOWN,
 ) : ExtractionBackend {
 
     override val id: String = "lontar"
@@ -53,6 +61,21 @@ class LontarEngine(
 
     /** Player responses are shared by details + streams calls for one video. */
     private val playerCache = ConcurrentHashMap<String, Pair<JSONObject, PlayerPersona>>()
+
+    // ----------------------------------------------------- lontar hidup
+
+    /** Background lane for warm-session harvests; never user-blocking. */
+    private val engineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** Sesi Cadangan Hangat: a spare session, harvested while idle. */
+    @Volatile private var backupSession: InnertubeSession? = null
+    @Volatile private var backupHarvestedAtMs: Long = 0L
+
+    /** The Radar's session verdicts, by persona name. */
+    private val radarState = ConcurrentHashMap<String, PersonaHealthReport>()
+
+    /** The active ladder + its reasons, for the Diagnostics block. */
+    @Volatile private var lastLadderDescription: String = ""
 
     override suspend fun healthCheck(): String = try {
         val active = ensureSession()
@@ -301,8 +324,147 @@ class LontarEngine(
         val streams = InnertubeParser.parsePlaybackStreams(response, System.currentTimeMillis())
         // The URLs were issued to the persona that fetched them; playback
         // must present the same user agent (see PlaybackStreams contract).
-        return streams.copy(playbackUserAgent = persona.userAgent)
+        return streams.copy(
+            playbackUserAgent = persona.userAgent,
+            personaName = persona.name,
+        )
     }
+
+    // ----------------------------------------------------- lontar hidup
+
+    override suspend fun engineHealth(): List<PersonaHealthReport> {
+        val order = PlayerPersonas.chain(config).map { it.name }
+        return radarState.values.sortedBy { report ->
+            order.indexOf(report.persona).let { if (it < 0) Int.MAX_VALUE else it }
+        }
+    }
+
+    /**
+     * Radar Kesehatan Mesin: for every ladder persona, a canary player
+     * call PLUS byte probes past the cold-start allowance — because a
+     * player OK alone has been proven (2026-11-10) to hide a GVS gate
+     * at the 3 MB mark. Verdicts land in the session Radar, in the
+     * on-device statistics, and in the returned reports. Costs roughly
+     * a kilobyte of media per probe; the format metadata dominates.
+     */
+    override suspend fun runEngineHealthCheck(): List<PersonaHealthReport> {
+        ensureSession()
+        val visitor = sessionVisitorData()
+        val net = networkClass.current()
+        val reports = mutableListOf<PersonaHealthReport>()
+        for (persona in PlayerPersonas.chain(config)) {
+            val state = probePersona(persona, visitor)
+            val report = PersonaHealthReport(
+                persona = persona.name,
+                state = state.name,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                networkClass = net,
+            )
+            radarState[persona.name] = report
+            recordStat(persona.name, net, state)
+            reports += report
+        }
+        return reports
+    }
+
+    private suspend fun probePersona(
+        persona: PlayerPersona,
+        visitorData: String?,
+    ): PersonaHealthState {
+        for (canary in config.canaryVideoIds) {
+            val response = try {
+                postPlayer(persona, canary, visitorData)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return PersonaHealthState.GAGAL_JARINGAN
+            }
+            val status = response.optJSONObject("playabilityStatus")
+                ?.optString("status")
+            if (status != "OK") {
+                // Persona-level refusals convict at once; a canary-
+                // specific UNPLAYABLE says nothing about the persona,
+                // so the next canary gets its say.
+                if (status == "LOGIN_REQUIRED" || status == "ERROR") {
+                    return PersonaHealthState.DITOLAK_PLAYER
+                }
+                continue
+            }
+            val format = InnertubeParser.parseDownloadFormats(response)
+                .filter {
+                    !it.isAudioOnly && (it.contentLength ?: 0) > MIN_PROBE_BYTES
+                }
+                .maxByOrNull { it.contentLength ?: 0 }
+                ?: continue
+            val first = rangeProbe(format.url, persona.userAgent, 0L)
+            val deep = rangeProbe(
+                format.url,
+                persona.userAgent,
+                config.radarDeepProbeOffsetBytes,
+            )
+            if (first == null || deep == null) {
+                return PersonaHealthState.GAGAL_JARINGAN
+            }
+            return RadarClassifier.classify("OK", first, deep, networkFailed = false)
+        }
+        return PersonaHealthState.TAK_DIKETAHUI
+    }
+
+    /** One ranged byte probe; returns the HTTP status, null on I/O failure. */
+    private suspend fun rangeProbe(url: String, userAgent: String, offset: Long): Int? =
+        withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", userAgent)
+                    .header("Range", "bytes=$offset-${offset + 1023}")
+                    .build()
+                httpClient.newCall(request).execute().use { it.code }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    override suspend fun reportPlaybackSuspectedGvs(personaName: String) {
+        val net = networkClass.current()
+        radarState[personaName] = PersonaHealthReport(
+            persona = personaName,
+            state = PersonaHealthState.TERGERBANG_GVS.name,
+            checkedAtEpochMs = System.currentTimeMillis(),
+            networkClass = net,
+        )
+        recordStat(personaName, net, PersonaHealthState.TERGERBANG_GVS)
+    }
+
+    override suspend fun getRefreshedPlaybackStreams(
+        videoId: String,
+        failedPersonaName: String?,
+    ): PlaybackStreams {
+        if (failedPersonaName != null) {
+            reportPlaybackSuspectedGvs(failedPersonaName)
+        }
+        playerCache.remove(videoId)
+        return getPlaybackStreams(videoId)
+    }
+
+    override fun ladderDescription(): String = lastLadderDescription
+
+    /** Statistics are evidence, never a failure surface of their own. */
+    private suspend fun recordStat(
+        persona: String,
+        networkClass: String,
+        state: PersonaHealthState,
+    ) {
+        try {
+            statsStore.record(persona, networkClass, state)
+        } catch (e: Exception) {
+            // A broken statistics store must never break playback.
+        }
+    }
+
+    private fun PersonaHealthReport.stateEnum(): PersonaHealthState =
+        runCatching { PersonaHealthState.valueOf(state) }
+            .getOrDefault(PersonaHealthState.TAK_DIKETAHUI)
 
     // -------------------------------------------------------------- internals
 
@@ -368,8 +530,10 @@ class LontarEngine(
         // PlayerPersona), so when the whole chain refuses, one FRESH
         // session earns one more pass before the refusal reaches the
         // user. Exactly one refresh — no retry loops against a gate
-        // that may be answering deliberately.
-        session = null
+        // that may be answering deliberately. Lontar Hidup (Fase 6):
+        // the fresh session is the warm spare when one is ready, so
+        // the swap costs no bootstrap round trip.
+        swapSession()
         val secondPass = attemptPlayerChain(videoId, sessionVisitorData())
         if (secondPass.accepted != null) return secondPass.accepted
         throw secondPass.error ?: firstPass.error
@@ -404,14 +568,37 @@ class LontarEngine(
         // the bot gate (LOGIN_REQUIRED) apart from a retired client
         // (ERROR) or an empty answer — they have entirely different
         // fixes, and confusing them cost a debugging round before.
+        //
+        // Lontar Hidup (Fase 6): the configured ladder is re-ordered by
+        // evidence — this session's Radar verdicts first, then the
+        // on-device statistics for this network class (Tangga Adaptif);
+        // the order + reasons are kept for the Diagnostics block.
+        val configured = PlayerPersonas.chain(config)
+        val net = networkClass.current()
+        val stats = try {
+            statsStore.snapshot(net)
+        } catch (e: Exception) {
+            emptyMap()
+        }
+        val radar = radarState.mapValues { it.value.stateEnum() }
+        val orderedNames = LadderBuilder.order(
+            configured.map { it.name },
+            radar,
+            stats,
+        )
+        val byName = configured.associateBy { it.name }
+        val ladder = orderedNames.mapNotNull { byName[it] }
+        lastLadderDescription = LadderBuilder.describe(orderedNames, radar, stats)
         val outcomes = mutableListOf<String>()
         var lastError: LontarException? = null
-        for (persona in PlayerPersonas.chain(config)) {
+        for (persona in ladder) {
             var outcome = "tidak ada respons"
+            var lastStatus: String? = null
             repeat(2) {
                 val response = postPlayer(persona, videoId, visitorData)
                 val playability = response.optJSONObject("playabilityStatus")
                 val status = playability?.optString("status")
+                lastStatus = status
                 val reason = playability?.optString("reason")
                     ?.takeIf { it.isNotEmpty() }
                 // Playability OK alone is not acceptance: an OK with no
@@ -422,6 +609,7 @@ class LontarEngine(
                     val accepted = response to persona
                     if (playerCache.size >= MAX_PLAYER_CACHE_ENTRIES) playerCache.clear()
                     playerCache[videoId] = accepted
+                    recordStat(persona.name, net, PersonaHealthState.SEHAT)
                     return ChainOutcome(accepted, null)
                 }
                 outcome = when {
@@ -433,6 +621,11 @@ class LontarEngine(
                     "YouTube menolak memutar video ini: " +
                         (reason ?: status ?: "respons player tidak dikenal"),
                 )
+            }
+            // A player-layer refusal is ladder evidence; an OK with no
+            // streams is not the persona's verdict to carry.
+            if (lastStatus != null && lastStatus != "OK") {
+                recordStat(persona.name, net, PersonaHealthState.DITOLAK_PLAYER)
             }
             outcomes += "${persona.name} → $outcome"
         }
@@ -497,17 +690,33 @@ class LontarEngine(
     }
 
     private suspend fun post(endpoint: String, body: JSONObject): JSONObject {
-        val activeSession = ensureSession()
-        return postJson(
-            url = "https://www.youtube.com/youtubei/v1/$endpoint" +
-                "?key=${activeSession.apiKey}&prettyPrint=false",
-            userAgent = LontarPersona.USER_AGENT,
-            clientNameId = LontarPersona.CLIENT_NAME_ID,
-            clientVersion = activeSession.clientVersion,
-            body = body,
-            endpointLabel = endpoint,
-            auth = auth.cookies,
-        )
+        suspend fun attempt(activeSession: InnertubeSession): JSONObject =
+            postJson(
+                url = "https://www.youtube.com/youtubei/v1/$endpoint" +
+                    "?key=${activeSession.apiKey}&prettyPrint=false",
+                userAgent = LontarPersona.USER_AGENT,
+                clientNameId = LontarPersona.CLIENT_NAME_ID,
+                clientVersion = activeSession.clientVersion,
+                body = body,
+                endpointLabel = endpoint,
+                auth = auth.cookies,
+            )
+        return try {
+            attempt(ensureSession())
+        } catch (e: LontarException) {
+            // Metadata self-healing (Lontar Hidup §7.3): a 401/403 that
+            // matches a session refusal earns ONE session swap and ONE
+            // retry with the body rebuilt on the new session (its only
+            // session-bound field is the context visitorData). Ordinary
+            // query errors (a bad browseId's 400, say) are NOT healed —
+            // masking them would hide the real cause.
+            if (e.httpCode != 401 && e.httpCode != 403) throw e
+            swapSession()
+            val healed = ensureSession()
+            body.optJSONObject("context")?.optJSONObject("client")
+                ?.put("visitorData", healed.visitorData)
+            attempt(healed)
+        }
     }
 
     private suspend fun postJson(
@@ -575,7 +784,10 @@ class LontarEngine(
                 throw e
             } catch (e: HttpRefusal) {
                 if (e.code !in RETRYABLE_HTTP_CODES || attempt >= RETRY_DELAYS_MS.size) {
-                    throw LontarException(e.message ?: "InnerTube $endpointLabel gagal")
+                    throw LontarException(
+                        e.message ?: "InnerTube $endpointLabel gagal",
+                        httpCode = e.code,
+                    )
                 }
                 delay(RETRY_DELAYS_MS[attempt])
                 attempt++
@@ -614,8 +826,49 @@ class LontarEngine(
                 val fallback = config.fallbackClientVersion
                 val newSession = async { fetchSession(fallback) }
                 configJob.await()
-                newSession.await().also { session = it }
+                newSession.await().also { created ->
+                    session = created
+                    // Sesi Cadangan Hangat: while this session serves,
+                    // quietly harvest a spare, so a session refusal is
+                    // healed by a swap instead of a full bootstrap at
+                    // the worst possible moment (Lontar Hidup §7).
+                    scheduleBackupHarvest()
+                }
             }
+        }
+    }
+
+    /** Harvests one spare session in the background; failures are silent. */
+    private fun scheduleBackupHarvest() {
+        engineScope.launch {
+            try {
+                val spare = fetchSession(config.fallbackClientVersion)
+                backupSession = spare
+                backupHarvestedAtMs = System.currentTimeMillis()
+            } catch (e: Exception) {
+                // A missing spare only means the next heal pays the
+                // ordinary bootstrap cost — never an error surface.
+            }
+        }
+    }
+
+    /**
+     * Replaces the active session: the warm spare when it is still
+     * fresh (instant), a fresh bootstrap otherwise. Used by the player
+     * chain's second pass and by metadata self-healing — one swap, one
+     * retry, never a loop (Lontar Hidup §7.2).
+     */
+    private suspend fun swapSession() {
+        val spare = backupSession
+        val fresh = spare != null &&
+            System.currentTimeMillis() - backupHarvestedAtMs < BACKUP_TTL_MS
+        if (fresh) {
+            session = spare
+            backupSession = null
+            scheduleBackupHarvest()
+        } else {
+            session = null
+            ensureSession()
         }
     }
 
@@ -668,6 +921,12 @@ class LontarEngine(
 
         /** The player-response cache is a courtesy, not an archive. */
         private const val MAX_PLAYER_CACHE_ENTRIES = 100
+
+        /** A warm spare session is trusted for half an hour (design §7.2). */
+        private const val BACKUP_TTL_MS = 30L * 60L * 1000L
+
+        /** The Radar only probes formats bigger than the cold-start allowance. */
+        private const val MIN_PROBE_BYTES = 4_000_000L
 
         /** HTTP codes that mean "weather", not "answer": worth a backoff. */
         private val RETRYABLE_HTTP_CODES = setOf(429, 500, 502, 503, 504)

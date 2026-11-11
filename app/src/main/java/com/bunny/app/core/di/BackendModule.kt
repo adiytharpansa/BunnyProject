@@ -1,11 +1,19 @@
 package com.bunny.app.core.di
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import com.bunny.app.data.PersonaStatDao
+import com.bunny.app.data.RoomPersonaStatsStore
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.engine.lontar.LontarAuth
 import com.bunny.engine.lontar.LontarEngine
+import com.bunny.engine.lontar.NetworkClassProvider
+import com.bunny.engine.lontar.PersonaStatsStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -33,8 +41,33 @@ object BackendModule {
 
     @Provides
     @Singleton
-    fun provideLontarEngine(httpClient: OkHttpClient, auth: LontarAuth): LontarEngine =
-        LontarEngine(httpClient, auth)
+    fun providePersonaStatsStore(dao: PersonaStatDao): PersonaStatsStore =
+        RoomPersonaStatsStore(dao)
+
+    /** Coarse network class (WIFI / SELULER / LAINNYA) — never an SSID. */
+    @Provides
+    @Singleton
+    fun provideNetworkClassProvider(
+        @ApplicationContext context: Context,
+    ): NetworkClassProvider = NetworkClassProvider {
+        val cm = context.getSystemService(ConnectivityManager::class.java)
+        val caps = cm?.getNetworkCapabilities(cm.activeNetwork)
+        when {
+            caps == null -> "LAINNYA"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WIFI"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "SELULER"
+            else -> "LAINNYA"
+        }
+    }
+
+    @Provides
+    @Singleton
+    fun provideLontarEngine(
+        httpClient: OkHttpClient,
+        auth: LontarAuth,
+        statsStore: PersonaStatsStore,
+        networkClass: NetworkClassProvider,
+    ): LontarEngine = LontarEngine(httpClient, auth, statsStore, networkClass)
 
     @Provides
     @Singleton

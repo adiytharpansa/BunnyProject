@@ -54,6 +54,7 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -76,6 +77,8 @@ import com.bunny.app.playback.CrashRecorder
 import com.bunny.core.model.VideoItem
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.bunny.app.presentation.components.MiniPlayerBar
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
@@ -84,6 +87,8 @@ import com.bunny.app.presentation.screens.login.LoginScreen
 import com.bunny.app.presentation.screens.downloads.DownloadsScreen
 import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
+import com.bunny.app.presentation.screens.player.PlayerUiState
+import com.bunny.app.presentation.screens.player.PlayerViewModel
 import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
 import com.bunny.app.presentation.theme.BunnyTheme
@@ -145,6 +150,12 @@ class MainActivity : ComponentActivity() {
                 var openNotifications by remember { mutableStateOf(false) }
                 var openLogin by remember { mutableStateOf(false) }
                 var openDownloads by remember { mutableStateOf(false) }
+                // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
+                // penuhnya dilipat jadi bilah di atas bar bawah.
+                var playerMinimized by remember { mutableStateOf(false) }
+                val playerViewModel: PlayerViewModel = hiltViewModel()
+                val playerUiState by playerViewModel.uiState.collectAsState()
+                val playerController by playerViewModel.controllerPlayer.collectAsState()
                 var openChannel by remember {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
@@ -166,9 +177,14 @@ class MainActivity : ComponentActivity() {
                 val barHeightDp = with(LocalDensity.current) { barHeightPx.toDp() }
 
                 val videoId = openVideoId
-                SideEffect { pipEligible = videoId != null }
+                // PiP hanya saat halaman tonton yang tampil — dalam
+                // keadaan mini, jendela PiP akan berisi UI tab, bukan
+                // video (permukaan pemutar sedang tidak terpasang).
+                SideEffect { pipEligible = videoId != null && !playerMinimized }
+                // Membuka video lain selalu membesarkan pemutar lagi.
+                LaunchedEffect(videoId) { playerMinimized = false }
                 val barVisible =
-                    videoId == null && !openSearch && !openNotifications && openChannel == null && !openLogin && !openDownloads
+                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openLogin && !openDownloads
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
@@ -206,7 +222,7 @@ class MainActivity : ComponentActivity() {
                                 LoginScreen(
                                     onFinished = { openLogin = false },
                                 )
-                            } else if (videoId != null) {
+                            } else if (videoId != null && !playerMinimized) {
                                 PlayerScreen(
                                     videoId = videoId,
                                     onBack = { openVideoId = null },
@@ -215,6 +231,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onPipClick = { enterPip() },
                                     onVideoClick = { openVideoId = it },
+                                    onMinimize = { playerMinimized = true },
                                 )
                             } else if (openChannel != null) {
                                 val (channelId, channelName) = openChannel!!
@@ -304,6 +321,33 @@ class MainActivity : ComponentActivity() {
                                         onDownloadsClick = { openDownloads = true },
                                     )
                                 }
+                            }
+                        }
+
+                        if (videoId != null && playerMinimized) {
+                            val ready = playerUiState as? PlayerUiState.Ready
+                            if (ready != null) {
+                                MiniPlayerBar(
+                                    title = ready.details.title,
+                                    channelName = ready.details.channelName,
+                                    thumbnailUrl = ready.details.thumbnailUrl,
+                                    player = playerController,
+                                    onExpand = { playerMinimized = false },
+                                    onClose = {
+                                        playerViewModel.stopPlayback()
+                                        openVideoId = null
+                                        playerMinimized = false
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(
+                                            bottom = if (barVisible) {
+                                                barHeightDp
+                                            } else {
+                                                0.dp
+                                            },
+                                        ),
+                                )
                             }
                         }
 

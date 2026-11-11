@@ -2,6 +2,8 @@ package com.bunny.app.presentation.screens.profile
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -144,6 +146,115 @@ fun ProfileScreen(
             OutlinedButton(onClick = onDownloadsClick) {
                 Text(stringResource(R.string.profile_downloads_button))
             }
+            EngineHealthPanel()
         }
     }
 }
+
+/**
+ * Kesehatan Mesin: the Radar's verdicts in plain words — one row per
+ * persona, a coloured dot, when it was measured and on what network.
+ */
+@Composable
+private fun EngineHealthPanel(
+    viewModel: EngineHealthViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            stringResource(R.string.health_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            stringResource(R.string.health_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        if (state.reports.isEmpty()) {
+            Text(
+                stringResource(R.string.health_never),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+        } else {
+            state.reports.forEach { report ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(healthColor(report.state)),
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "${report.persona} — ${healthLabel(report.state)}",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            stringResource(
+                                R.string.health_last,
+                                healthTime(report.checkedAtEpochMs),
+                                report.networkClass,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = { viewModel.check() },
+            enabled = !state.isChecking,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            Text(
+                stringResource(
+                    if (state.isChecking) {
+                        R.string.health_checking
+                    } else {
+                        R.string.health_check
+                    },
+                ),
+            )
+        }
+    }
+}
+
+private fun healthColor(state: String): Color = when (state) {
+    "SEHAT" -> Color(0xFF43A047)
+    "TERGERBANG_GVS" -> Color(0xFFFB8C00)
+    "DITOLAK_PLAYER" -> Color(0xFFE53935)
+    else -> Color(0xFF9E9E9E)
+}
+
+@Composable
+private fun healthLabel(state: String): String = stringResource(
+    when (state) {
+        "SEHAT" -> R.string.health_state_sehat
+        "TERGERBANG_GVS" -> R.string.health_state_gvs
+        "DITOLAK_PLAYER" -> R.string.health_state_ditolak
+        "GAGAL_JARINGAN" -> R.string.health_state_jaringan
+        else -> R.string.health_state_unknown
+    },
+)
+
+private fun healthTime(epochMs: Long): String =
+    java.text.SimpleDateFormat("dd MMM HH:mm", java.util.Locale("id", "ID"))
+        .format(java.util.Date(epochMs))
