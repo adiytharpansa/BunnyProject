@@ -92,7 +92,13 @@ class TvAuth @Inject constructor(
     }
 
     suspend fun poll(deviceCode: String): PollResult {
-        val (code, root) = postFormRaw(
+        // A transport failure while waiting (the network drops,
+        // airplane mode flips) is not an answer from Google: it
+        // reads as "still pending" so the wait survives it. The
+        // first version let the IOException escape the polling
+        // coroutine and crash the app (device report 2026-11-12).
+        val (code, root) = try {
+            postFormRaw(
             TOKEN_URL,
             mapOf(
                 "client_id" to TvClientConfig.CLIENT_ID,
@@ -100,7 +106,10 @@ class TvAuth @Inject constructor(
                 "device_code" to deviceCode,
                 "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",
             ),
-        )
+            )
+        } catch (e: java.io.IOException) {
+            return PollResult.Pending
+        }
         if (code == 200) return granted(root)
         return when (root.optString("error")) {
             "authorization_pending" -> PollResult.Pending

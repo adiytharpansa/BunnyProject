@@ -187,7 +187,16 @@ class TvFeedViewModel @Inject constructor(
     fun load(mode: String) {
         _state.value = LoadState.Loading
         viewModelScope.launch {
-            if (!tvAuth.ensureFresh()) {
+            // ensureFresh does network work; a transport failure
+            // is a load failure with a retry, never a crash and
+            // never a "session over" verdict.
+            val fresh = try {
+                tvAuth.ensureFresh()
+            } catch (e: Exception) {
+                _state.value = LoadState.Failed(null)
+                return@launch
+            }
+            if (!fresh) {
                 _state.value = LoadState.Failed(401)
                 return@launch
             }
