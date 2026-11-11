@@ -48,6 +48,8 @@ jobs:
         env:
           BUNNY_TV_CLIENT_ID: ${{ secrets.BUNNY_TV_CLIENT_ID }}
           BUNNY_TV_CLIENT_SECRET: ${{ secrets.BUNNY_TV_CLIENT_SECRET }}
+          BUNNY_DESKTOP_CLIENT_ID: ${{ secrets.BUNNY_DESKTOP_CLIENT_ID }}
+          BUNNY_DESKTOP_CLIENT_SECRET: ${{ secrets.BUNNY_DESKTOP_CLIENT_SECRET }}
         run: gradle lint testDebugUnitTest assembleDebug --stacktrace
 
       - name: Upload reports and debug APK
