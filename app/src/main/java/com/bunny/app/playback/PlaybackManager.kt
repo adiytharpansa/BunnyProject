@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -50,6 +51,17 @@ class PlaybackManager @Inject constructor(
 
     private val _player: ExoPlayer by lazy { buildPlayer() }
     val player: ExoPlayer get() = _player
+
+    /**
+     * True setelah pemutar (yang dibuat malas) benar-benar ada, supaya
+     * mode latar tidak memaksa pemutar dibuat saat aplikasi baru dibuka.
+     */
+    @Volatile
+    private var playerBuilt = false
+
+    /** Aplikasi sedang di latar: jalur video dimatikan, suara tetap jalan. */
+    @Volatile
+    private var backgroundMode = false
 
     private var _session: MediaSession? = null
 
@@ -196,6 +208,36 @@ class PlaybackManager @Inject constructor(
         }
     }
 
+    /**
+     * Dipanggil MainActivity saat aplikasi masuk/keluar latar (layar mati
+     * juga dihitung). Di latar, jalur video dimatikan: tanpa layar yang
+     * menampilkannya, video tetap diunduh dan didekode kalau dibiarkan, dan
+     * itu membuang data (Jatah) dan baterai. Suara tidak terpengaruh.
+     *
+     * Pilihan kualitas yang dipilih pengguna tidak hilang: matinya jalur
+     * video tidak menyentuh override kualitas.
+     *
+     * Efek hemat data nyata hanya pada sumber DASH/HLS yang memisahkan audio
+     * dan video (sumber utama Bunny). File progresif menyatukan keduanya
+     * sehingga tetap terunduh utuh.
+     */
+    fun setBackgroundMode(inBackground: Boolean) {
+        if (backgroundMode == inBackground) return
+        backgroundMode = inBackground
+        if (!playerBuilt) return
+        applyVideoTrackState(player)
+        PlaybackDiagnostics.log(
+            if (inBackground) "Mode latar: jalur video dimatikan" else "Mode latar selesai: jalur video dinyalakan",
+        )
+    }
+
+    private fun applyVideoTrackState(exo: ExoPlayer) {
+        exo.trackSelectionParameters = exo.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, backgroundMode)
+            .build()
+    }
+
     // -------------------------------------------------------------- internals
 
     private fun buildPlayer(): ExoPlayer {
@@ -207,6 +249,20 @@ class PlaybackManager @Inject constructor(
             .build()
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
+            // Fokus audio: berhenti/menurunkan suara saat telepon masuk atau
+            // aplikasi media lain mulai, dan melanjutkan dengan benar.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ true,
+            )
+            // Headset/Bluetooth dicabut: berhenti, jangan keluar lewat speaker.
+            .setHandleAudioBecomingNoisy(true)
+            // Layar mati: CPU dan Wi-Fi tetap bangun selama memutar, supaya
+            // suara tidak putus-putus. Butuh izin WAKE_LOCK (lihat manifest).
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also { exo ->
                 exo.addListener(object : Player.Listener {
@@ -239,6 +295,8 @@ class PlaybackManager @Inject constructor(
                         }
                     }
                 })
+                playerBuilt = true
+                if (backgroundMode) applyVideoTrackState(exo)
             }
     }
 

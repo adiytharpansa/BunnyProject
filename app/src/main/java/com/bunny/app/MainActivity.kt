@@ -339,6 +339,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Kembali ke depan: jalur video menyala lagi.
+        playbackManager.setBackgroundMode(false)
+    }
+
+    override fun onStop() {
+        // Masuk latar atau layar mati: matikan jalur video (suara tetap
+        // jalan). Saat PiP, jendelanya masih terlihat, jadi video harus
+        // tetap menyala.
+        if (!isInPictureInPictureMode) {
+            playbackManager.setBackgroundMode(true)
+        }
+        super.onStop()
+    }
+
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
         if (pipEligible) enterPip()

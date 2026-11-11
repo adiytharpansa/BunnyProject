@@ -28,6 +28,13 @@ class PlaybackService : MediaSessionService() {
     @Inject
     lateinit var playbackManager: PlaybackManager
 
+    /** Listener log; disimpan supaya bisa dilepas di onDestroy. */
+    private val logListener = object : Player.Listener {
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            PlaybackDiagnostics.log("Layanan: playWhenReady=$playWhenReady reason=$reason")
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         val notificationProvider = DefaultMediaNotificationProvider.Builder(this)
@@ -45,11 +52,7 @@ class PlaybackService : MediaSessionService() {
         // playback on the device test).
         playbackManager.session()
         PlaybackDiagnostics.log("Layanan dibuat; sesi media siap")
-        playbackManager.player.addListener(object : Player.Listener {
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                PlaybackDiagnostics.log("Layanan: playWhenReady=$playWhenReady reason=$reason")
-            }
-        })
+        playbackManager.player.addListener(logListener)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
@@ -64,9 +67,19 @@ class PlaybackService : MediaSessionService() {
         // stops, so plain stopSelf() is replaced by
         // pauseAllPlayersAndStopSelf(), which terminates immediately.
         val player = playbackManager.player
-        if (!player.playWhenReady || player.mediaItemCount == 0) {
+        if (!player.playWhenReady ||
+            player.mediaItemCount == 0 ||
+            player.playbackState == Player.STATE_ENDED
+        ) {
             pauseAllPlayersAndStopSelf()
         }
+    }
+
+    override fun onDestroy() {
+        // Pemutar adalah singleton yang hidup lebih lama dari layanan: tanpa
+        // ini, tiap layanan baru menambah satu listener lagi dan log ganda.
+        playbackManager.player.removeListener(logListener)
+        super.onDestroy()
     }
 
     companion object {
