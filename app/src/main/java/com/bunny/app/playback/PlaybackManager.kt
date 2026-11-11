@@ -16,12 +16,16 @@ import androidx.media3.common.Player
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
@@ -143,6 +147,45 @@ class PlaybackManager @Inject constructor(
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
+    }
+
+    /**
+     * Offline playback of a Panen Bertingkat download: local files
+     * only, no network. A video file without its own audio is merged
+     * with the separate audio file (the adaptive pair the download
+     * stages fetched); a progressive video file plays alone.
+     */
+    fun playLocal(
+        videoFile: File?,
+        audioFile: File?,
+        title: String,
+        channelName: String = "",
+    ) {
+        clearQualityOverride()
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(channelName.takeIf { it.isNotEmpty() })
+            .build()
+        val factory = DefaultDataSource.Factory(context)
+        fun source(file: File): MediaSource {
+            val item = MediaItem.Builder()
+                .setUri(Uri.fromFile(file))
+                .setMediaMetadata(metadata)
+                .build()
+            return ProgressiveMediaSource.Factory(factory)
+                .createMediaSource(item)
+        }
+        val merged = when {
+            videoFile != null && audioFile != null ->
+                MergingMediaSource(true, source(videoFile), source(audioFile))
+            videoFile != null -> source(videoFile)
+            audioFile != null -> source(audioFile)
+            else -> {
+                PlaybackDiagnostics.log("Tidak ada berkas unduhan untuk \"$title\"")
+                return
+            }
+        }
+        playChain(listOf("unduhan lokal" to merged), title)
     }
 
     private fun clearQualityOverride() {

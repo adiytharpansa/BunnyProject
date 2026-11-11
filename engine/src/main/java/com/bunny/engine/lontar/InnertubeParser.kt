@@ -3,6 +3,7 @@ package com.bunny.engine.lontar
 import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
+import com.bunny.core.model.DownloadFormat
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -285,6 +286,41 @@ object InnertubeParser {
             }
         }
         return best
+    }
+
+    /**
+     * Every directly downloadable file a player response offers
+     * (Panen Bertingkat): adaptive formats first, then the combined
+     * progressive ones. Entries without a direct URL (cipher-gated)
+     * are skipped — a download cannot use a URL that is not there.
+     */
+    fun parseDownloadFormats(response: JSONObject): List<DownloadFormat> {
+        val streaming = response.optJSONObject("streamingData") ?: return emptyList()
+        val out = mutableListOf<DownloadFormat>()
+        fun collect(array: JSONArray?, progressive: Boolean) {
+            if (array == null) return
+            for (i in 0 until array.length()) {
+                val f = array.optJSONObject(i) ?: continue
+                val url = f.optString("url").takeIf { it.isNotEmpty() } ?: continue
+                val mime = f.optString("mimeType")
+                    .substringBefore(';').trim().lowercase()
+                if (mime.isEmpty()) continue
+                out += DownloadFormat(
+                    itag = f.optInt("itag"),
+                    url = url,
+                    mimeType = mime,
+                    isAudioOnly = mime.startsWith("audio/"),
+                    isProgressive = progressive,
+                    height = f.optInt("height"),
+                    bitrate = f.optLong("bitrate"),
+                    contentLength = f.optString("contentLength")
+                        .toLongOrNull(),
+                )
+            }
+        }
+        collect(streaming.optJSONArray("adaptiveFormats"), progressive = false)
+        collect(streaming.optJSONArray("formats"), progressive = true)
+        return out
     }
 
     /**

@@ -39,6 +39,7 @@ import com.bunny.app.data.AuthRepository
 @Composable
 fun ProfileScreen(
     onLoginClick: () -> Unit = {},
+    onDownloadsClick: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val authState by viewModel.state.collectAsState()
@@ -139,6 +140,9 @@ fun ProfileScreen(
                         textAlign = TextAlign.Center,
                     )
                 }
+            }
+            OutlinedButton(onClick = onDownloadsClick) {
+                Text(stringResource(R.string.profile_downloads_button))
             }
         }
     }

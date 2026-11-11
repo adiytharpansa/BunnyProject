@@ -4,6 +4,7 @@ import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
+import com.bunny.core.model.DownloadFormats
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -281,6 +282,19 @@ class LontarEngine(
 
     override suspend fun getVideoDetails(videoId: String): VideoDetails =
         InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
+
+    /**
+     * Panen Bertingkat's raw material: the winning player response's
+     * own format files. Rides the same cached player response as
+     * playback, so asking right after opening a video is free.
+     */
+    override suspend fun getDownloadFormats(videoId: String): DownloadFormats {
+        val (response, persona) = playerResponse(videoId)
+        return DownloadFormats(
+            formats = InnertubeParser.parseDownloadFormats(response),
+            userAgent = persona.userAgent,
+        )
+    }
 
     override suspend fun getPlaybackStreams(videoId: String): PlaybackStreams {
         val (response, persona) = playerResponse(videoId)

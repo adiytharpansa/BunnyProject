@@ -81,6 +81,7 @@ import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
 import com.bunny.app.presentation.screens.live.LiveScreen
 import com.bunny.app.presentation.screens.login.LoginScreen
+import com.bunny.app.presentation.screens.downloads.DownloadsScreen
 import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
@@ -143,6 +144,7 @@ class MainActivity : ComponentActivity() {
                 var openSearch by remember { mutableStateOf(false) }
                 var openNotifications by remember { mutableStateOf(false) }
                 var openLogin by remember { mutableStateOf(false) }
+                var openDownloads by remember { mutableStateOf(false) }
                 var openChannel by remember {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
@@ -166,15 +168,16 @@ class MainActivity : ComponentActivity() {
                 val videoId = openVideoId
                 SideEffect { pipEligible = videoId != null }
                 val barVisible =
-                    videoId == null && !openSearch && !openNotifications && openChannel == null && !openLogin
+                    videoId == null && !openSearch && !openNotifications && openChannel == null && !openLogin && !openDownloads
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
                 val canGoBack = videoId == null &&
-                    (openChannel != null || openSearch || openNotifications || openLogin || selectedTab != 0)
+                    (openChannel != null || openSearch || openNotifications || openLogin || openDownloads || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
                         openLogin -> openLogin = false
+                        openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
                         openSearch -> openSearch = false
                         openNotifications -> openNotifications = false
@@ -229,6 +232,11 @@ class MainActivity : ComponentActivity() {
                             } else if (openNotifications) {
                                 NotificationsScreen(
                                     onBack = { openNotifications = false },
+                                    onVideoClick = { openVideoId = it },
+                                )
+                            } else if (openDownloads) {
+                                DownloadsScreen(
+                                    onBack = { openDownloads = false },
                                     onVideoClick = { openVideoId = it },
                                 )
                             } else if (selectedTab == 0) {
@@ -293,6 +301,7 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     ProfileScreen(
                                         onLoginClick = { openLogin = true },
+                                        onDownloadsClick = { openDownloads = true },
                                     )
                                 }
                             }

@@ -3,6 +3,7 @@ package com.bunny.core.backend
 import com.bunny.core.model.AccountInfo
 import com.bunny.core.model.ChannelInfo
 import com.bunny.core.model.CommentsPage
+import com.bunny.core.model.DownloadFormats
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
@@ -85,6 +86,14 @@ interface ExtractionBackend {
      */
     suspend fun getCommentReplies(continuation: String): CommentsPage =
         CommentsPage()
+
+    /**
+     * The downloadable files of one video (Panen Bertingkat): the
+     * winning player response's formats with direct URLs. Empty when
+     * the backend cannot offer files (e.g. cipher-gated sources).
+     */
+    suspend fun getDownloadFormats(videoId: String): DownloadFormats =
+        DownloadFormats()
 
     /**
      * The watch page's own related list for [videoId] — the videos

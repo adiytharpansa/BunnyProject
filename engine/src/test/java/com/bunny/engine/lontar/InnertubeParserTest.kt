@@ -515,6 +515,43 @@ class InnertubeParserTest {
     }
 
     @Test
+    fun parseDownloadFormats_readsAdaptiveAndProgressiveSkipsUrlLess() {
+        val json = """
+        {
+          "streamingData": {
+            "adaptiveFormats": [
+              { "itag": 140, "url": "https://rr.example/audio",
+                "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+                "bitrate": 128000, "contentLength": "900000" },
+              { "itag": 136, "url": "https://rr.example/v720",
+                "mimeType": "video/mp4; codecs=\"avc1\"",
+                "height": 720, "bitrate": 2000000, "contentLength": "20000000" },
+              { "itag": 137,
+                "mimeType": "video/mp4; codecs=\"avc1\"",
+                "height": 1080, "bitrate": 4000000 }
+            ],
+            "formats": [
+              { "itag": 18, "url": "https://rr.example/prog",
+                "mimeType": "video/mp4; codecs=\"avc1, mp4a\"",
+                "height": 360, "bitrate": 600000 }
+            ]
+          }
+        }
+        """.trimIndent()
+        val formats = InnertubeParser.parseDownloadFormats(JSONObject(json))
+        // The URL-less adaptive entry (cipher-gated) is skipped.
+        assertEquals(3, formats.size)
+        val audio = formats.first { it.isAudioOnly }
+        assertEquals(140, audio.itag)
+        assertEquals("audio/mp4", audio.mimeType)
+        assertEquals(900_000L, audio.contentLength)
+        val v720 = formats.first { it.height == 720 }
+        assertEquals(false, v720.isProgressive)
+        val prog = formats.first { it.itag == 18 }
+        assertEquals(true, prog.isProgressive)
+    }
+
+    @Test
     fun parseCount_handlesSuffixesAndLocales() {
         assertEquals(1_200_000L, InnertubeParser.parseCount("1.2M views"))
         assertEquals(321_000L, InnertubeParser.parseCount("321K watching"))

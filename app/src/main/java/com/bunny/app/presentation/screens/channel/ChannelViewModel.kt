@@ -95,7 +95,13 @@ class ChannelViewModel @Inject constructor(
             if (subscribed) {
                 library.unsubscribe(channelId)
             } else {
-                library.subscribe(channelId, channelName)
+                // The channel page's own real photo rides along, so
+                // the Kanal list can show it instead of a stand-in.
+                library.subscribe(
+                    channelId,
+                    channelName,
+                    avatarUrl = _uiState.value.info?.avatarUrl,
+                )
             }
         }
     }

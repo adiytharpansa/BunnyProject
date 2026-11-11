@@ -11,7 +11,10 @@ import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.bunny.app.data.DownloadEntity
+import com.bunny.app.data.DownloadManager
 import com.bunny.app.data.LibraryRepository
+import java.io.File
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
@@ -101,6 +104,7 @@ class PlayerViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val playbackManager: PlaybackManager,
     private val library: LibraryRepository,
+    private val downloadManager: DownloadManager,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -262,9 +266,29 @@ class PlayerViewModel @Inject constructor(
             if (subscribed) {
                 library.unsubscribe(channelId)
             } else {
-                library.subscribe(channelId, channelName)
+                // The watch page's real owner photo rides along, so
+                // the Kanal list can show it instead of a stand-in.
+                library.subscribe(
+                    channelId,
+                    channelName,
+                    avatarUrl = _comments.value.ownerAvatarUrl,
+                )
             }
         }
+    }
+
+    // ------------------------------------------------ panen bertingkat
+
+    /** This video's download record, if any (drives the Unduh pill). */
+    fun downloadState(id: String): Flow<DownloadEntity?> =
+        downloadManager.observe(id)
+
+    fun enqueueDownload() {
+        videoId?.let { downloadManager.enqueue(it) }
+    }
+
+    fun deleteDownload() {
+        videoId?.let { downloadManager.delete(it) }
     }
 
     // -------------------------------------------- kontrol pemutar (S5)
@@ -537,6 +561,48 @@ class PlayerViewModel @Inject constructor(
         PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
         loadJob = viewModelScope.launch {
             try {
+                // Panen Bertingkat: a finished local download plays
+                // from the device — no network, and no second Jatah
+                // charge (its data was already paid when downloading).
+                val local = downloadManager.record(id)
+                val localAudio = local?.audioPath
+                    ?.let { File(it) }?.takeIf { it.exists() }
+                val localVideo = local?.videoPath
+                    ?.let { File(it) }?.takeIf { it.exists() }
+                if (local != null && (localAudio != null || localVideo != null)) {
+                    PlaybackService.start(application)
+                    playbackManager.playLocal(
+                        videoFile = localVideo,
+                        audioFile = if (local.videoWithAudio) null else localAudio,
+                        title = local.title,
+                        channelName = local.channelName,
+                    )
+                    library.recordChannelWatch(local.channelName)
+                    val localDetails = VideoDetails(
+                        id = id,
+                        title = local.title,
+                        description = local.description,
+                        channelId = local.channelId,
+                        channelName = local.channelName,
+                        viewCount = null,
+                        likeCount = null,
+                        uploadedText = null,
+                        thumbnailUrl = local.thumbnailUrl,
+                    )
+                    val quota = library.quotaBytes.first()
+                    val used = library.monthUsageBytes().first()
+                    _uiState.value = PlayerUiState.Ready(
+                        details = localDetails,
+                        sourceNote = "Sumber: unduhan di perangkat",
+                        estimatedSizeBytes = null,
+                        jatahExceeded = quota != null && used > quota,
+                        monthUsedBytes = used,
+                        quotaBytes = quota,
+                    )
+                    loadRelated(id, localDetails)
+                    loadComments(id)
+                    return@launch
+                }
                 // Sequential on purpose: both calls share the engine's
                 // cached player response, so the second one is free — and
                 // sequential calls keep the real error visible instead of

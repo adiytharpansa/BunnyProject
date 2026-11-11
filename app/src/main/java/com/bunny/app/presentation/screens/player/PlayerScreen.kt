@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.HighQuality
 import androidx.compose.material.icons.outlined.PictureInPictureAlt
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -83,6 +84,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.bunny.app.R
+import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
@@ -105,6 +107,8 @@ fun PlayerScreen(
     val controller by viewModel.controllerPlayer.collectAsState()
     val related by viewModel.related.collectAsState()
     val comments by viewModel.comments.collectAsState()
+    val download by remember(videoId) { viewModel.downloadState(videoId) }
+        .collectAsState(null)
     // Scroll kembali ke atas setiap kali pindah ke video lain.
     val scrollState = remember(videoId) { ScrollState(0) }
 
@@ -551,6 +555,34 @@ fun PlayerScreen(
                                 icon = Icons.Outlined.PictureInPictureAlt,
                                 label = stringResource(R.string.player_pip),
                                 onClick = onPipClick,
+                            )
+                        }
+                        item {
+                            // Panen Bertingkat: audio diambil dulu;
+                            // video menyusul sendiri saat Wi-Fi ada.
+                            val dl = download
+                            ActionPill(
+                                icon = Icons.Outlined.Download,
+                                label = when (dl?.stage) {
+                                    DownloadManager.STAGE_AUDIO ->
+                                        stringResource(R.string.download_stage_audio)
+                                    DownloadManager.STAGE_WAITING_WIFI ->
+                                        stringResource(R.string.download_stage_waiting_wifi)
+                                    DownloadManager.STAGE_VIDEO ->
+                                        stringResource(R.string.download_stage_video)
+                                    DownloadManager.STAGE_COMPLETE ->
+                                        stringResource(R.string.download_stage_complete)
+                                    DownloadManager.STAGE_FAILED ->
+                                        stringResource(R.string.download_stage_failed)
+                                    else -> stringResource(R.string.download_action)
+                                },
+                                onClick = {
+                                    if (dl?.stage == DownloadManager.STAGE_COMPLETE) {
+                                        viewModel.deleteDownload()
+                                    } else {
+                                        viewModel.enqueueDownload()
+                                    }
+                                },
                             )
                         }
                     }

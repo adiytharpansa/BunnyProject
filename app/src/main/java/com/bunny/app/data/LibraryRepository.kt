@@ -20,6 +20,7 @@ class LibraryRepository @Inject constructor(
     private val subscriptionDao: SubscriptionDao,
     private val watchChargeDao: WatchChargeDao,
     private val settingDao: SettingDao,
+    private val channelGroupDao: ChannelGroupDao,
 ) {
 
     // --------------------------------------------------------- langganan
@@ -29,18 +30,60 @@ class LibraryRepository @Inject constructor(
     fun isSubscribed(channelId: String): Flow<Boolean> =
         subscriptionDao.observeIsSubscribed(channelId)
 
-    suspend fun subscribe(channelId: String, channelName: String) {
+    suspend fun subscribe(
+        channelId: String,
+        channelName: String,
+        avatarUrl: String? = null,
+    ) {
+        // Re-subscribing must not wipe a group assignment or a photo
+        // captured earlier (upsert replaces the whole row).
+        val existing = subscriptions.first()
+            .firstOrNull { it.channelId == channelId }
         subscriptionDao.upsert(
             SubscriptionEntity(
                 channelId = channelId,
                 channelName = channelName,
-                subscribedAtEpochMs = System.currentTimeMillis(),
+                subscribedAtEpochMs = existing?.subscribedAtEpochMs
+                    ?: System.currentTimeMillis(),
+                avatarUrl = avatarUrl ?: existing?.avatarUrl,
+                groupId = existing?.groupId,
             ),
         )
     }
 
     suspend fun unsubscribe(channelId: String) {
         subscriptionDao.delete(channelId)
+    }
+
+    // ------------------------------------------------------------- grup
+
+    val groups: Flow<List<ChannelGroupEntity>> = channelGroupDao.observeAll()
+
+    suspend fun createGroup(name: String): Long {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return -1
+        return channelGroupDao.insert(
+            ChannelGroupEntity(
+                name = trimmed,
+                createdAtEpochMs = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun renameGroup(id: Long, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        channelGroupDao.rename(id, trimmed)
+    }
+
+    /** Deleting a group ungroups its channels; it never unsubscribes. */
+    suspend fun deleteGroup(id: Long) {
+        subscriptionDao.clearGroup(id)
+        channelGroupDao.delete(id)
+    }
+
+    suspend fun setChannelGroup(channelId: String, groupId: Long?) {
+        subscriptionDao.setGroup(channelId, groupId)
     }
 
     // -------------------------------------------------------------- jatah
