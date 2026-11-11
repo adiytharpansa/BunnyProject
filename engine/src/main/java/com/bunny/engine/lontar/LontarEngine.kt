@@ -190,6 +190,23 @@ class LontarEngine(
         }
     }
 
+    /**
+     * The related list rides the same watch-page call as comments: one
+     * next(videoId) response already carries YouTube's own ranked list
+     * in secondaryResults. Best-effort — any failure reads as "no
+     * server list" and the caller composes its local fallback instead.
+     */
+    override suspend fun getRelatedVideos(videoId: String): List<VideoItem> {
+        return try {
+            val watch = post("next", baseBody().put("videoId", videoId))
+            InnertubeParser.parseRelatedVideos(watch)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     override suspend fun getSearchSuggestions(query: String): List<String> {
         // Best-effort decoration for the search box (see SearchSuggestions):
         // a failed suggestion fetch must never surface as a search error.

@@ -72,9 +72,9 @@ data class CommentsUiState(
 /** Rekomendasi di bawah pemutar: tiga tampilan dari satu sumber data. */
 data class RelatedUiState(
     val isLoading: Boolean = true,
-    /** Campuran serupa + kanal (tab "Semua"). */
+    /** Daftar utama (tab "Semua"): Berikutnya dari server, atau campuran lokal. */
     val all: List<VideoItem> = emptyList(),
-    /** Hasil pencarian dari judul video (tab "Terkait"). */
+    /** Tab "Terkait": daftar server di luar kanal ini / pencarian judul. */
     val similar: List<VideoItem> = emptyList(),
     /** Unggahan terbaru kanal yang sama (tab "Dari {kanal}"). */
     val fromChannel: List<VideoItem> = emptyList(),
@@ -295,34 +295,61 @@ class PlayerViewModel @Inject constructor(
      * Rekomendasi tidak boleh menghambat pemutaran: dijalankan di job
      * terpisah SETELAH video siap, dan semua kegagalannya hanya berujung
      * daftar kosong, tidak pernah error pemutar.
+     *
+     * Sumber utama adalah daftar Berikutnya dari server YouTube sendiri
+     * (algoritma mereka, urutan mereka — tidak diacak ulang di sini).
+     * Hanya bila server tidak memberi daftar, Bunny menyusun campuran
+     * lokal seperti sebelumnya (pencarian serupa + unggahan kanal).
      */
     private fun loadRelated(id: String, details: VideoDetails) {
         relatedJob?.cancel()
         _related.value = RelatedUiState(isLoading = true)
         relatedJob = viewModelScope.launch {
-            val query = relatedQuery(details.title).ifBlank { details.channelName }
             val channelId = details.channelId
-            val (similarRaw, channelRaw) = coroutineScope {
-                val similarJob = async {
-                    safeItems { backend.search(query, null).items }
+            val (serverRaw, channelRaw) = coroutineScope {
+                val serverJob = async {
+                    safeItems { backend.getRelatedVideos(id) }
                 }
                 val channelJob = async {
                     safeItems {
                         channelId?.let { backend.getChannelVideos(it).items }.orEmpty()
                     }
                 }
-                similarJob.await() to channelJob.await()
+                serverJob.await() to channelJob.await()
             }
 
-            val similar = similarRaw
-                .filter { it.id != id && !it.isLive }
-                .distinctBy { it.id }
-                .map { it.copy(reason = "Serupa dengan video ini") }
             val fromChannel = channelRaw
                 .filter { it.id != id && !it.isLive }
                 .distinctBy { it.id }
                 .take(15)
                 .map { it.copy(reason = "Dari kanal ini") }
+
+            val server = serverRaw
+                .filter { it.id != id && !it.isLive }
+                .distinctBy { it.id }
+            if (server.isNotEmpty()) {
+                val tagged = server.map { it.copy(reason = "Saran YouTube") }
+                _related.value = RelatedUiState(
+                    isLoading = false,
+                    all = tagged,
+                    // Tab "Terkait": daftar server tanpa video kanal ini
+                    // (yang dari kanal ini tempatnya di tab kanalnya).
+                    similar = tagged.filter {
+                        it.channelId == null || it.channelId != channelId
+                    },
+                    fromChannel = fromChannel,
+                    error = null,
+                )
+                return@launch
+            }
+
+            // Cadangan lokal: server tidak memberi daftar untuk video ini.
+            val query = relatedQuery(details.title).ifBlank { details.channelName }
+            val similarRaw = safeItems { backend.search(query, null).items }
+            val similar = similarRaw
+                .filter { it.id != id && !it.isLive }
+                .distinctBy { it.id }
+                .map { it.copy(reason = "Serupa dengan video ini") }
             val all = mixRelated(similar, fromChannel)
 
             _related.value = RelatedUiState(

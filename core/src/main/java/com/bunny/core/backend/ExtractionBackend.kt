@@ -74,4 +74,14 @@ interface ExtractionBackend {
      */
     suspend fun getComments(videoId: String, page: String? = null): CommentsPage =
         CommentsPage()
+
+    /**
+     * The watch page's own related list for [videoId] — the videos
+     * YouTube's recommender itself lines up next, IN THE SERVER'S ORDER
+     * (that order is the algorithm's output; re-sorting it locally would
+     * throw the ranking away). Best-effort: backends without a related
+     * source return an empty list and the caller falls back to composing
+     * its own list.
+     */
+    suspend fun getRelatedVideos(videoId: String): List<VideoItem> = emptyList()
 }

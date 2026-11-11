@@ -149,6 +149,137 @@ object InnertubeParser {
             ?.takeIf { it.isNotEmpty() }
     }
 
+    // ------------------------------------------------- related (watch next)
+
+    /**
+     * The watch page's own related list: the `next` response carries it
+     * ready-made in secondaryResults as lockupViewModel rows — YouTube's
+     * recommender has already ranked them, so ORDER IS PRESERVED here
+     * and never re-sorted (verified live 2026-11-11: 20 rows for an
+     * anonymous WEB session, real titles, channel avatars and counts).
+     * Only video lockups become items; playlist/mix lockups are skipped.
+     */
+    fun parseRelatedVideos(response: JSONObject): List<VideoItem> {
+        val secondary = findObject(response) { it.has("secondaryResults") }
+            ?.optJSONObject("secondaryResults") ?: return emptyList()
+        val lockups = mutableListOf<JSONObject>()
+        walkObjects(secondary) { obj ->
+            obj.optJSONObject("lockupViewModel")?.let(lockups::add)
+        }
+        return lockups.mapNotNull(::parseLockupVideo).distinctBy { it.id }
+    }
+
+    private fun parseLockupVideo(lockup: JSONObject): VideoItem? {
+        val type = lockup.optString("contentType")
+        if (type.isNotEmpty() && type != "LOCKUP_CONTENT_TYPE_VIDEO") return null
+        val videoId = lockup.optString("contentId").takeIf { it.isNotEmpty() }
+            ?: return null
+        val meta = lockup.optJSONObject("metadata")
+            ?.optJSONObject("lockupMetadataViewModel")
+        val title = meta?.optJSONObject("title")?.optString("content").orEmpty()
+        if (title.isEmpty()) return null
+
+        // The duration (or a live marker) rides a badge over the
+        // thumbnail; lockup durations use dots ("12.34" / "1.23.21").
+        var durationSeconds: Long? = null
+        var isLive = false
+        val overlays = lockup.optJSONObject("contentImage")
+            ?.optJSONObject("thumbnailViewModel")
+            ?.optJSONArray("overlays") ?: JSONArray()
+        for (i in 0 until overlays.length()) {
+            val badges = overlays.optJSONObject(i)
+                ?.optJSONObject("thumbnailBottomOverlayViewModel")
+                ?.optJSONArray("badges") ?: continue
+            for (j in 0 until badges.length()) {
+                val badgeText = badges.optJSONObject(j)
+                    ?.optJSONObject("thumbnailBadgeViewModel")
+                    ?.optString("text").orEmpty()
+                if (badgeText.isEmpty()) continue
+                if (badgeText.contains("LIVE", ignoreCase = true) ||
+                    badgeText.contains("langsung", ignoreCase = true)
+                ) {
+                    isLive = true
+                } else {
+                    durationSeconds =
+                        parseDuration(badgeText.replace('.', ':')) ?: durationSeconds
+                }
+            }
+        }
+
+        // Metadata rows: row 0 is the channel name; row 1 carries
+        // "views • age" as separate parts whose accessibility labels hold
+        // the full localized text ("702 x ditonton", "6 hari yang lalu")
+        // while the visible content is abbreviated ("702", "6 h lalu").
+        // The labels are what the UI shows.
+        val rows = meta?.optJSONObject("metadata")
+            ?.optJSONObject("contentMetadataViewModel")
+            ?.optJSONArray("metadataRows") ?: JSONArray()
+        fun rowParts(index: Int): List<JSONObject> {
+            val parts = rows.optJSONObject(index)?.optJSONArray("metadataParts")
+                ?: return emptyList()
+            return (0 until parts.length()).mapNotNull { parts.optJSONObject(it) }
+        }
+        fun partLabel(part: JSONObject): String =
+            part.optString("accessibilityLabel").ifEmpty {
+                part.optJSONObject("text")?.optString("content").orEmpty()
+            }
+        val statsParts = rowParts(1)
+        val viewsLabel = statsParts.getOrNull(0)?.let { partLabel(it) }.orEmpty()
+        val uploadedText = statsParts.getOrNull(1)?.let { partLabel(it) }
+            ?.takeIf { it.isNotEmpty() }
+        if (viewsLabel.contains("menonton") ||
+            viewsLabel.contains("watching", ignoreCase = true)
+        ) {
+            isLive = true
+        }
+
+        return VideoItem(
+            id = videoId,
+            title = title,
+            channelId = meta?.optJSONObject("rendererContext")
+                ?.optJSONObject("commandContext")
+                ?.optJSONObject("onTap")
+                ?.optJSONObject("innertubeCommand")
+                ?.optJSONObject("browseEndpoint")
+                ?.optString("browseId")
+                ?.takeIf { it.isNotEmpty() },
+            channelName = rowParts(0).firstOrNull()
+                ?.optJSONObject("text")?.optString("content").orEmpty(),
+            channelAvatarUrl = meta?.optJSONObject("image")
+                ?.optJSONObject("decoratedAvatarViewModel")
+                ?.optJSONObject("avatar")
+                ?.optJSONObject("avatarViewModel")
+                ?.optJSONObject("image")
+                ?.let { bestSourceUrl(it) },
+            thumbnailUrl = lockup.optJSONObject("contentImage")
+                ?.optJSONObject("thumbnailViewModel")
+                ?.optJSONObject("image")
+                ?.let { bestSourceUrl(it) },
+            durationSeconds = durationSeconds,
+            viewCount = viewsLabel.takeIf { it.isNotEmpty() }
+                ?.let { parseCount(it) },
+            uploadedText = uploadedText,
+            isLive = isLive,
+        )
+    }
+
+    /** Widest image source of a view-model image object ({"sources":[...]}). */
+    private fun bestSourceUrl(image: JSONObject): String? {
+        val sources = image.optJSONArray("sources") ?: return null
+        var best: String? = null
+        var bestWidth = -1
+        for (i in 0 until sources.length()) {
+            val source = sources.optJSONObject(i) ?: continue
+            if (source.optInt("width") >= bestWidth) {
+                source.optString("url").takeIf { it.isNotEmpty() }?.let {
+                    best = it
+                    bestWidth = source.optInt("width")
+                }
+            }
+        }
+        return best
+    }
+
     /**
      * A channel page's real identity. Name, description and avatar come
      * from metadata.channelMetadataRenderer; the published counts live

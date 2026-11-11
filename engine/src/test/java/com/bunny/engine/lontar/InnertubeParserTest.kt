@@ -519,4 +519,83 @@ class InnertubeParserTest {
         assertEquals((800_000L + 128_000L) * 600L / 8L, streams.estimatedSizeBytes)
         assertNotNull(streams.dashManifestContent)
     }
+
+    @Test
+    fun parseRelatedVideos_lockupsFromWatchNext_keepServerOrder() {
+        // Fixture mirrors the real anonymous WEB `next` response
+        // (probed 2026-11-11): related rows are lockupViewModel objects
+        // in secondaryResults; dot durations; the full counts live in
+        // the metadata parts' accessibility labels.
+        val json = JSONObject(
+            """
+            {"contents":{"twoColumnWatchNextResults":{"secondaryResults":{
+              "secondaryResults":{"results":[
+                {"lockupViewModel":{
+                  "contentId":"PDE0HcAjATk",
+                  "contentType":"LOCKUP_CONTENT_TYPE_VIDEO",
+                  "contentImage":{"thumbnailViewModel":{"image":{"sources":[
+                    {"url":"https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-168.jpg","width":168},
+                    {"url":"https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-336.jpg","width":336}]},
+                    "overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[
+                      {"thumbnailBadgeViewModel":{"text":"1.23.21"}}]}}]}},
+                  "metadata":{"lockupMetadataViewModel":{
+                    "title":{"content":"Top Hits Spotify Indonesia 2026"},
+                    "image":{"decoratedAvatarViewModel":{"avatar":{"avatarViewModel":{
+                      "image":{"sources":[{"url":"https://yt3.ggpht.com/avatar.jpg","width":68}]}}}}},
+                    "rendererContext":{"commandContext":{"onTap":{"innertubeCommand":{
+                      "browseEndpoint":{"browseId":"UC51FepQ6WpkqdMaIXUthXTg"}}}}},
+                    "metadata":{"contentMetadataViewModel":{"metadataRows":[
+                      {"metadataParts":[{"text":{"content":"Ruang Nada Senja"}}]},
+                      {"metadataParts":[
+                        {"text":{"content":"702"},"accessibilityLabel":"702 x ditonton"},
+                        {"text":{"content":"6 h lalu"},"accessibilityLabel":"6 hari yang lalu"}]}],
+                      "delimiter":" "}}}}}
+                }},
+                {"lockupViewModel":{
+                  "contentId":"PLS3mZpWbSjLIiZmCOzhcaCkXkz923KIMA",
+                  "contentType":"LOCKUP_CONTENT_TYPE_PLAYLIST",
+                  "metadata":{"lockupMetadataViewModel":{
+                    "title":{"content":"Mix - Lagu Santai"}}}
+                }},
+                {"lockupViewModel":{
+                  "contentId":"dQw4w9WgXcQ",
+                  "contentType":"LOCKUP_CONTENT_TYPE_VIDEO",
+                  "contentImage":{"thumbnailViewModel":{"image":{"sources":[
+                    {"url":"https://i.ytimg.com/vi/dQw4w9WgXcQ/hq.jpg","width":336}]},
+                    "overlays":[{"thumbnailBottomOverlayViewModel":{"badges":[
+                      {"thumbnailBadgeViewModel":{"text":"12.34"}}]}}]}},
+                  "metadata":{"lockupMetadataViewModel":{
+                    "title":{"content":"Video Kedua"},
+                    "metadata":{"contentMetadataViewModel":{"metadataRows":[
+                      {"metadataParts":[{"text":{"content":"Kanal Lain"}}]},
+                      {"metadataParts":[
+                        {"text":{"content":"1,2 rb"},"accessibilityLabel":"1,2 rb x ditonton"},
+                        {"text":{"content":"2 m lalu"},"accessibilityLabel":"2 minggu yang lalu"}]}],
+                      "delimiter":" "}}}}}
+                }}
+              ]}}}}}
+            """.trimIndent(),
+        )
+        val items = InnertubeParser.parseRelatedVideos(json)
+        // The playlist lockup is skipped; the server's order survives.
+        assertEquals(listOf("PDE0HcAjATk", "dQw4w9WgXcQ"), items.map { it.id })
+        val first = items[0]
+        assertEquals("Top Hits Spotify Indonesia 2026", first.title)
+        assertEquals("UC51FepQ6WpkqdMaIXUthXTg", first.channelId)
+        assertEquals("Ruang Nada Senja", first.channelName)
+        assertEquals("https://yt3.ggpht.com/avatar.jpg", first.channelAvatarUrl)
+        assertEquals(
+            "https://i.ytimg.com/vi/PDE0HcAjATk/hqdefault-336.jpg",
+            first.thumbnailUrl,
+        )
+        assertEquals(5001L, first.durationSeconds)
+        assertEquals(702L, first.viewCount)
+        assertEquals("6 hari yang lalu", first.uploadedText)
+        assertEquals(false, first.isLive)
+        val second = items[1]
+        assertEquals(754L, second.durationSeconds)
+        assertEquals(1200L, second.viewCount)
+        assertEquals("2 minggu yang lalu", second.uploadedText)
+        assertNull(second.channelId)
+    }
 }
