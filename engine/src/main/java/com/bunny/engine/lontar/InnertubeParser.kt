@@ -717,7 +717,29 @@ object InnertubeParser {
                 streaming.optJSONArray("adaptiveFormats"),
                 durationSeconds,
             ),
+            tracking = parsePlaybackTracking(player),
         )
+    }
+
+    /**
+     * Selera Tamu (Langkah 1): the stats addresses the player
+     * response itself hands out for reporting this view — the
+     * playback-start and watchtime URLs under `playbackTracking`.
+     * Null when the response carries neither.
+     */
+    fun parsePlaybackTracking(
+        player: JSONObject,
+    ): com.bunny.core.model.PlaybackTrackingUrls? {
+        val tracking = player.optJSONObject("playbackTracking")
+            ?: return null
+        fun baseUrl(name: String): String? =
+            tracking.optJSONObject(name)
+                ?.optString("baseUrl")
+                ?.takeIf { it.isNotEmpty() }
+        val playback = baseUrl("videostatsPlaybackUrl")
+        val watchtime = baseUrl("videostatsWatchtimeUrl")
+        if (playback == null && watchtime == null) return null
+        return com.bunny.core.model.PlaybackTrackingUrls(playback, watchtime)
     }
 
     /**

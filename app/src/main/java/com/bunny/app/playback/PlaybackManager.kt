@@ -50,6 +50,7 @@ import javax.inject.Singleton
 @Singleton
 class PlaybackManager @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val watchReporter: GuestWatchReporter,
 ) {
 
     private var userAgent: String = DEFAULT_USER_AGENT
@@ -143,9 +144,24 @@ class PlaybackManager @Inject constructor(
             return
         }
         playChain(sources, title)
+        // Selera Tamu: report this view to the addresses the
+        // player response itself supplied, under the session's
+        // persistent guest identity.
+        val tracking = streams.tracking
+        if (tracking != null) {
+            watchReporter.start(
+                tracking = tracking,
+                userAgent = streams.playbackUserAgent,
+                positionMs = { player.currentPosition },
+                isPlaying = { player.isPlaying },
+            )
+        } else {
+            watchReporter.stop()
+        }
     }
 
     fun stop() {
+        watchReporter.stop()
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
@@ -163,6 +179,9 @@ class PlaybackManager @Inject constructor(
         title: String,
         channelName: String = "",
     ) {
+        // Local files earn no reports — the addresses belong to a
+        // streamed view, and this is not one.
+        watchReporter.stop()
         currentPersonaName = null
         currentSourceIsLocal = true
         clearQualityOverride()

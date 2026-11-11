@@ -9,6 +9,7 @@ import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
+import com.bunny.core.model.GuestWarmingReport
 import com.bunny.core.model.PersonaHealthReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,8 @@ class LontarEngine(
     private val statsStore: PersonaStatsStore = PersonaStatsStore.NONE,
     /** Lontar Hidup: coarse network class for statistics bucketing. */
     private val networkClass: NetworkClassProvider = NetworkClassProvider.UNKNOWN,
+    /** Selera Tamu: the persistent guest visitor identity's shelf. */
+    private val visitorStore: VisitorStore = VisitorStore.NONE,
 ) : ExtractionBackend {
 
     override val id: String = "lontar"
@@ -308,6 +311,46 @@ class LontarEngine(
         return streams.copy(
             playbackUserAgent = persona.userAgent,
             personaName = persona.name,
+        )
+    }
+
+    /**
+     * Selera Tamu (Langkah 2): the warming probe. Both browses ride
+     * the ordinary metadata session — which, since Langkah 0,
+     * carries the persistent guest visitor. A refusal on the home
+     * browse reads as a cold zero; the history browse's refusal
+     * keeps its HTTP code, because the code is the verdict's most
+     * honest part.
+     */
+    override suspend fun probeGuestWarming(): GuestWarmingReport {
+        ensureSession()
+        val homeCount = try {
+            val body = baseBody().put("browseId", "FEwhat_to_watch")
+            InnertubeParser.parseFeedPage(post("browse", body)).items.size
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            0
+        }
+        var historyCount: Int? = null
+        var historyHttp: Int? = null
+        try {
+            val body = baseBody().put("browseId", "FEhistory")
+            historyCount =
+                InnertubeParser.parseFeedPage(post("browse", body)).items.size
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: LontarException) {
+            historyHttp = e.httpCode
+        } catch (e: Exception) {
+            // An unparseable answer is still an answer of zero.
+            historyCount = 0
+        }
+        return GuestWarmingReport(
+            homeItemCount = homeCount,
+            historyItemCount = historyCount,
+            historyHttpCode = historyHttp,
+            checkedAtEpochMs = System.currentTimeMillis(),
         )
     }
 
@@ -1010,6 +1053,14 @@ class LontarEngine(
             backupSession = null
             scheduleBackupHarvest()
         } else {
+            // A full re-bootstrap follows a refusal: if the refused
+            // session carried the shelved visitor, that identity is
+            // suspect — the next bootstrap adopts a fresh one.
+            if (session?.visitorData != null &&
+                session?.visitorData == visitorStore.load()
+            ) {
+                visitorSuspect = true
+            }
             session = null
             ensureSession()
         }
@@ -1035,6 +1086,14 @@ class LontarEngine(
         EngineConfig.DEFAULTS
     }
 
+    /**
+     * Selera Tamu (Langkah 0): set when a session carrying the
+     * STORED visitor had to be swapped out — the stored identity
+     * is suspect, so the next bootstrap adopts the freshly
+     * harvested visitor and re-shelves it. Consumed once.
+     */
+    @Volatile private var visitorSuspect = false
+
     private suspend fun fetchSession(
         fallbackClientVersion: String,
     ): InnertubeSession = withContext(Dispatchers.IO) {
@@ -1045,8 +1104,26 @@ class LontarEngine(
             .build()
         httpClient.newCall(request).execute().use { response ->
             val html = response.body?.string().orEmpty()
-            InnertubeSession.fromHomepageHtml(html, fallbackClientVersion)
-                ?: throw LontarException("Gagal memperoleh sesi InnerTube dari beranda YouTube")
+            val harvested = InnertubeSession.fromHomepageHtml(
+                html,
+                fallbackClientVersion,
+            ) ?: throw LontarException(
+                "Gagal memperoleh sesi InnerTube dari beranda YouTube",
+            )
+            // One guest identity per install: the harvested visitor
+            // is only adopted when the shelf is empty or suspect;
+            // otherwise the shelved identity rides the fresh
+            // session's key and version.
+            val stored = visitorStore.load()
+            val suspect = visitorSuspect
+            visitorSuspect = false
+            when {
+                stored.isNullOrBlank() || suspect -> {
+                    visitorStore.save(harvested.visitorData)
+                    harvested
+                }
+                else -> harvested.copy(visitorData = stored)
+            }
         }
     }
 

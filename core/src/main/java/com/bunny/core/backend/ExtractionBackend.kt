@@ -111,6 +111,16 @@ interface ExtractionBackend {
     suspend fun runEngineHealthCheck(): List<PersonaHealthReport> = emptyList()
 
     /**
+     * Selera Tamu (Langkah 2): asks the two warming oracles with
+     * the session's persistent guest visitor — the guest home
+     * browse (does it answer yet?) and the guest history browse
+     * (were the watches recorded?). Null when the backend has no
+     * guest session to ask with.
+     */
+    suspend fun probeGuestWarming():
+        com.bunny.core.model.GuestWarmingReport? = null
+
+    /**
      * Playback evidence for the Radar: the stream of [personaName]
      * was refused mid-play (HTTP 403 after real bytes had flowed).
      * Recorded as a suspected GVS gating for this session and network.

@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.bunny.app.data.PersonaStatDao
+import com.bunny.app.data.PrefsVisitorStore
 import com.bunny.app.data.RoomPersonaStatsStore
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.engine.lontar.LontarAuth
 import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.NetworkClassProvider
 import com.bunny.engine.lontar.PersonaStatsStore
+import com.bunny.engine.lontar.VisitorStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -62,12 +64,23 @@ object BackendModule {
 
     @Provides
     @Singleton
+    fun provideVisitorStore(store: PrefsVisitorStore): VisitorStore = store
+
+    @Provides
+    @Singleton
     fun provideLontarEngine(
         httpClient: OkHttpClient,
         auth: LontarAuth,
         statsStore: PersonaStatsStore,
         networkClass: NetworkClassProvider,
-    ): LontarEngine = LontarEngine(httpClient, auth, statsStore, networkClass)
+        visitorStore: VisitorStore,
+    ): LontarEngine = LontarEngine(
+        httpClient,
+        auth,
+        statsStore,
+        networkClass,
+        visitorStore,
+    )
 
     @Provides
     @Singleton

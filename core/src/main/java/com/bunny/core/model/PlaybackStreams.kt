@@ -39,4 +39,17 @@ data class PlaybackStreams(
      * when the backend could not estimate honestly.
      */
     val estimatedSizeBytes: Long? = null,
+    /**
+     * Selera Tamu (Langkah 1): the playback-tracking addresses the
+     * player response itself supplies for this video — where the
+     * official clients report "a view started" and "watch time is
+     * accumulating", tied to the session's visitor identity.
+     */
+    val tracking: PlaybackTrackingUrls? = null,
+)
+
+/** The stats addresses inside a player response's playbackTracking. */
+data class PlaybackTrackingUrls(
+    val playbackUrl: String?,
+    val watchtimeUrl: String?,
 )

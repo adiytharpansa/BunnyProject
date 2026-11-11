@@ -198,8 +198,109 @@ fun ProfileScreen(
             OutlinedButton(onClick = onDownloadsClick) {
                 Text(stringResource(R.string.profile_downloads_button))
             }
+            GuestWarmingPanel()
             EngineHealthPanel()
         }
+    }
+}
+
+/**
+ * Selera Tamu (Langkah 2): the warming probe panel — the two
+ * oracles read aloud. "Reports sent" is the reporter's own count
+ * and is shown separately from "watches recorded": the research
+ * behind this feature is explicit that a sent report (even a
+ * 204 answer) is not proof of recording; only the history
+ * browse answering is.
+ */
+@Composable
+private fun GuestWarmingPanel(
+    viewModel: GuestWarmingViewModel = hiltViewModel(),
+) {
+    val report by viewModel.report.collectAsState()
+    val running by viewModel.running.collectAsState()
+    val sent by viewModel.sentCount.collectAsState()
+    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+    Text(
+        stringResource(R.string.guest_title),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
+    Text(
+        stringResource(R.string.guest_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
+    Text(
+        stringResource(R.string.guest_sent, sent),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+        textAlign = TextAlign.Center,
+    )
+    val current = report
+    if (current == null) {
+        Text(
+            stringResource(R.string.guest_never),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+    } else {
+        Text(
+            stringResource(
+                if (current.homeItemCount > 0) {
+                    R.string.guest_home_warm
+                } else {
+                    R.string.guest_home_cold
+                },
+                current.homeItemCount,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            when {
+                current.historyItemCount == null -> stringResource(
+                    R.string.guest_history_refused,
+                    current.historyHttpCode ?: 0,
+                )
+                current.historyItemCount == 0 ->
+                    stringResource(R.string.guest_history_empty)
+                else -> stringResource(
+                    R.string.guest_history_ok,
+                    current.historyItemCount,
+                )
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            stringResource(
+                R.string.guest_last,
+                healthTime(current.checkedAtEpochMs),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = TextAlign.Center,
+        )
+    }
+    OutlinedButton(
+        onClick = { viewModel.runProbe() },
+        enabled = !running,
+    ) {
+        Text(
+            stringResource(
+                if (running) R.string.guest_checking else R.string.guest_check,
+            ),
+        )
     }
 }
 
