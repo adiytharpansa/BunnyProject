@@ -243,10 +243,9 @@ fun PlayerScreen(
                         // can stretch/crop on API 34 devices.
                         setEnableComposeSurfaceSyncWorkaround(true)
 
-                        // Bunny hanya memutar satu video: tombol sebelumnya
-                        // dan berikutnya tidak berguna.
-                        setShowPreviousButton(false)
-                        setShowNextButton(false)
+                        // Tombol sebelumnya/berikutnya DIPAKAI sekarang:
+                        // diarahkan ke antrean rekomendasi/riwayat oleh
+                        // QueueSkipPlayer di PlaybackManager.
 
                         // Munculkan tombol layar penuh di bilah kontrol.
                         setFullscreenButtonClickListener { toggleFullscreen() }

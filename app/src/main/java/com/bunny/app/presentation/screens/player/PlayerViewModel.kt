@@ -2,6 +2,7 @@ package com.bunny.app.presentation.screens.player
 
 import android.app.Application
 import android.content.ComponentName
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.media3.common.PlaybackParameters
@@ -107,8 +108,37 @@ class PlayerViewModel @Inject constructor(
 
     val diagnostics = PlaybackDiagnostics.events
 
+    /** Video yang diminta layar; menjaga open() tidak mengulang video asal setelah pindah. */
+    private var requestedId: String? = null
+
+    /** Video yang sudah diputar sebelum yang sekarang (untuk ⏮). */
+    private val history = ArrayDeque<String>()
+
+    /** Semua video yang sudah diputar di sesi ini (supaya ⏭ tidak mengulang). */
+    private val playedIds = LinkedHashSet<String>()
+
+    /** ⏮ / ⏭ dari notifikasi, layar kunci, headset, dan kontrol pemutar. */
+    private val queueHandler = object : PlaybackManager.QueueHandler {
+        override fun onSkipNext() = skipToNext(auto = false)
+        override fun onSkipPrevious() = skipToPrevious()
+    }
+
+    /** Putar otomatis: video selesai -> rekomendasi berikutnya. */
+    private val endListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED &&
+                _uiState.value is PlayerUiState.Ready
+            ) {
+                PlaybackDiagnostics.log("Video selesai: putar otomatis berikutnya")
+                skipToNext(auto = true)
+            }
+        }
+    }
+
     init {
         connectController()
+        playbackManager.queueHandler = queueHandler
+        playbackManager.player.addListener(endListener)
     }
 
     private fun connectController() {
@@ -155,7 +185,10 @@ class PlayerViewModel @Inject constructor(
     private var loadAttempts = 0
 
     fun open(videoId: String) {
-        if (this.videoId == videoId && _uiState.value !is PlayerUiState.Error) return
+        if (requestedId == videoId && _uiState.value !is PlayerUiState.Error) return
+        requestedId = videoId
+        history.clear()
+        playedIds.clear()
         this.videoId = videoId
         load()
     }
@@ -165,7 +198,46 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun stopPlayback() {
+        requestedId = null
         playbackManager.stop()
+    }
+
+    // ------------------------------------------- pindah video (⏮ ⏭)
+
+    /** ⏭ dan putar otomatis: rekomendasi pertama yang belum diputar. */
+    private fun skipToNext(auto: Boolean) {
+        val current = videoId ?: return
+        val next = _related.value.all
+            .firstOrNull { it.id !in playedIds && !it.isLive }
+            ?.id
+        if (next == null) {
+            PlaybackDiagnostics.log("Berikutnya: belum ada rekomendasi")
+            if (!auto) {
+                Toast.makeText(
+                    application,
+                    "Belum ada video berikutnya",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+            return
+        }
+        history.addLast(current)
+        if (history.size > MAX_HISTORY) history.removeFirst()
+        PlaybackDiagnostics.log("Berikutnya: $next")
+        videoId = next
+        load()
+    }
+
+    /** ⏮: video yang tadi diputar; tanpa riwayat, ulang dari awal. */
+    private fun skipToPrevious() {
+        val previous = history.removeLastOrNull()
+        if (previous == null) {
+            playbackManager.player.seekTo(0L)
+            return
+        }
+        PlaybackDiagnostics.log("Sebelumnya: $previous")
+        videoId = previous
+        load()
     }
 
     /** Terbit's source: local subscriptions, toggled from this screen. */
@@ -207,160 +279,164 @@ class PlayerViewModel @Inject constructor(
         _options.update { it.copy(speed = speed) }
     }
 
-// ------------------------------------------------ rekomendasi video
+    // ------------------------------------------------ rekomendasi video
 
-private val _related = MutableStateFlow(RelatedUiState())
-val related: StateFlow<RelatedUiState> = _related.asStateFlow()
-private var relatedJob: Job? = null
+    private val _related = MutableStateFlow(RelatedUiState())
+    val related: StateFlow<RelatedUiState> = _related.asStateFlow()
+    private var relatedJob: Job? = null
 
-fun retryRelated() {
-    val id = videoId ?: return
-    val details = (_uiState.value as? PlayerUiState.Ready)?.details ?: return
-    loadRelated(id, details)
-}
+    fun retryRelated() {
+        val id = videoId ?: return
+        val details = (_uiState.value as? PlayerUiState.Ready)?.details ?: return
+        loadRelated(id, details)
+    }
 
-/**
- * Rekomendasi tidak boleh menghambat pemutaran: dijalankan di job
- * terpisah SETELAH video siap, dan semua kegagalannya hanya berujung
- * daftar kosong, tidak pernah error pemutar.
- */
-private fun loadRelated(id: String, details: VideoDetails) {
-    relatedJob?.cancel()
-    _related.value = RelatedUiState(isLoading = true)
-    relatedJob = viewModelScope.launch {
-        val query = relatedQuery(details.title).ifBlank { details.channelName }
-        val channelId = details.channelId
-        val (similarRaw, channelRaw) = coroutineScope {
-            val similarJob = async {
-                safeItems { backend.search(query, null).items }
-            }
-            val channelJob = async {
-                safeItems {
-                    channelId?.let { backend.getChannelVideos(it).items }.orEmpty()
+    /**
+     * Rekomendasi tidak boleh menghambat pemutaran: dijalankan di job
+     * terpisah SETELAH video siap, dan semua kegagalannya hanya berujung
+     * daftar kosong, tidak pernah error pemutar.
+     */
+    private fun loadRelated(id: String, details: VideoDetails) {
+        relatedJob?.cancel()
+        _related.value = RelatedUiState(isLoading = true)
+        relatedJob = viewModelScope.launch {
+            val query = relatedQuery(details.title).ifBlank { details.channelName }
+            val channelId = details.channelId
+            val (similarRaw, channelRaw) = coroutineScope {
+                val similarJob = async {
+                    safeItems { backend.search(query, null).items }
                 }
+                val channelJob = async {
+                    safeItems {
+                        channelId?.let { backend.getChannelVideos(it).items }.orEmpty()
+                    }
+                }
+                similarJob.await() to channelJob.await()
             }
-            similarJob.await() to channelJob.await()
-        }
 
-        val similar = similarRaw
-            .filter { it.id != id && !it.isLive }
-            .distinctBy { it.id }
-            .map { it.copy(reason = "Serupa dengan video ini") }
-        val fromChannel = channelRaw
-            .filter { it.id != id && !it.isLive }
-            .distinctBy { it.id }
-            .take(15)
-            .map { it.copy(reason = "Dari kanal ini") }
-        val all = mixRelated(similar, fromChannel)
+            val similar = similarRaw
+                .filter { it.id != id && !it.isLive }
+                .distinctBy { it.id }
+                .map { it.copy(reason = "Serupa dengan video ini") }
+            val fromChannel = channelRaw
+                .filter { it.id != id && !it.isLive }
+                .distinctBy { it.id }
+                .take(15)
+                .map { it.copy(reason = "Dari kanal ini") }
+            val all = mixRelated(similar, fromChannel)
 
-        _related.value = RelatedUiState(
-            isLoading = false,
-            all = all,
-            similar = similar.take(30),
-            fromChannel = fromChannel,
-            error = if (all.isEmpty()) "Rekomendasi tidak dapat dimuat." else null,
-        )
-    }
-}
-
-// ------------------------------------------------ komentar asli
-
-private val _comments = MutableStateFlow(CommentsUiState())
-val comments: StateFlow<CommentsUiState> = _comments.asStateFlow()
-private var commentsJob: Job? = null
-
-/**
- * Komentar adalah hiasan di bawah pemutar, pola yang sama dengan
- * rekomendasi: job terpisah setelah video siap; kegagalannya berarti
- * daftar kosong, tidak pernah error pemutar. Halaman pertama juga
- * membawa foto asli pemilik video untuk baris kanal.
- */
-private fun loadComments(id: String) {
-    commentsJob?.cancel()
-    _comments.value = CommentsUiState(isLoading = true)
-    commentsJob = viewModelScope.launch {
-        val page = try {
-            backend.getComments(id, null)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        _comments.value = CommentsUiState(
-            isLoading = false,
-            items = page?.items.orEmpty(),
-            nextPage = page?.nextPage,
-            ownerAvatarUrl = page?.ownerAvatarUrl,
-        )
-    }
-}
-
-fun loadMoreComments() {
-    val id = videoId ?: return
-    val current = _comments.value
-    val next = current.nextPage ?: return
-    if (current.isLoadingMore || current.isLoading) return
-    _comments.update { it.copy(isLoadingMore = true) }
-    viewModelScope.launch {
-        val page = try {
-            backend.getComments(id, next)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            null
-        }
-        _comments.update {
-            it.copy(
-                isLoadingMore = false,
-                items = if (page != null) {
-                    (it.items + page.items).distinctBy { c -> c.id }
-                } else {
-                    it.items
-                },
-                nextPage = page?.nextPage ?: it.nextPage,
+            _related.value = RelatedUiState(
+                isLoading = false,
+                all = all,
+                similar = similar.take(30),
+                fromChannel = fromChannel,
+                error = if (all.isEmpty()) "Rekomendasi tidak dapat dimuat." else null,
             )
         }
     }
-}
 
-private suspend fun safeItems(block: suspend () -> List<VideoItem>): List<VideoItem> =
-    try {
-        block()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        PlaybackDiagnostics.log("Rekomendasi gagal: ${e.javaClass.simpleName}: ${e.message}")
-        emptyList()
+    // ------------------------------------------------ komentar asli
+
+    private val _comments = MutableStateFlow(CommentsUiState())
+    val comments: StateFlow<CommentsUiState> = _comments.asStateFlow()
+    private var commentsJob: Job? = null
+
+    /**
+     * Komentar adalah hiasan di bawah pemutar, pola yang sama dengan
+     * rekomendasi: job terpisah setelah video siap; kegagalannya berarti
+     * daftar kosong, tidak pernah error pemutar. Halaman pertama juga
+     * membawa foto asli pemilik video untuk baris kanal.
+     */
+    private fun loadComments(id: String) {
+        commentsJob?.cancel()
+        _comments.value = CommentsUiState(isLoading = true)
+        commentsJob = viewModelScope.launch {
+            val page = try {
+                backend.getComments(id, null)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _comments.value = CommentsUiState(
+                isLoading = false,
+                items = page?.items.orEmpty(),
+                nextPage = page?.nextPage,
+                ownerAvatarUrl = page?.ownerAvatarUrl,
+            )
+        }
     }
 
-/** Judul bersih untuk pencarian: tanpa emoji/simbol, maksimal 6 kata. */
-private fun relatedQuery(title: String): String =
-    title.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
-        .split(Regex("\\s+"))
-        .filter { it.isNotBlank() }
-        .take(6)
-        .joinToString(" ")
+    fun loadMoreComments() {
+        val id = videoId ?: return
+        val current = _comments.value
+        val next = current.nextPage ?: return
+        if (current.isLoadingMore || current.isLoading) return
+        _comments.update { it.copy(isLoadingMore = true) }
+        viewModelScope.launch {
+            val page = try {
+                backend.getComments(id, next)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            _comments.update {
+                it.copy(
+                    isLoadingMore = false,
+                    items = if (page != null) {
+                        (it.items + page.items).distinctBy { c -> c.id }
+                    } else {
+                        it.items
+                    },
+                    nextPage = page?.nextPage ?: it.nextPage,
+                )
+            }
+        }
+    }
 
-/** Pola 2 serupa : 1 kanal, duplikat dibuang, maksimal 30 item. */
-private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List<VideoItem> {
-    val out = ArrayList<VideoItem>()
-    val seen = HashSet<String>()
-    fun add(item: VideoItem?) {
-        if (item != null && seen.add(item.id)) out += item
+    private suspend fun safeItems(block: suspend () -> List<VideoItem>): List<VideoItem> =
+        try {
+            block()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            PlaybackDiagnostics.log("Rekomendasi gagal: ${e.javaClass.simpleName}: ${e.message}")
+            emptyList()
+        }
+
+    /** Judul bersih untuk pencarian: tanpa emoji/simbol, maksimal 6 kata. */
+    private fun relatedQuery(title: String): String =
+        title.replace(Regex("[^\\p{L}\\p{N}\\s]"), " ")
+            .split(Regex("\\s+"))
+            .filter { it.isNotBlank() }
+            .take(6)
+            .joinToString(" ")
+
+    /** Pola 2 serupa : 1 kanal, duplikat dibuang, maksimal 30 item. */
+    private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List<VideoItem> {
+        val out = ArrayList<VideoItem>()
+        val seen = HashSet<String>()
+        fun add(item: VideoItem?) {
+            if (item != null && seen.add(item.id)) out += item
+        }
+        for (i in 0 until maxOf((similar.size + 1) / 2, channel.size)) {
+            add(similar.getOrNull(i * 2))
+            add(similar.getOrNull(i * 2 + 1))
+            add(channel.getOrNull(i))
+        }
+        return out.take(30)
     }
-    for (i in 0 until maxOf((similar.size + 1) / 2, channel.size)) {
-        add(similar.getOrNull(i * 2))
-        add(similar.getOrNull(i * 2 + 1))
-        add(channel.getOrNull(i))
-    }
-    return out.take(30)
-}
 
     override fun onCleared() {
         // Tripwire: if loads die with "Parent job is Cancelling" because this
         // ViewModel is being cleared mid-flight, this line brackets them in
         // the diagnostics ring (field report 2026-11-10).
         PlaybackDiagnostics.log("PlayerViewModel dibersihkan (onCleared)")
+        if (playbackManager.queueHandler === queueHandler) {
+            playbackManager.queueHandler = null
+        }
+        playbackManager.player.removeListener(endListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         _controllerPlayer.value = null
@@ -369,6 +445,7 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
 
     private fun load() {
         val id = videoId ?: return
+        playedIds += id
         loadJob?.cancel()
         relatedJob?.cancel()
         _related.value = RelatedUiState(isLoading = true)
@@ -461,5 +538,9 @@ private fun mixRelated(similar: List<VideoItem>, channel: List<VideoItem>): List
                 )
             }
         }
+    }
+
+    private companion object {
+        const val MAX_HISTORY = 20
     }
 }

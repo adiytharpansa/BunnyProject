@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.TrackSelectionOverride
@@ -65,9 +66,22 @@ class PlaybackManager @Inject constructor(
 
     private var _session: MediaSession? = null
 
+    /**
+     * Pindah video dari kontrol mana pun (notifikasi, layar kunci,
+     * headset, kontrol pemutar). Diisi PlayerViewModel selama hidup;
+     * null berarti tidak ada yang bisa memuat video berikutnya.
+     */
+    interface QueueHandler {
+        fun onSkipNext()
+        fun onSkipPrevious()
+    }
+
+    @Volatile
+    var queueHandler: QueueHandler? = null
+
     /** The session for [PlaybackService]; built once, with the player. */
     fun session(): MediaSession {
-        return _session ?: MediaSession.Builder(context, player)
+        return _session ?: MediaSession.Builder(context, QueueSkipPlayer(player, this))
             // Tapping the notification (or lock-screen card) brings the
             // running app back to the front instead of doing nothing.
             .setSessionActivity(openAppIntent())
@@ -250,7 +264,7 @@ class PlaybackManager @Inject constructor(
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             // Lompat 10 detik ke dua arah, seperti YouTube (bawaan Media3
-            // 5 dan 15). Berlaku juga di notifikasi dan layar kunci.
+            // 5 dan 15). Dipakai tombol mundur/maju di halaman pemutar.
             .setSeekBackIncrementMs(10_000)
             .setSeekForwardIncrementMs(10_000)
             // Fokus audio: berhenti/menurunkan suara saat telepon masuk atau
@@ -403,5 +417,61 @@ class PlaybackManager @Inject constructor(
     companion object {
         private const val MANIFEST_URI = "bunny://dash/manifest.mpd"
         private const val DEFAULT_USER_AGENT = "Bunny/0.1 (Android)"
+    }
+}
+
+/** Lewat batas ini, ⏮ mengulang video dari awal (seperti Spotify). */
+private const val RESTART_THRESHOLD_MS = 3_000L
+
+/**
+ * Pemutar yang dilihat MediaSession (notifikasi, layar kunci, headset,
+ * kontrol pemutar). Bunny memutar satu video per waktu, jadi ExoPlayer
+ * menganggap "Berikutnya" tidak ada dan tombol ⏭ hilang. Di sini
+ * Sebelumnya/Berikutnya dinyatakan tersedia selama ada video dimuat dan
+ * ada yang bisa melayaninya, lalu diarahkan ke antrean di PlayerViewModel,
+ * bukan ke daftar putar ExoPlayer.
+ */
+@UnstableApi
+private class QueueSkipPlayer(
+    player: Player,
+    private val manager: PlaybackManager,
+) : ForwardingPlayer(player) {
+
+    override fun getAvailableCommands(): Player.Commands {
+        val base = super.getAvailableCommands()
+        if (manager.queueHandler == null || mediaItemCount == 0) return base
+        return base.buildUpon()
+            .addAll(
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+            )
+            .build()
+    }
+
+    override fun isCommandAvailable(command: Int): Boolean =
+        availableCommands.contains(command)
+
+    override fun seekToNext() {
+        manager.queueHandler?.onSkipNext()
+    }
+
+    override fun seekToNextMediaItem() {
+        manager.queueHandler?.onSkipNext()
+    }
+
+    override fun seekToPrevious() = skipPrevious()
+
+    override fun seekToPreviousMediaItem() = skipPrevious()
+
+    /** Lewat 3 detik: ulang dari awal; kalau tidak: video sebelumnya. */
+    private fun skipPrevious() {
+        val handler = manager.queueHandler
+        if (handler == null || currentPosition > RESTART_THRESHOLD_MS) {
+            seekTo(0L)
+        } else {
+            handler.onSkipPrevious()
+        }
     }
 }
