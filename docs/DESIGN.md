@@ -109,13 +109,30 @@ tersedia; SponsorBlock/RYD/DeArrow sebagai modul REST mandiri.
 - **Fase 3** — Fitur khas: Timbangan + Jatah, Terbit, Chip Alasan,
   langganan lokal + grup, Panen Bertingkat. ✅ *(Timbangan + Jatah, Chip
   Alasan, langganan lokal, dan Terbit terverifikasi di perangkat
-  2026-11-10; grup langganan dan Panen Bertingkat masih menyusul.)*
+  2026-11-10; grup langganan dan Panen Bertingkat selesai belakangan
+  sebagai Fase 6-B, 2026-11-11.)*
 - **Fase 4** — Ketahanan: persona bergilir, konfigurasi mesin yang dapat
-  diperbarui jarak jauh, telemetri kegagalan putar di perangkat.
-  *(Dalam pengerjaan — konfigurasi jarak jauh lewat `engine-config.json`
-  di repo ini, coba-ulang rantai player dengan sesi segar saat gerbang
-  bot menolak, dan log kegagalan putar persisten di perangkat sudah
-  masuk; persona bergilir penuh menyusul bila lapangan menuntutnya.)*
+  diperbarui jarak jauh, telemetri kegagalan putar di perangkat. ✅
+  *(Konfigurasi jarak jauh lewat `engine-config.json`, coba-ulang rantai
+  player dengan sesi segar, dan log kegagalan putar persisten masuk
+  2026-11-10; persona bergilir penuh lahir sebagai Tangga Adaptif di
+  Fase 6-D.)*
+- **Fase 5** — Login Google (opsional): kue sesi terenkripsi Keystore,
+  tanda tangan SAPISIDHASH, Beranda pribadi asli dari server. *(Kode +
+  CI selesai 2026-11-11, CI #106. UJI PERANGKAT 2026-11-11: Google
+  menolak masuk dari WebView — halaman "browser tidak aman" sebelum
+  kredensial diketik. Keputusan perbaikan menunggu pengguna.)*
+- **Fase 6** — Sisa utang + Lontar Hidup (keputusan pengguna
+  2026-11-11: "Semua nya"): **6-A** balasan komentar bisa dibuka persis
+  struktur jawaban asli; **6-B** Panen Bertingkat (audio dulu, naik ke
+  video hanya di jaringan tak-termeter) + grup langganan;
+  **6-C** pemutar mini; **6-D** Lontar Hidup Fase A+B dari
+  `RANCANGAN-LONTAR-HIDUP.md` — Radar Kesehatan Mesin (vonis di lapisan
+  byte), Tangga Adaptif (statistik per persona per kelas jaringan,
+  hanya di perangkat), Sesi Cadangan Hangat, Pemutus Arus + Pemulihan
+  Putar satu kali per buka video. ✅ *(Kode + CI #107/#108/#109 hijau
+  2026-11-11; verifikasi perangkat menyusul. Fase C Jaringan Saksi
+  tetap parkir sampai distribusi dimulai.)*
 
 ## Keputusan tercatat
 

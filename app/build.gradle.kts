@@ -25,6 +25,22 @@ android {
         }
     }
 
+    signingConfigs {
+        // Login Satu Ketuk (Langkah 0): one fixed debug key for every CI
+        // build, so Google's Android OAuth client — bound to package +
+        // certificate fingerprint — can recognise Bunny's test builds.
+        // CI restores bunny-debug.keystore from a repository secret; when
+        // the file is absent the build falls back to the ephemeral
+        // default debug key and stays green. Side benefit once active:
+        // test builds install OVER each other, no more uninstall-first.
+        create("fixedDebug") {
+            storeFile = rootProject.file("bunny-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -37,6 +53,9 @@ android {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            if (rootProject.file("bunny-debug.keystore").exists()) {
+                signingConfig = signingConfigs.getByName("fixedDebug")
+            }
         }
     }
 
