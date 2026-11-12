@@ -297,13 +297,13 @@ class SabrPumpTest {
                     initMetadataPart(251, 10),
                     headerPart(0, 251, null, 0, 20, init = true),
                     mediaPart(0, ByteArray(20)),
-                    headerPart(1, 251, 1, 20, 100),
+                    headerPart(1, 251, 1, 20, 100, init = false),
                     mediaPart(1, ByteArray(100)),
                     nrpPart(60_000),
                 )
             } else {
                 response(
-                    headerPart(1, 251, seq, 20L + (seq - 1) * 100, 100),
+                    headerPart(1, 251, seq, 20L + (seq - 1) * 100, 100, init = false),
                     mediaPart(1, ByteArray(100)),
                     nrpPart(60_000),
                 )
