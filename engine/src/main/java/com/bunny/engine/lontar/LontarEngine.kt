@@ -688,19 +688,28 @@ class LontarEngine(
     }
 
     /**
-     * Radar Kesehatan Mesin: for every ladder persona, a canary player
-     * call PLUS byte probes past the cold-start allowance — because a
-     * player OK alone has been proven (2026-11-10) to hide a GVS gate
-     * at the 3 MB mark. Verdicts land in the session Radar, in the
-     * on-device statistics, and in the returned reports. Costs roughly
-     * a kilobyte of media per probe; the format metadata dominates.
+     * Radar Kesehatan Mesin: for every ladder persona — and for every
+     * Radar candidate, which is measured but never played — a canary
+     * player call PLUS byte probes past the cold-start allowance,
+     * because a player OK alone has been proven (2026-11-10) to hide
+     * a GVS gate at the 3 MB mark. Verdicts land in the session Radar,
+     * in the on-device statistics, and in the returned reports. Costs
+     * roughly a kilobyte of media per probe; the format metadata
+     * dominates.
      */
     override suspend fun runEngineHealthCheck(): List<PersonaHealthReport> {
         ensureSession()
         val visitor = sessionVisitorData()
         val net = networkClass.current()
         val reports = mutableListOf<PersonaHealthReport>()
-        for (persona in PlayerPersonas.chain(config)) {
+        // Ladder personas first, then Radar candidates (measured,
+        // never played — see PlayerPersonas.RADAR_CANDIDATES); a
+        // candidate already configured into the ladder is probed once.
+        val ladder = PlayerPersonas.chain(config)
+        val probed = ladder + PlayerPersonas.RADAR_CANDIDATES.filter { candidate ->
+            ladder.none { it.name == candidate.name }
+        }
+        for (persona in probed) {
             val state = probePersona(persona, visitor)
             val report = PersonaHealthReport(
                 persona = persona.name,

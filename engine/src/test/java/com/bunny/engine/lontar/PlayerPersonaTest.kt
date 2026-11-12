@@ -56,6 +56,31 @@ class PlayerPersonaTest {
     }
 
     @Test
+    fun tvDowngraded_radarCandidate_neverInShippedChain() {
+        // The TV candidate (probe round 2026-11-13) is measured by the
+        // Radar but must never enter the shipped ladder by default:
+        // its byte layer is unproven and playback needs a cipher
+        // engine the project does not have.
+        val tv = PlayerPersonas.TV_DOWNGRADED
+        assertEquals("TVHTML5", tv.clientJson().getString("clientName"))
+        assertEquals("7", tv.clientNameId)
+        assertEquals("5.20260901", tv.clientVersion)
+        assertTrue(tv.userAgent.contains("Cobalt"))
+        assertEquals(listOf(tv), PlayerPersonas.RADAR_CANDIDATES)
+        assertFalse(PlayerPersonas.CHAIN.contains(tv))
+        assertFalse(
+            PlayerPersonas.chain(EngineConfig.DEFAULTS).contains(tv),
+        )
+        // A remote config may still name it deliberately.
+        val configured = PlayerPersonas.chain(
+            EngineConfig.DEFAULTS.copy(
+                playerPersonas = listOf("VISIONOS", "TV_DOWNGRADED"),
+            ),
+        )
+        assertEquals(listOf("VISIONOS", "TV_DOWNGRADED"), configured.map { it.name })
+    }
+
+    @Test
     fun visionOs_probedShape_headsDefaultChain() {
         // Re-persona 2026-11-11: VISIONOS (1.04 / RealityDevice17,1,
         // re-probed that day) heads the shipped ladder; ANDROID_VR is
