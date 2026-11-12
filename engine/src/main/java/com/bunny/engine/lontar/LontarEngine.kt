@@ -432,6 +432,10 @@ class LontarEngine(
             enabled = config.sabrEnabled,
             personas = config.sabrPersonas,
             spoolBudgetBytes = config.spoolBudgetMb.toLong() * 1024 * 1024,
+            // The race shortens on metered networks (design
+            // mechanism 4): cellular halves the budget.
+            raceBudgetBytes = config.sabrRaceBudgetKb.toLong() *
+                (if (networkClass.current() == "SELULER") 512 else 1024),
         )
 
     /**
@@ -467,6 +471,30 @@ class LontarEngine(
             noteSabrFailure("tawaran", "respons ${persona.name} tanpa SABR")
         }
         return open
+    }
+
+    /**
+     * Pemanasan Antrean + Fase 8 mechanism 14 (approved 2026-11-12):
+     * warms [videoId]'s player response — and, when the road allows,
+     * validates its SABR offer — ahead of the tap that will need it.
+     * Metadata only: no media byte moves. Speculative by nature, so
+     * it never records failures and never throws (a failed warm is
+     * simply the cold start the user would have had anyway).
+     */
+    suspend fun warmPlayerResponse(videoId: String) {
+        try {
+            val (response, persona) = playerResponse(videoId)
+            val isLive = response.optJSONObject("videoDetails")
+                ?.optBoolean("isLive", false) == true
+            val oracle = com.bunny.engine.lontar.sabr.RoadOracle(sabrSettings())
+            if (oracle.allowsSabr(persona.name, isLive)) {
+                InnertubeParser.parseSabrOpen(response, persona)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Speculative work stays silent.
+        }
     }
 
     /** Records one fact on the "sabr" failure-evidence surface (7-A). */

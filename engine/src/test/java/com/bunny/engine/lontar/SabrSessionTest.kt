@@ -11,15 +11,23 @@ import com.bunny.engine.lontar.sabr.SabrFormat
 import com.bunny.engine.lontar.sabr.SabrFormatId
 import com.bunny.engine.lontar.sabr.SabrPart
 import com.bunny.engine.lontar.sabr.SabrSession
+import com.bunny.engine.lontar.sabr.SabrSegment
 import com.bunny.engine.lontar.sabr.SabrTimeRange
+import com.bunny.engine.lontar.sabr.SpoolStore
+import java.io.File
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /** Session ledger units the replay does not cover on its own. */
 class SabrSessionTest {
+
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
     private fun session(durationSeconds: Int = 100): SabrSession = SabrSession(
         videoId = "vid",
@@ -345,5 +353,46 @@ class SabrSessionTest {
             )
         )
         assertEquals(5000L, s.bufferedEndMs())
+    }
+
+    @Test
+    fun coldSpoolRestoreProvesBothSlotsFromDisk() {
+        // Mechanism 12: a spool a previous session rolled must let
+        // a fresh session prove both slots from disk — init received,
+        // wire-proven formats, playable heads, and the buffered end
+        // already at the shorter track's frontier.
+        val store = SpoolStore(File(tempFolder.root, "spool"))
+        val spool = store.open("vid")
+        // Audio 251: WebM head (EBML magic), 16 B init + 100 B segment.
+        val audio = spool.track(251)
+        val audioBytes = ByteArray(116)
+        byteArrayOf(0x1A, 0x45, 0xDF, 0xA3.toByte())
+            .copyInto(audioBytes, 0)
+        audio.write(0, audioBytes)
+        audio.noteFormat(SabrFormatId(251, 111L, "x"))
+        audio.noteInit(16)
+        audio.noteSegment(SabrSegment(1, 0L, 10_000L, 16L, 100L))
+        audio.flushManifest()
+        // Video 136: MP4 head (ftyp at bytes 4..7), 20 B init + 200 B.
+        val video = spool.track(136)
+        val videoBytes = ByteArray(220)
+        "ftyp".toByteArray().copyInto(videoBytes, 4)
+        video.write(0, videoBytes)
+        video.noteFormat(SabrFormatId(136, 222L, null))
+        video.noteInit(20)
+        video.noteSegment(SabrSegment(1, 0L, 6_000L, 20L, 200L))
+        video.flushManifest()
+        spool.close()
+
+        val reopened = store.open("vid")
+        val s = session()
+        s.restoreFrom(reopened)
+        assertTrue("restored session must count init as received", s.initReceived)
+        assertEquals(251, s.wireProvenFormat(audio = true)?.itag)
+        assertEquals(136, s.wireProvenFormat(audio = false)?.itag)
+        assertTrue(reopened.track(251).hasPlayableHead())
+        assertTrue(reopened.track(136).hasPlayableHead())
+        assertEquals(6_000L, s.bufferedEndMs())
+        reopened.close()
     }
 }

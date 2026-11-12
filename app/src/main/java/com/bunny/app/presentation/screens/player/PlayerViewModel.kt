@@ -562,6 +562,13 @@ class PlayerViewModel @Inject constructor(
                     null
                 },
             )
+            // Pemanasan Antrean (disetujui 2026-11-12): the queue's
+            // head — the same candidate ⏭/autoplay will pick — gets
+            // its player response warmed now, metadata only, so the
+            // switch starts warm instead of cold.
+            _related.value.all
+                .firstOrNull { it.id !in playedIds && !it.isLive }
+                ?.let { sabrCoordinator.warm(it.id) }
         }
     }
 

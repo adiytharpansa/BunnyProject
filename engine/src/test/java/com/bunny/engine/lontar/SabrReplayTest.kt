@@ -9,6 +9,7 @@ import com.bunny.engine.lontar.sabr.SabrPart
 import com.bunny.engine.lontar.sabr.SabrPartDecoder
 import com.bunny.engine.lontar.sabr.SabrProbe
 import com.bunny.engine.lontar.sabr.SabrProbeTranscript
+import com.bunny.engine.lontar.sabr.SabrPump
 import com.bunny.engine.lontar.sabr.SabrSession
 import com.bunny.engine.lontar.sabr.SabrTransport
 import com.bunny.engine.lontar.sabr.SpoolStore
@@ -262,5 +263,43 @@ class SabrReplayTest {
         assertTrue(reopened.track(251).hasPlayableHead())
         assertTrue(reopened.track(398).hasPlayableHead())
         reopened.close()
+    }
+
+    @Test
+    fun pipelinedReplayLandsTheSameSpoolBytes() = runBlocking {
+        // Mechanism 13: with spool writes pipelined onto the writer
+        // thread, the wire cadence (requests byte-exact, sleeps
+        // identical) and the drained spool must equal the
+        // synchronous run above, byte for byte.
+        val session = buildSession()
+        val store = SpoolStore(File(tempFolder.root, "spool-pipe"))
+        val spool = store.open(session.videoId)
+        val script = (0..3).map { i ->
+            fixture("req$i") to if (i <= 2) fixture("resp$i") else null
+        }
+        val transport = ScriptedTransport(script)
+        val bandwidth = ScriptedBandwidth(
+            (0..3).map { spec(it).getJSONObject("abr").getLong("10") }
+        )
+        val sleeps = ArrayList<Long>()
+        val pump = SabrPump(
+            session = session,
+            spool = spool,
+            transport = transport,
+            bandwidth = bandwidth,
+            sleeper = { sleeps.add(it) },
+            pipelined = true,
+        )
+        val outcome = pump.run(maxRequests = 10)
+        assertTrue(outcome is SabrOutcome.HttpFailed)
+        assertEquals(410, (outcome as SabrOutcome.HttpFailed).status)
+        assertEquals(listOf(200L, 20_000L, 20_000L), sleeps)
+        val expected = expectedTrackBytes(listOf(fixture("resp1"), fixture("resp2")))
+        for ((itag, bytes) in expected) {
+            val trackSpool = spool.track(itag)
+            assertEquals("track $itag length", bytes.size.toLong(), trackSpool.fileLength())
+            assertArrayEquals("track $itag content", bytes, trackSpool.read(0, bytes.size))
+        }
+        spool.close()
     }
 }

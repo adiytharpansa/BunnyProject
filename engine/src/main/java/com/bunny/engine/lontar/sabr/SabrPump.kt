@@ -119,7 +119,37 @@ class SabrPump(
      */
     private val positionHintMs: () -> Long = { 0L },
     private val hungryLeadMs: Long = 45_000,
+    /**
+     * Fase 8 mechanism 13 — pipelining: when true, each response's
+     * spool writes run on a single background writer (in order)
+     * while the next request is already on the wire; network and
+     * disk work at the same time instead of taking turns. The
+     * session state the next request is built from is updated by
+     * consume() on this thread, never by the writer, and every
+     * persist job snapshots what it needs before queueing — so the
+     * wire cadence and the final spool bytes are identical to the
+     * synchronous run, which stays the default for probe and
+     * replay fidelity.
+     */
+    private val pipelined: Boolean = false,
 ) {
+
+    /** The pipelining writer; null in synchronous mode. */
+    private val writer: java.util.concurrent.ExecutorService? =
+        if (pipelined) {
+            java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+                Thread(r, "sabr-persist").apply { isDaemon = true }
+            }
+        } else {
+            null
+        }
+
+    @Volatile
+    private var lastWrite: java.util.concurrent.Future<*>? = null
+
+    /** First spool-write failure seen on the writer, if any. */
+    private val writeError =
+        java.util.concurrent.atomic.AtomicReference<Exception?>(null)
 
     /**
      * Runs the pump to a terminal outcome. The pump NEVER throws
@@ -129,12 +159,37 @@ class SabrPump(
      * always gets its turn — a silent pump death would leave spool
      * readers waiting forever.
      */
-    suspend fun run(maxRequests: Int): SabrOutcome = try {
-        runGuarded(maxRequests)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        SabrOutcome.Stalled("proses: ${e.javaClass.simpleName}: ${e.message}")
+    suspend fun run(maxRequests: Int): SabrOutcome {
+        val outcome = try {
+            runGuarded(maxRequests)
+        } catch (e: CancellationException) {
+            drainWrites()
+            throw e
+        } catch (e: Exception) {
+            drainWrites()
+            return SabrOutcome.Stalled(
+                "proses: ${e.javaClass.simpleName}: ${e.message}"
+            )
+        }
+        drainWrites()
+        // A completed run whose spool writes failed is not complete:
+        // the session believes bytes the disk does not hold, and
+        // readers would wait at a hole forever. Name it a stall.
+        val failure = writeError.get()
+        if (failure != null && outcome == SabrOutcome.Completed) {
+            return SabrOutcome.Stalled("tulis gulungan: ${failure.message}")
+        }
+        return outcome
+    }
+
+    /** Waits out the pipelining writer and closes it down. */
+    private fun drainWrites() {
+        try {
+            lastWrite?.get()
+        } catch (e: Exception) {
+            writeError.compareAndSet(null, e)
+        }
+        writer?.shutdown()
     }
 
     private suspend fun runGuarded(maxRequests: Int): SabrOutcome {
@@ -171,7 +226,7 @@ class SabrPump(
             val decoded = SabrPartDecoder.decodeAll(parts, session.knownItags)
             val result = session.consume(decoded)
 
-            persist(result)
+            submitPersist(snapshotOf(result))
             onProgress?.invoke()
             for ((itag, track) in session.tracks) {
                 if (track.isComplete && completedNotified.add(itag)) {
@@ -251,22 +306,78 @@ class SabrPump(
         return SabrOutcome.RequestsExhausted(requests)
     }
 
-    /** Writes chunks at their absolute offsets and syncs manifests. */
-    private fun persist(result: SabrConsumeResult) {
-        val touched = HashSet<Int>()
-        for (event in result.events) {
-            if (event is SabrEvent.MediaChunk) {
-                spool.track(event.header.itag).write(event.offsetInTrack, event.data)
-                touched.add(event.header.itag)
+    /** One track's manifest facts, copied off the live session. */
+    private class TrackSync(
+        val itag: Int,
+        val formatId: SabrFormatId,
+        val endSegmentNumber: Int?,
+        val gotInit: Boolean,
+        val initBytes: Long,
+        val segments: List<SabrSegment>,
+    )
+
+    /** Everything one persist needs, snapshotted on the pump thread. */
+    private class PersistJob(
+        val chunks: List<SabrEvent.MediaChunk>,
+        val tracks: List<TrackSync>,
+    )
+
+    /**
+     * Copies what a persist needs out of the live session. Segment
+     * objects are copied too: a length that grows with the next
+     * response must not retro-edit a queued job (each job re-notes
+     * every segment anyway, so the last job's copy is the exact
+     * final state).
+     */
+    private fun snapshotOf(result: SabrConsumeResult): PersistJob {
+        val chunks = result.events.filterIsInstance<SabrEvent.MediaChunk>()
+        val tracks = session.tracks.map { (itag, track) ->
+            TrackSync(
+                itag = itag,
+                formatId = track.format.id(),
+                endSegmentNumber = track.endSegmentNumber,
+                gotInit = track.gotInit,
+                initBytes = track.initBytes,
+                segments = track.segments.values.map { it.copy() },
+            )
+        }
+        return PersistJob(chunks, tracks)
+    }
+
+    /**
+     * Runs [job] on the pipelining writer when there is one, inline
+     * otherwise. Writer failures are captured, never thrown into
+     * the wire loop; [run] reads them at drain time.
+     */
+    private fun submitPersist(job: PersistJob) {
+        val w = writer
+        if (w == null) {
+            persist(job)
+            return
+        }
+        lastWrite = w.submit {
+            try {
+                persist(job)
+            } catch (e: Exception) {
+                writeError.compareAndSet(null, e)
             }
         }
-        for ((itag, track) in session.tracks) {
-            val trackSpool = spool.track(itag)
-            trackSpool.noteFormat(track.format.id())
+    }
+
+    /** Writes chunks at their absolute offsets and syncs manifests. */
+    private fun persist(job: PersistJob) {
+        val touched = HashSet<Int>()
+        for (chunk in job.chunks) {
+            spool.track(chunk.header.itag).write(chunk.offsetInTrack, chunk.data)
+            touched.add(chunk.header.itag)
+        }
+        for (track in job.tracks) {
+            val trackSpool = spool.track(track.itag)
+            trackSpool.noteFormat(track.formatId)
             track.endSegmentNumber?.let { trackSpool.noteEndSegmentNumber(it) }
             if (track.gotInit) trackSpool.noteInit(track.initBytes)
-            for (segment in track.segments.values) trackSpool.noteSegment(segment)
-            touched.add(itag)
+            for (segment in track.segments) trackSpool.noteSegment(segment)
+            touched.add(track.itag)
         }
         spool.touch()
         for (itag in touched) spool.track(itag).flushManifest()

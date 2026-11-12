@@ -64,6 +64,8 @@ class SabrPlayback internal constructor(
     val roadState: SpoolRoadState,
     private val engine: LontarEngine,
     private val scope: CoroutineScope,
+    /** Mechanism 4: the hedged-start race budget in bytes. */
+    val raceBudgetBytes: Long = 4_194_304L,
 ) {
     val videoId: String get() = openData.videoId
 
@@ -136,6 +138,34 @@ class SabrPlayback internal constructor(
     private suspend fun drive() {
         var session = openData.newSession()
         activeSession = session
+        // Fase 8 mechanism 12 — cold spool: whatever a previous
+        // session rolled for this video is still on disk. Hydrate
+        // the fresh session from it BEFORE the first request; when
+        // both slots come back wire-proven with a playable head,
+        // the road is ready from disk immediately and the pump's
+        // first request already asks only for the frontier onward.
+        session.restoreFrom(spool)
+        if (session.initReceived) {
+            val provenAudio = session.wireProvenFormat(audio = true)
+            val provenVideo = session.wireProvenFormat(audio = false)
+            if (provenAudio != null && provenVideo != null &&
+                spool.track(provenAudio.itag).hasPlayableHead() &&
+                spool.track(provenVideo.itag).hasPlayableHead()
+            ) {
+                servedAudioItag = provenAudio.itag
+                servedVideoItag = provenVideo.itag
+                for (format in listOf(provenAudio, provenVideo)) {
+                    val track = session.trackFor(format.itag)
+                    if (track.isComplete) roadState.markComplete(format.itag)
+                }
+                readySignal.complete(true)
+                onEvent?.invoke(
+                    "SABR: mulai dari gulungan dingin " +
+                        "(video itag ${provenVideo.itag}, " +
+                        "audio itag ${provenAudio.itag})",
+                )
+            }
+        }
         var reloads = 0
         var lastLoggedSpoolSecond = 0L
         try {
@@ -186,6 +216,9 @@ class SabrPlayback internal constructor(
                     onTrackComplete = { roadState.markComplete(it) },
                     hungryUntilMs = HUNGRY_UNTIL_MS,
                     positionHintMs = { playerPositionMs },
+                    // Mechanism 13: on device, disk and network
+                    // work at the same time.
+                    pipelined = true,
                 )
                 when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
                     is SabrOutcome.Completed -> {
@@ -254,6 +287,10 @@ class SabrPlayback internal constructor(
             if (!readySignal.isCompleted) readySignal.complete(false)
         }
     }
+
+    /** Total bytes currently on disk across this video's spool. */
+    fun spooledBytes(): Long =
+        spool.trackItags().sumOf { spool.track(it).fileLength() }
 
     /**
      * One-line spool state for diagnostics: how much timeline the
@@ -324,6 +361,7 @@ class SabrPlaybackCoordinator(
             roadState = SpoolRoadState(),
             engine = engine,
             scope = scope,
+            raceBudgetBytes = engine.sabrSettings().raceBudgetBytes,
         )
         // The listener is attached BEFORE the drive starts: the
         // first-init event fires inside awaitReady below, and a
@@ -336,5 +374,33 @@ class SabrPlaybackCoordinator(
         }
         store.enforceBudget(protectVideoId = videoId)
         return handle
+    }
+
+    // ------------------------------------------------------ pemanasan
+
+    /** When each video was last warmed; a warm inside the window is a no-op. */
+    private val warmedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * Pemanasan Antrean + mechanism 14: fire-and-forget warming of a
+     * video the user is likely to open next (the queue's head, a
+     * previewing home card). Metadata only, deduplicated inside
+     * [WARM_WINDOW_MS]; the engine side never throws and never
+     * records speculative failures.
+     */
+    fun warm(videoId: String) {
+        val now = System.currentTimeMillis()
+        val last = warmedAt[videoId]
+        if (last != null && now - last < WARM_WINDOW_MS) return
+        if (warmedAt.size >= MAX_WARM_ENTRIES) warmedAt.clear()
+        warmedAt[videoId] = now
+        scope.launch { engine.warmPlayerResponse(videoId) }
+    }
+
+    companion object {
+        /** A warmed response stays warm in the player cache anyway;
+         *  this window only stops duplicate speculative fetches. */
+        const val WARM_WINDOW_MS: Long = 600_000L
+        const val MAX_WARM_ENTRIES: Int = 200
     }
 }

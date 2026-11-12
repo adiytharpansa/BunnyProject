@@ -46,6 +46,7 @@ class HomeViewModel @Inject constructor(
     private val dataApi: YouTubeDataApi,
     private val personal: PersonalDataRepository,
     private val accountTasteRepo: AccountTasteRepository,
+    private val sabrCoordinator: com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(backendId = backend.id))
@@ -97,6 +98,11 @@ class HomeViewModel @Inject constructor(
                 // a cancel can never land between them.
                 if (previewManager.start(streams)) {
                     _previewingId.value = videoId
+                    // Fase 8 mechanism 14: a card whose preview is
+                    // actually playing is the strongest open-candidate
+                    // there is — warm its SABR offer on the response
+                    // this preview just fetched (metadata only).
+                    sabrCoordinator.warm(videoId)
                 } else {
                     // Nothing playable: never mark the card as previewing,
                     // or it would show a black surface forever.

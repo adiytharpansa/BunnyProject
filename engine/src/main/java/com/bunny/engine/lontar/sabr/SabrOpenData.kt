@@ -45,6 +45,9 @@ data class SabrSettings(
     val enabled: Boolean,
     val personas: List<String>,
     val spoolBudgetBytes: Long,
+    /** Mechanism 4 race budget: spooled bytes past which a still-
+     *  buffering start is conceded to the classic road. */
+    val raceBudgetBytes: Long = 4_194_304L,
 )
 
 /**

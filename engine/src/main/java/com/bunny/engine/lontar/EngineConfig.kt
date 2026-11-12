@@ -57,6 +57,14 @@ object EngineConfig {
         val sabrPersonas: List<String> = listOf("VISIONOS"),
         /** Total on-disk budget for all spools, in megabytes. */
         val spoolBudgetMb: Int = 512,
+        /**
+         * Fase 8 mechanism 4 (hedged start): the race budget in KB.
+         * When the spool already holds this much media and the
+         * player still has not started, the bytes are not the
+         * bottleneck — the classic road takes the start instead of
+         * waiting out the full watchdog. Halved on cellular.
+         */
+        val sabrRaceBudgetKb: Int = 4096,
     )
 
     val DEFAULTS = Values(
@@ -138,6 +146,8 @@ object EngineConfig {
                 ?: DEFAULTS.sabrPersonas,
             spoolBudgetMb = json.optInt("spoolBudgetMb")
                 .takeIf { it > 0 } ?: DEFAULTS.spoolBudgetMb,
+            sabrRaceBudgetKb = json.optInt("sabrRaceBudgetKb")
+                .takeIf { it > 0 } ?: DEFAULTS.sabrRaceBudgetKb,
         )
     }
 }

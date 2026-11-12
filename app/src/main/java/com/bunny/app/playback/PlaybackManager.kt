@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -219,29 +220,46 @@ class PlaybackManager @Inject constructor(
     }
 
     /**
-     * The watchdog (device verdict 2026-11-12): a SABR head that is
-     * still buffering after the ready deadline is a failed road,
-     * whatever its cause — advance the chain to the classic sources
-     * exactly as a player error would, and write the decision into
-     * the diagnostics. The viewer never hangs on a silent stall.
+     * The watchdog (device verdict 2026-11-12), grown into the
+     * hedged start of Fase 8 mechanism 4: it ticks while the SABR
+     * head starts, and concedes the start to the classic road on
+     * WHICHEVER limit arrives first — the 25-second deadline, or
+     * the race budget: a spool already holding megabytes of media
+     * whose player still cannot start is not byte-starved, so
+     * waiting longer buys nothing. The decision is written into
+     * the diagnostics either way; the viewer never hangs on a
+     * silent stall. A head that leaves BUFFERING disarms it.
      */
     private fun armSabrWatchdog(sabr: SabrPlayback) {
         cancelSabrWatchdog()
-        val watchdog = Runnable {
-            if (currentSabr === sabr &&
-                player.playbackState == Player.STATE_BUFFERING
-            ) {
+        val startedAt = SystemClock.uptimeMillis()
+        val watchdog = object : Runnable {
+            override fun run() {
+                if (currentSabr !== sabr) return
+                if (player.playbackState != Player.STATE_BUFFERING) return
+                val elapsedMs = SystemClock.uptimeMillis() - startedAt
+                val spooled = sabr.spooledBytes()
+                val budgetHit = spooled >= sabr.raceBudgetBytes
+                if (elapsedMs < SABR_READY_WATCHDOG_MS && !budgetHit) {
+                    mainHandler.postDelayed(this, SABR_WATCHDOG_TICK_MS)
+                    return
+                }
+                val trigger = if (budgetHit) {
+                    "anggaran balapan ${sabr.raceBudgetBytes / 1024} KB " +
+                        "tercapai (${spooled / 1024} KB tergulung)"
+                } else {
+                    "batas waktu 25 detik"
+                }
                 PlaybackDiagnostics.log(
-                    "SABR tidak kunjung siap setelah 25 detik — " +
-                        "beralih ke jalan klasik " +
-                        "(${sabr.statusLine()})",
+                    "SABR tidak kunjung siap — $trigger; " +
+                        "beralih ke jalan klasik (${sabr.statusLine()})",
                 )
                 closeSabr()
                 fallback?.invoke()
             }
         }
         sabrWatchdog = watchdog
-        mainHandler.postDelayed(watchdog, SABR_READY_WATCHDOG_MS)
+        mainHandler.postDelayed(watchdog, SABR_WATCHDOG_TICK_MS)
     }
 
     /**
@@ -702,6 +720,9 @@ class PlaybackManager @Inject constructor(
         /** How long a SABR head may stay buffering before the
          * watchdog hands the video to the classic road. */
         private const val SABR_READY_WATCHDOG_MS = 25_000L
+
+        /** How often the hedged-start watchdog re-reads the spool. */
+        private const val SABR_WATCHDOG_TICK_MS = 2_000L
 
         /**
          * Past this position, an HTTP 403 is no longer a cold-start
