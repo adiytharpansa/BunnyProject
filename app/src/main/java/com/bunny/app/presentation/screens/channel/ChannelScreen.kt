@@ -41,9 +41,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
-import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.presentation.components.VideoCard
+import com.bunny.app.presentation.components.ResilientImage
 
 /**
  * The channel page, shaped after the official app's channel header
@@ -106,8 +106,8 @@ fun ChannelScreen(
                             .background(MaterialTheme.colorScheme.primaryContainer),
                     ) {
                         state.info?.avatarUrl?.let { url ->
-                            AsyncImage(
-                                model = url,
+                            ResilientImage(
+                                url = url,
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop,

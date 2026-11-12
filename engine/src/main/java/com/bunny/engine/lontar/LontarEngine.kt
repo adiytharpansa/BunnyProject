@@ -51,6 +51,8 @@ class LontarEngine(
     private val networkClass: NetworkClassProvider = NetworkClassProvider.UNKNOWN,
     /** Selera Tamu: the persistent guest visitor identity's shelf. */
     private val visitorStore: VisitorStore = VisitorStore.NONE,
+    /** Fase 7-A: the metadata surfaces' failure notebook. */
+    private val failureReporter: SurfaceFailureReporter = SurfaceFailureReporter.NONE,
 ) : ExtractionBackend {
 
     override val id: String = "lontar"
@@ -172,6 +174,13 @@ class LontarEngine(
                 // Fall through to the other spelling.
             }
         }
+        // Fase 7-A: both spellings came back empty or refused — the
+        // channel page will read "no videos"; leave why in the log.
+        failureReporter.record(
+            SURFACE_KANAL,
+            KIND_KOSONG,
+            "daftar unggahan kosong pada kedua ejaan browseId",
+        )
         return Page(items = emptyList(), nextPage = null)
     }
 
@@ -184,10 +193,27 @@ class LontarEngine(
         if (!channelId.startsWith("UC") || channelId.length < 4) return null
         return try {
             val body = baseBody().put("browseId", channelId)
-            InnertubeParser.parseChannelInfo(post("browse", body), channelId)
+            val info = InnertubeParser.parseChannelInfo(post("browse", body), channelId)
+            // Fase 7-A: a header that parsed to nothing, or one whose
+            // real photo is missing, is evidence — not silence.
+            if (info == null) {
+                failureReporter.record(
+                    SURFACE_KANAL,
+                    KIND_URAI,
+                    "kepala kanal tidak terbaca dari jawaban browse",
+                )
+            } else if (info.avatarUrl.isNullOrBlank()) {
+                failureReporter.record(
+                    SURFACE_KANAL,
+                    KIND_URAI,
+                    "kepala kanal terbaca tanpa foto asli",
+                )
+            }
+            info
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noteFailure(SURFACE_KANAL, e)
             null
         }
     }
@@ -208,14 +234,33 @@ class LontarEngine(
                 val watch = post("next", baseBody().put("videoId", videoId))
                 val ownerAvatar = InnertubeParser.parseOwnerAvatarUrl(watch)
                 val token = InnertubeParser.findCommentsToken(watch)
-                    ?: return CommentsPage(ownerAvatarUrl = ownerAvatar)
+                if (token == null) {
+                    // Fase 7-A: a missing token is a parse-shape
+                    // failure, not "this video has no comments" —
+                    // leave the evidence before going quiet.
+                    failureReporter.record(
+                        SURFACE_KOMENTAR,
+                        KIND_URAI,
+                        "token komentar tidak ditemukan di halaman tonton",
+                    )
+                    return CommentsPage(ownerAvatarUrl = ownerAvatar)
+                }
                 val body = baseBody().put("continuation", token)
-                InnertubeParser.parseCommentsPage(post("next", body))
+                val firstPage = InnertubeParser.parseCommentsPage(post("next", body))
                     .copy(ownerAvatarUrl = ownerAvatar)
+                if (firstPage.items.isEmpty()) {
+                    failureReporter.record(
+                        SURFACE_KOMENTAR,
+                        KIND_KOSONG,
+                        "halaman pertama terbaca kosong",
+                    )
+                }
+                firstPage
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noteFailure(SURFACE_KOMENTAR, e)
             CommentsPage()
         }
     }
@@ -229,6 +274,7 @@ class LontarEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noteFailure(SURFACE_BALASAN, e)
             CommentsPage()
         }
     }
@@ -242,10 +288,19 @@ class LontarEngine(
     override suspend fun getRelatedVideos(videoId: String): List<VideoItem> {
         return try {
             val watch = post("next", baseBody().put("videoId", videoId))
-            InnertubeParser.parseRelatedVideos(watch)
+            val items = InnertubeParser.parseRelatedVideos(watch)
+            if (items.isEmpty()) {
+                failureReporter.record(
+                    SURFACE_TERKAIT,
+                    KIND_KOSONG,
+                    "daftar server terbaca kosong",
+                )
+            }
+            items
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noteFailure(SURFACE_TERKAIT, e)
             emptyList()
         }
     }
@@ -287,8 +342,18 @@ class LontarEngine(
         }
     }
 
-    override suspend fun getVideoDetails(videoId: String): VideoDetails =
-        InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
+    override suspend fun getVideoDetails(videoId: String): VideoDetails {
+        return try {
+            InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Details failures DO surface as player errors; the log
+            // entry is what separates a refusal from a parse change.
+            noteFailure(SURFACE_DETAIL, e)
+            throw e
+        }
+    }
 
     /**
      * Panen Bertingkat's raw material: the winning player response's
@@ -875,6 +940,26 @@ class LontarEngine(
             .put("contentCheckOk", true)
     }
 
+    /**
+     * Fase 7-A: writes one failure-notebook entry for a metadata
+     * surface, classifying the cause the way the Diagnostics block
+     * reads best — the HTTP code when the server refused, "jaringan"
+     * for transport trouble, "urai" for everything else (a changed
+     * response shape is the usual suspect there).
+     */
+    private fun noteFailure(surface: String, e: Exception) {
+        val kind = when (e) {
+            is LontarException -> e.httpCode?.let { "HTTP $it" } ?: "mesin"
+            is java.io.IOException -> "jaringan"
+            else -> KIND_URAI
+        }
+        failureReporter.record(
+            surface,
+            kind,
+            (e.message ?: e.javaClass.simpleName).take(MAX_FAILURE_DETAIL_CHARS),
+        )
+    }
+
     private suspend fun post(endpoint: String, body: JSONObject): JSONObject {
         suspend fun attempt(activeSession: InnertubeSession): JSONObject =
             postJson(
@@ -1129,6 +1214,17 @@ class LontarEngine(
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        // Fase 7-A: metadata surface names + failure classes written
+        // to the failure notebook (user-facing, hence Indonesian).
+        private const val SURFACE_KOMENTAR = "komentar"
+        private const val SURFACE_BALASAN = "balasan komentar"
+        private const val SURFACE_TERKAIT = "terkait"
+        private const val SURFACE_KANAL = "kanal"
+        private const val SURFACE_DETAIL = "detail"
+        private const val KIND_URAI = "urai"
+        private const val KIND_KOSONG = "kosong"
+        private const val MAX_FAILURE_DETAIL_CHARS = 120
 
         /** InnerTube search param filter: videos only. */
         private const val SEARCH_PARAMS_VIDEO_ONLY = "EgIQAQ%3D%3D"

@@ -48,11 +48,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.util.UnstableApi
-import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.data.ChannelGroupEntity
 import com.bunny.app.data.SubscriptionEntity
 import com.bunny.app.presentation.components.BunnyHeader
+import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.VideoItem
 
@@ -250,8 +250,8 @@ private fun ChannelRow(
             contentAlignment = Alignment.Center,
         ) {
             sub.avatarUrl?.let { url ->
-                AsyncImage(
-                    model = url,
+                ResilientImage(
+                    url = url,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

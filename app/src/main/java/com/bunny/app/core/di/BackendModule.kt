@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.bunny.app.data.PersonaStatDao
+import com.bunny.app.playback.AppSurfaceFailureReporter
 import com.bunny.app.data.PrefsVisitorStore
 import com.bunny.app.data.RoomPersonaStatsStore
 import com.bunny.core.backend.ExtractionBackend
@@ -69,6 +70,7 @@ object BackendModule {
     @Provides
     @Singleton
     fun provideLontarEngine(
+        @ApplicationContext context: Context,
         httpClient: OkHttpClient,
         auth: LontarAuth,
         statsStore: PersonaStatsStore,
@@ -80,6 +82,7 @@ object BackendModule {
         statsStore,
         networkClass,
         visitorStore,
+        failureReporter = AppSurfaceFailureReporter(context),
     )
 
     @Provides

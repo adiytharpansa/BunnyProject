@@ -924,4 +924,69 @@ class InnertubeParserTest {
         assertEquals("2 minggu yang lalu", second.uploadedText)
         assertNull(second.channelId)
     }
+
+    @Test
+    fun parseCommentsPage_emptyContinuation_yieldsEmptyPage() {
+        // Fase 7-A "kosong" shape: the continuation answers with the
+        // section's containers but no threads and no entity payloads
+        // (comments disabled, or a section that renders nothing).
+        // The parser must read this as an empty page — the engine's
+        // job is to log it as evidence, not the parser's to invent.
+        val json = """
+        {
+          "onResponseReceivedEndpoints": [
+            {
+              "reloadContinuationItemsCommand": {
+                "continuationItems": [
+                  { "commentsHeaderRenderer": { "title": { "runs": [] } } }
+                ]
+              }
+            },
+            {
+              "reloadContinuationItemsCommand": {
+                "continuationItems": []
+              }
+            }
+          ],
+          "frameworkUpdates": {
+            "entityBatchUpdate": { "mutations": [] }
+          }
+        }
+        """.trimIndent()
+        val page = InnertubeParser.parseCommentsPage(JSONObject(json))
+        assertTrue(page.items.isEmpty())
+        assertNull(page.nextPage)
+    }
+
+    @Test
+    fun parseRelatedVideos_missingSecondaryResults_yieldsEmpty() {
+        // Fase 7-A "kosong" shape: a watch response without the
+        // secondary results column at all parses to an empty list,
+        // never to an exception the caller would mistake for data.
+        val json = JSONObject(
+            """
+            {
+              "contents": {
+                "twoColumnWatchNextResults": {
+                  "results": { "results": { "contents": [] } }
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+        assertTrue(InnertubeParser.parseRelatedVideos(json).isEmpty())
+    }
+
+    @Test
+    fun parseChannelInfo_missingHeader_yieldsNull() {
+        // Fase 7-A "urai" shape: a channel browse whose page header
+        // carries no channel metadata reads as null, so the engine
+        // can log the missing header instead of showing a blank one.
+        val json = JSONObject(
+            """
+            { "responseContext": {}, "contents": {} }
+            """.trimIndent(),
+        )
+        assertNull(InnertubeParser.parseChannelInfo(json, "UCxxxxxxxxxxxxxxxxxxxxxx"))
+    }
 }

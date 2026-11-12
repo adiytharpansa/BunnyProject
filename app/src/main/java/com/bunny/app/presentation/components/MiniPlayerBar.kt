@@ -34,7 +34,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import coil.compose.AsyncImage
 import com.bunny.app.R
 import kotlinx.coroutines.delay
 
@@ -80,8 +79,8 @@ fun MiniPlayerBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            AsyncImage(
-                model = thumbnailUrl,
+            ResilientImage(
+                url = thumbnailUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

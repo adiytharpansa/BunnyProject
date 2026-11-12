@@ -89,14 +89,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
+import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlayerTouchGestures
 import com.bunny.core.model.Chapters
 import kotlin.math.roundToInt
+import com.bunny.app.playback.MetadataFailureLog
 import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoComment
@@ -213,6 +214,9 @@ fun PlayerScreen(
     // Fase 4 telemetry: terminal playback failures persist on-device
     // across restarts; read once when this screen opens.
     var pastFailures by remember { mutableStateOf(PlaybackFailureLog.read(context)) }
+
+    // Fase 7-A: the metadata surfaces' failure notebook, same deal.
+    var pastDataFailures by remember { mutableStateOf(MetadataFailureLog.read(context)) }
 
     // Player controls (S5): quality / speed dialogs over the options
     // state; PiP is delegated to the activity via onPipClick.
@@ -495,6 +499,11 @@ fun PlayerScreen(
                             PlaybackFailureLog.clear(context)
                             pastFailures = null
                         },
+                        pastDataFailures = pastDataFailures,
+                        onClearDataFailures = {
+                            MetadataFailureLog.clear(context)
+                            pastDataFailures = null
+                        },
                     )
                 }
 
@@ -629,8 +638,8 @@ fun PlayerScreen(
                                     ),
                             ) {
                                 comments.ownerAvatarUrl?.let { url ->
-                                    AsyncImage(
-                                        model = url,
+                                    ResilientImage(
+                                        url = url,
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
                                         contentScale = ContentScale.Crop,
@@ -957,6 +966,11 @@ fun PlayerScreen(
                             PlaybackFailureLog.clear(context)
                             pastFailures = null
                         },
+                        pastDataFailures = pastDataFailures,
+                        onClearDataFailures = {
+                            MetadataFailureLog.clear(context)
+                            pastDataFailures = null
+                        },
                     )
                     CommentsSection(
                         state = comments,
@@ -1040,8 +1054,8 @@ private fun CommentRow(
                 .background(MaterialTheme.colorScheme.primaryContainer),
         ) {
             comment.authorAvatarUrl?.let { url ->
-                AsyncImage(
-                    model = url,
+                ResilientImage(
+                    url = url,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
@@ -1159,6 +1173,8 @@ private fun DiagnosticsBlock(
     events: List<String>,
     pastFailures: String? = null,
     onClearFailures: () -> Unit = {},
+    pastDataFailures: String? = null,
+    onClearDataFailures: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
@@ -1185,6 +1201,21 @@ private fun DiagnosticsBlock(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(onClick = onClearFailures) {
+                Text(stringResource(R.string.player_failures_clear))
+            }
+        }
+        if (pastDataFailures != null) {
+            Text(
+                stringResource(R.string.player_data_failures_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                pastDataFailures,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onClearDataFailures) {
                 Text(stringResource(R.string.player_failures_clear))
             }
         }

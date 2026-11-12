@@ -44,12 +44,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import coil.compose.AsyncImage
 import com.bunny.app.R
 import com.bunny.app.data.DataApiException
 import com.bunny.app.data.PersonalDataRepository
 import com.bunny.app.data.SubscriptionEntry
 import com.bunny.app.presentation.components.VideoCard
+import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -210,8 +210,8 @@ fun SubscriptionsScreen(
                                             Arrangement.spacedBy(12.dp),
                                     ) {
                                         if (entry.avatarUrl != null) {
-                                            AsyncImage(
-                                                model = entry.avatarUrl,
+                                            ResilientImage(
+                                                url = entry.avatarUrl,
                                                 contentDescription = null,
                                                 contentScale = ContentScale.Crop,
                                                 modifier = Modifier

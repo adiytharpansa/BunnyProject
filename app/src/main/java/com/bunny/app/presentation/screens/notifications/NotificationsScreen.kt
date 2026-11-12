@@ -43,8 +43,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.bunny.app.R
+import com.bunny.app.presentation.components.ResilientImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,8 +139,8 @@ fun NotificationsScreen(
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                             ) {
                                 item.thumbnailUrl?.let { url ->
-                                    AsyncImage(
-                                        model = url,
+                                    ResilientImage(
+                                        url = url,
                                         contentDescription = null,
                                         contentScale = ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize(),

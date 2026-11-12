@@ -37,8 +37,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.bunny.app.R
+import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.app.data.AuthRepository
 
 /**
@@ -89,8 +89,8 @@ fun ProfileScreen(
                     // The account's REAL photo and name, from YouTube's
                     // own account response — no letter stand-ins.
                     if (state.avatarUrl != null) {
-                        AsyncImage(
-                            model = state.avatarUrl,
+                        ResilientImage(
+                            url = state.avatarUrl,
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier

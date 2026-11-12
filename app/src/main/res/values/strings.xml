@@ -65,6 +65,7 @@
     <string name="terbit_end">— Edisi selesai. Sampai jumpa besok pagi. —</string>
     <string name="terbit_loading">Menyusun edisi…</string>
     <string name="player_failures_title">Kegagalan putar tersimpan (hanya di perangkat ini)</string>
+    <string name="player_data_failures_title">Kegagalan data terakhir (hanya di perangkat ini)</string>
     <string name="player_failures_clear">Hapus catatan kegagalan</string>
     <string name="nav_live">Live</string>
     <string name="nav_kanal">Kanal</string>

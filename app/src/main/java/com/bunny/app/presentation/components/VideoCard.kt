@@ -61,8 +61,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
-import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import com.bunny.app.R
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
@@ -143,14 +141,18 @@ fun VideoCard(
             // the first frame is on screen — no black flash.
             val thumbUrl = item.thumbnailUrl
             if (thumbUrl != null && thumbAlpha > 0f) {
-                val request = remember(thumbUrl) { thumbnailRequest(context, thumbUrl) }
-                AsyncImage(
-                    model = request,
+                ResilientImage(
+                    url = thumbUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .matchParentSize()
                         .alpha(thumbAlpha),
+                    requestBuilder = {
+                        // Same fixed decode size as thumbnailRequest.
+                        size(960, 540)
+                        crossfade(false)
+                    },
                 )
             }
             if (previewPlaying) {
@@ -270,9 +272,9 @@ fun VideoCard(
                     // stand-in (user rule 2026-11-11: no fallbacks; the
                     // loading path itself gets made stable instead). While
                     // the photo loads, the circle stays plain.
-                    if (item.channelAvatarUrl != null) {
-                        SubcomposeAsyncImage(
-                            model = item.channelAvatarUrl,
+                    item.channelAvatarUrl?.let { url ->
+                        ResilientImage(
+                            url = url,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,

@@ -35,8 +35,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import coil.compose.AsyncImage
 import com.bunny.app.R
+import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.app.data.DownloadEntity
 import com.bunny.app.data.DownloadManager
 import com.bunny.core.model.DataCost
@@ -119,8 +119,8 @@ private fun DownloadRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            AsyncImage(
-                model = item.thumbnailUrl,
+            ResilientImage(
+                url = item.thumbnailUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
