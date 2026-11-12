@@ -23,6 +23,7 @@ import java.io.IOException
 class SabrDataSource(
     private val spool: VideoSpool,
     private val road: SpoolRoadState,
+    private val onWait: ((itag: Int, position: Long, frontier: Long) -> Unit)? = null,
 ) : BaseDataSource(/* isNetwork = */ false) {
 
     private var reader: SpoolReader? = null
@@ -37,7 +38,7 @@ class SabrDataSource(
         val itag = specUri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("URI gulungan tidak dikenal: $specUri")
         road.checkAlive()
-        val trackReader = SpoolReader(spool.track(itag), road)
+        val trackReader = SpoolReader(spool.track(itag), road, onWait)
         reader = trackReader
         uri = specUri
         position = dataSpec.position

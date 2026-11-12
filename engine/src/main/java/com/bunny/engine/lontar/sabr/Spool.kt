@@ -175,8 +175,18 @@ class TrackSpool internal constructor(
             file.seek(offset)
             file.readFully(out)
         }
+        servedBytes += out.size
         return out
     }
+
+    /**
+     * Bytes ever handed to readers. Diagnostics evidence: it tells a
+     * spool the player never touches (counter near zero) from one it
+     * drains happily — the pump-versus-reader question, in one number.
+     */
+    @Volatile
+    var servedBytes: Long = 0
+        private set
 
     fun fileLength(): Long = if (dataFile.exists()) dataFile.length() else 0
 

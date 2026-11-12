@@ -69,9 +69,12 @@ class SpoolRoadState {
 class SpoolReader(
     private val track: TrackSpool,
     private val road: SpoolRoadState,
+    private val onWait: ((itag: Int, position: Long, frontier: Long) -> Unit)? = null,
 ) {
     @Volatile
     private var closed = false
+
+    private var waitReported = false
 
     fun close() {
         closed = true
@@ -102,6 +105,15 @@ class SpoolReader(
                 return data.size
             }
             if (road.isComplete(track.itag)) return -1
+            if (!waitReported) {
+                // The first wait of this reader, reported once: the
+                // position it waits at, against the frontier at that
+                // moment, exposes speculative far-ahead probes (an
+                // extractor hunting for tail metadata) that a purely
+                // sequential reader would never make.
+                waitReported = true
+                onWait?.invoke(track.itag, position, frontier)
+            }
             road.awaitPulse(POLL_INTERVAL_MS)
         }
     }

@@ -110,6 +110,43 @@ class SpoolReaderTest {
     }
 
     @Test
+    fun firstWaitIsReportedOnceWithPositionAndFrontier() {
+        val track = filledTrack(SpoolStore(File(tempFolder.root, "e")))
+        val road = SpoolRoadState()
+        val waits = ArrayList<Triple<Int, Long, Long>>()
+        val reader = SpoolReader(track, road) { itag, pos, front ->
+            synchronized(waits) { waits.add(Triple(itag, pos, front)) }
+        }
+        val done = CountDownLatch(1)
+        val thread = Thread {
+            try {
+                reader.readAt(500, ByteArray(10), 0, 10)
+            } catch (e: IOException) {
+                // The road is killed below; the wait ends as designed.
+            } finally {
+                done.countDown()
+            }
+        }
+        thread.start()
+        assertTrue(!done.await(300, TimeUnit.MILLISECONDS))
+        road.kill("uji")
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        thread.join(1000)
+        assertEquals(1, waits.size)
+        assertEquals(Triple(251, 500L, 120L), waits[0])
+    }
+
+    @Test
+    fun servedBytesAreCountedForDiagnostics() {
+        val track = filledTrack(SpoolStore(File(tempFolder.root, "f")))
+        val reader = SpoolReader(track, SpoolRoadState())
+        val buffer = ByteArray(16)
+        reader.readAt(0, buffer, 0, 10)
+        reader.readAt(10, buffer, 0, 16)
+        assertEquals(26L, track.servedBytes)
+    }
+
+    @Test
     fun completedTrackEndsHonestly() {
         val track = filledTrack(SpoolStore(File(tempFolder.root, "d")))
         val road = SpoolRoadState()

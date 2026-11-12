@@ -78,7 +78,14 @@ class SabrPlayback internal constructor(
         private set
 
     val dataSourceFactory: DataSource.Factory =
-        DataSource.Factory { SabrDataSource(spool, roadState) }
+        DataSource.Factory {
+            SabrDataSource(spool, roadState) { itag, position, frontier ->
+                onEvent?.invoke(
+                    "SABR baca: itag $itag menunggu data di posisi " +
+                        "$position (gulungan baru sampai $frontier)",
+                )
+            }
+        }
 
     /**
      * Optional observer for road events (the app wires this to its
@@ -237,8 +244,14 @@ class SabrPlayback internal constructor(
      */
     fun statusLine(): String {
         val s = activeSession ?: return "sesi belum mulai"
-        val totalMb = s.tracks.values.sumOf { it.mediaBytes } / 1_000_000
-        return "tergulung ${s.bufferedEndMs() / 1000} dtk, total $totalMb MB"
+        fun trackLine(label: String, itag: Int): String {
+            val track = spool.track(itag)
+            return "$label $itag: berkas ${track.fileLength() / 1000} KB, " +
+                "dibaca pemutar ${track.servedBytes / 1000} KB"
+        }
+        return trackLine("video", servedVideoItag) + "; " +
+            trackLine("audio", servedAudioItag) +
+            "; tergulung ${s.bufferedEndMs() / 1000} dtk"
     }
 
     private fun die(reason: String) {
