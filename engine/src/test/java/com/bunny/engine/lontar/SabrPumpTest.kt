@@ -432,4 +432,43 @@ class SabrPumpTest {
         assertEquals(SabrOutcome.RequestsExhausted(1), outcome)
         assertEquals(listOf(1_000L), sleeps)
     }
+
+    @Test
+    fun leadCapHoldsRequestsUntilThePlayheadCatchesUp() = runBlocking {
+        // Mechanisms 3 + 22: with a 25 s lead cap, the pump must
+        // never POST while its lead over the playhead is fat (one
+        // segment of overshoot is inherent — the check is
+        // pre-request); it waits in 1 s pauses instead, and each
+        // pause here pretends the playhead ate 10 s.
+        val s = session()
+        @Volatile var hint = 0L
+        var postsAtFatLead = 0
+        val base = segmentTransport()
+        val transport = object : SabrTransport {
+            override suspend fun post(url: String, body: ByteArray): ByteArray {
+                if (s.bufferedEndMs() - hint > 35_000) postsAtFatLead++
+                return base.post(url, body)
+            }
+        }
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = s,
+            spool = spool(),
+            transport = transport,
+            bandwidth = FixedBandwidth,
+            sleeper = { ms ->
+                sleeps.add(ms)
+                if (ms == SabrPump.LEAD_PAUSE_MS) hint += 10_000
+            },
+            positionHintMs = { hint },
+            maxLeadMs = 25_000,
+        )
+        val outcome = p.run(8)
+        assertEquals(SabrOutcome.RequestsExhausted(8), outcome)
+        assertEquals(0, postsAtFatLead)
+        assertTrue(
+            "the cap must actually have paused the pump",
+            sleeps.count { it == SabrPump.LEAD_PAUSE_MS } >= 2,
+        )
+    }
 }

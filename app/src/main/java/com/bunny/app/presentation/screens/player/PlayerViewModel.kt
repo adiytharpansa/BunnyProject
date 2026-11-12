@@ -52,6 +52,9 @@ sealed interface PlayerUiState {
         val jatahExceeded: Boolean = false,
         val monthUsedBytes: Long = 0,
         val quotaBytes: Long? = null,
+        /** Mechanism 6: the Jatah height cap the SABR road opened
+         *  under, when one applied — stated in the player. */
+        val sabrCapHeightPx: Int? = null,
     ) : PlayerUiState
     data class Error(val message: String) : PlayerUiState
 }
@@ -822,7 +825,20 @@ class PlayerViewModel @Inject constructor(
                 // proves the road with a first exchange, and returns
                 // null when the road is not taken — the classic flow
                 // below is then exactly what it was before Fase 8.
-                val sabr = sabrCoordinator.tryOpen(id) { message ->
+                //
+                // Langkah 5, mechanism 6: the month's remaining
+                // Jatah may cap the road's opening quality.
+                val capQuota = library.quotaBytes.first()
+                val capUsed = library.monthUsageBytes().first()
+                val jatahCap = com.bunny.app.playback.JatahCap
+                    .heightCapPx(capQuota, capUsed)
+                if (jatahCap != null) {
+                    PlaybackDiagnostics.log(
+                        "Plafon Jatah aktif: kualitas SABR maks " +
+                            "${jatahCap}p (sisa anggaran menipis)",
+                    )
+                }
+                val sabr = sabrCoordinator.tryOpen(id, jatahCap) { message ->
                     PlaybackDiagnostics.log(message)
                 }
                 if (sabr != null) {
@@ -880,6 +896,7 @@ class PlayerViewModel @Inject constructor(
                     jatahExceeded = exceeded,
                     monthUsedBytes = used,
                     quotaBytes = quota,
+                    sabrCapHeightPx = if (sabr != null) jatahCap else null,
                 )
                 applyResume(id)
                 loadRelated(id, details)

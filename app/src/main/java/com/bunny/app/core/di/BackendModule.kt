@@ -106,6 +106,12 @@ object BackendModule {
         com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator(
             engine,
             java.io.File(context.cacheDir, "sabr-spool"),
+            // Mechanism 15: the ABR state's viewport is the real
+            // display the panel lives on, read fresh at each open.
+            viewportProvider = {
+                val metrics = context.resources.displayMetrics
+                metrics.widthPixels to metrics.heightPixels
+            },
         )
 
     /** Jalan A: the official Data API client for the personal layer. */

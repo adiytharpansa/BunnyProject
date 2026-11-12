@@ -436,6 +436,14 @@ class LontarEngine(
             // mechanism 4): cellular halves the budget.
             raceBudgetBytes = config.sabrRaceBudgetKb.toLong() *
                 (if (networkClass.current() == "SELULER") 512 else 1024),
+            // Mechanisms 3 + 22: on metered links the pump hugs the
+            // playhead at the classic player's own buffer ceiling
+            // (40 s); off-metered it may complete the spool.
+            leadCapMs = if (networkClass.current() == "SELULER") {
+                40_000L
+            } else {
+                Long.MAX_VALUE
+            },
         )
 
     /**
@@ -451,6 +459,8 @@ class LontarEngine(
      */
     suspend fun openSabrSession(
         videoId: String,
+        capHeightPx: Int? = null,
+        viewport: Pair<Int, Int>? = null,
     ): com.bunny.engine.lontar.sabr.SabrOpenData? {
         val oracle = com.bunny.engine.lontar.sabr.RoadOracle(sabrSettings())
         val (response, persona) = try {
@@ -466,11 +476,24 @@ class LontarEngine(
         if (!oracle.allowsSabr(persona.name, isLive)) {
             return null
         }
-        val open = InnertubeParser.parseSabrOpen(response, persona)
+        val open = InnertubeParser.parseSabrOpen(
+            response,
+            persona,
+            capHeightPx,
+            com.bunny.engine.lontar.sabr.DeviceCodecProbe.ceiling(),
+        )
         if (open == null) {
             noteSabrFailure("tawaran", "respons ${persona.name} tanpa SABR")
+            return null
         }
-        return open
+        return if (viewport != null) {
+            open.copy(
+                viewportWidth = viewport.first,
+                viewportHeight = viewport.second,
+            )
+        } else {
+            open
+        }
     }
 
     /**
@@ -488,7 +511,12 @@ class LontarEngine(
                 ?.optBoolean("isLive", false) == true
             val oracle = com.bunny.engine.lontar.sabr.RoadOracle(sabrSettings())
             if (oracle.allowsSabr(persona.name, isLive)) {
-                InnertubeParser.parseSabrOpen(response, persona)
+                InnertubeParser.parseSabrOpen(
+                    response,
+                    persona,
+                    null,
+                    com.bunny.engine.lontar.sabr.DeviceCodecProbe.ceiling(),
+                )
             }
         } catch (e: CancellationException) {
             throw e

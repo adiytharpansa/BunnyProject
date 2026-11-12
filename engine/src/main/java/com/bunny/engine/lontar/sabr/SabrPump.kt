@@ -132,7 +132,23 @@ class SabrPump(
      * replay fidelity.
      */
     private val pipelined: Boolean = false,
+    /**
+     * Mechanisms 3 + 22 — the budget-aware lead cap: while the
+     * spooled timeline leads the playhead ([positionHintMs]) by
+     * more than [maxLeadMs], the pump waits instead of requesting
+     * (bytes are a budget, not an abstraction). The default is
+     * unbounded — the unmetered temperament, and the probe/replay
+     * behaviour. A capped pump whose playhead never advances waits
+     * indefinitely by design; the owning handle's cancellation is
+     * its exit, exactly like a paused player's.
+     */
+    private val maxLeadMs: Long = Long.MAX_VALUE,
 ) {
+
+    companion object {
+        /** How long a lead-capped pump waits between lead checks. */
+        const val LEAD_PAUSE_MS: Long = 1_000L
+    }
 
     /** The pipelining writer; null in synchronous mode. */
     private val writer: java.util.concurrent.ExecutorService? =
@@ -201,6 +217,15 @@ class SabrPump(
         val completedNotified = HashSet<Int>()
 
         while (requests < maxRequests) {
+            if (maxLeadMs != Long.MAX_VALUE && session.initReceived &&
+                session.bufferedEndMs() - positionHintMs() > maxLeadMs
+            ) {
+                // Lead is fat enough for a metered link: hold the
+                // requests (and their bytes) until the playhead
+                // eats into the lead.
+                sleeper(LEAD_PAUSE_MS)
+                continue
+            }
             val body = session.buildRequest(playerTimeMs, bandwidth.estimateBps(), pin)
             val sep = if (session.currentUrl.contains('?')) '&' else '?'
             val url = "${session.currentUrl}${sep}rn=${session.rn}&cpn=${session.cpn}"

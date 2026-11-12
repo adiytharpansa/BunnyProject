@@ -25,6 +25,11 @@ data class SabrOpenData(
     val clientInfo: SabrClientInfo,
     val userAgent: String,
     val tracking: PlaybackTrackingUrls?,
+    /** Mechanism 6: the Jatah height cap this open was asked under. */
+    val capHeightPx: Int? = null,
+    /** Mechanism 15: the real panel size, when the app provided it. */
+    val viewportWidth: Int = 1920,
+    val viewportHeight: Int = 1080,
 ) {
     fun newSession(cpn: String = SabrSession.generateCpn()): SabrSession =
         SabrSession(
@@ -37,6 +42,9 @@ data class SabrOpenData(
             audioItag = audioPin.itag,
             videoItag = videoPin.itag,
             cpn = cpn,
+            viewportWidth = viewportWidth,
+            viewportHeight = viewportHeight,
+            videoCapHeightPx = capHeightPx,
         )
 }
 
@@ -48,6 +56,10 @@ data class SabrSettings(
     /** Mechanism 4 race budget: spooled bytes past which a still-
      *  buffering start is conceded to the classic road. */
     val raceBudgetBytes: Long = 4_194_304L,
+    /** Mechanisms 3 + 22: the pump's lead cap over the playhead.
+     *  Unbounded off-metered (the spool may complete while
+     *  watching); the classic buffer ceiling on metered links. */
+    val leadCapMs: Long = Long.MAX_VALUE,
 )
 
 /**

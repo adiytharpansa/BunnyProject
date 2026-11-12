@@ -614,6 +614,27 @@ fun PlayerScreen(
                         }
                     }
 
+                    // Mechanism 6: when Jatah capped this video's
+                    // SABR quality, the player says so — the ceiling
+                    // is the user's budget, stated where it applies.
+                    if (current.sabrCapHeightPx != null) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.player_sabr_cap_note,
+                                    current.sabrCapHeightPx,
+                                ),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+
                     // ---- Channel row: avatar + name (tap -> channel
                     // page) + subscribe pill. Langganan lokal remains
                     // the source of the Kanal tab.

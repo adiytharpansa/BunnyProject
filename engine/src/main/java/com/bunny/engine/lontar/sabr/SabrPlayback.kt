@@ -66,6 +66,8 @@ class SabrPlayback internal constructor(
     private val scope: CoroutineScope,
     /** Mechanism 4: the hedged-start race budget in bytes. */
     val raceBudgetBytes: Long = 4_194_304L,
+    /** Mechanisms 3 + 22: the pump's lead cap over the playhead. */
+    val leadCapMs: Long = Long.MAX_VALUE,
 ) {
     val videoId: String get() = openData.videoId
 
@@ -209,7 +211,8 @@ class SabrPlayback internal constructor(
                                 .sumOf { it.mediaBytes } / 1_000_000
                             onEvent?.invoke(
                                 "SABR: tergulung $spooledSecond dtk media, " +
-                                    "total $totalMb MB",
+                                    "total $totalMb MB" +
+                                    projectionText(session),
                             )
                         }
                     },
@@ -219,6 +222,7 @@ class SabrPlayback internal constructor(
                     // Mechanism 13: on device, disk and network
                     // work at the same time.
                     pipelined = true,
+                    maxLeadMs = leadCapMs,
                 )
                 when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
                     is SabrOutcome.Completed -> {
@@ -234,7 +238,13 @@ class SabrPlayback internal constructor(
                             die("RELOAD_PLAYER_RESPONSE berulang")
                             return
                         }
-                        val fresh = engine.openSabrSession(videoId)
+                        // The refreshed offer keeps this open's
+                        // cap and viewport (mechanisms 6 + 15).
+                        val fresh = engine.openSabrSession(
+                            videoId,
+                            openData.capHeightPx,
+                            openData.viewportWidth to openData.viewportHeight,
+                        )
                         if (fresh == null) {
                             die("penyegaran /player gagal")
                             return
@@ -293,6 +303,31 @@ class SabrPlayback internal constructor(
         spool.trackItags().sumOf { spool.track(it).fileLength() }
 
     /**
+     * Mechanism 16 — the exact cost projection: each served
+     * track's MEASURED byte rate (bytes actually rolled over the
+     * timeline they cover) stretched over the whole duration.
+     * Real numbers only; silent until a track has rolled media.
+     */
+    private fun projectionText(session: SabrSession): String {
+        val durationMs = openData.durationSeconds * 1000L
+        if (durationMs <= 0) return ""
+        var total = 0L
+        var measured = false
+        for (format in listOf(session.audioFormat, session.videoFormat)) {
+            val track = session.trackFor(format.itag)
+            if (track.mediaBytes > 0 && track.timelineEndMs > 0) {
+                total += track.mediaBytes * durationMs / track.timelineEndMs
+                measured = true
+            }
+        }
+        return if (measured) {
+            "; proyeksi penuh ≈${total / 1_000_000} MB (laju terukur)"
+        } else {
+            ""
+        }
+    }
+
+    /**
      * One-line spool state for diagnostics: how much timeline the
      * pump has rolled and how many bytes it holds. Lets a watchdog
      * report distinguish a dead pump (frozen numbers) from a stuck
@@ -338,6 +373,8 @@ class SabrPlayback internal constructor(
 class SabrPlaybackCoordinator(
     private val engine: LontarEngine,
     private val spoolRoot: File,
+    /** Mechanism 15: the real player-panel size, read per open. */
+    private val viewportProvider: () -> Pair<Int, Int> = { 1920 to 1080 },
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -350,18 +387,25 @@ class SabrPlaybackCoordinator(
      */
     suspend fun tryOpen(
         videoId: String,
+        capHeightPx: Int? = null,
         onEvent: ((String) -> Unit)? = null,
     ): SabrPlayback? {
-        val open = engine.openSabrSession(videoId) ?: return null
+        val open = engine.openSabrSession(
+            videoId,
+            capHeightPx,
+            viewportProvider(),
+        ) ?: return null
         val store = SpoolStore(spoolRoot, engine.sabrSettings().spoolBudgetBytes)
         val spool = store.open(videoId)
+        val settings = engine.sabrSettings()
         val handle = SabrPlayback(
             openData = open,
             spool = spool,
             roadState = SpoolRoadState(),
             engine = engine,
             scope = scope,
-            raceBudgetBytes = engine.sabrSettings().raceBudgetBytes,
+            raceBudgetBytes = settings.raceBudgetBytes,
+            leadCapMs = settings.leadCapMs,
         )
         // The listener is attached BEFORE the drive starts: the
         // first-init event fires inside awaitReady below, and a

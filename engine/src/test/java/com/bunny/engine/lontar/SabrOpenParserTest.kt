@@ -135,4 +135,40 @@ class SabrOpenParserTest {
             )
         )
     }
+
+    @Test
+    fun noAv1HardwareMovesThePinToAvc() {
+        // Mechanism 15: 398 (AV1) is the richest format, but a
+        // device without an AV1 hardware decoder opens on 136
+        // (AVC) instead — software decode is a battery tax.
+        val open = InnertubeParser.parseSabrOpen(
+            playerJson(),
+            PlayerPersonas.VISIONOS,
+            ceiling = com.bunny.engine.lontar.sabr.DeviceCodecCeiling(
+                av1Hardware = false, vp9Hardware = true,
+            ),
+        )
+        assertNotNull(open)
+        assertEquals(136, open!!.videoPin.itag)
+    }
+
+    @Test
+    fun jatahCapChoosesThePinUnderTheCeiling() {
+        // Mechanism 6: with heights on the formats (136 = 720p,
+        // 398 = 1080p), a 720 cap opens on 136 and the open data
+        // remembers the cap it was asked under.
+        val json = playerJson()
+        val formats = json.getJSONObject("streamingData")
+            .getJSONArray("adaptiveFormats")
+        formats.getJSONObject(2).put("height", 720)
+        formats.getJSONObject(3).put("height", 1080)
+        val open = InnertubeParser.parseSabrOpen(
+            json, PlayerPersonas.VISIONOS, capHeightPx = 720,
+        )
+        assertNotNull(open)
+        assertEquals(136, open!!.videoPin.itag)
+        assertEquals(720, open.capHeightPx)
+        assertEquals(720, open.formats.first { it.itag == 136 }.height)
+        assertEquals(1080, open.formats.first { it.itag == 398 }.height)
+    }
 }

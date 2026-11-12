@@ -23,6 +23,7 @@
     <string name="home_jatah_dialog_title">Anggaran data bulanan (Jatah)</string>
     <string name="player_data_estimate">Perkiraan data video ini: ≈ %1$s</string>
     <string name="player_jatah_warning">Peringatan Jatah: pemakaian bulan ini ≈ %1$s, melewati anggaran %2$s.</string>
+    <string name="player_sabr_cap_note">Kualitas dibatasi Jatah: maks %1$dp untuk video ini.</string>
     <string name="player_subscribe">Langganan</string>
     <string name="player_unsubscribe">Berhenti langganan</string>
     <string name="nav_home">Beranda</string>

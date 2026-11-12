@@ -395,4 +395,55 @@ class SabrSessionTest {
         assertEquals(6_000L, s.bufferedEndMs())
         reopened.close()
     }
+
+    private fun cappedSession(cap: Int?): SabrSession = SabrSession(
+        videoId = "vid",
+        initialUrl = "https://x.invalid/s",
+        ustreamerConfig = byteArrayOf(9, 9),
+        clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+        durationSeconds = 100,
+        formats = listOf(
+            SabrFormat(251, "audio/webm", 160_000, 111L, "x"),
+            SabrFormat(136, "video/mp4", 2_000_000, 222L, null, height = 720),
+            SabrFormat(137, "video/mp4", 3_000_000, 222L, null, height = 1080),
+        ),
+        audioItag = 251,
+        videoItag = 136,
+        cpn = "CPN",
+        videoCapHeightPx = cap,
+    )
+
+    private fun proveBothVideos(s: SabrSession) {
+        s.consume(
+            listOf(
+                header(0, 251, null, 0, 10, init = true),
+                SabrPart.MediaPart(0, ByteArray(10)),
+                header(1, 136, null, 0, 10, init = true),
+                SabrPart.MediaPart(1, ByteArray(10)),
+                header(2, 137, null, 0, 10, init = true),
+                SabrPart.MediaPart(2, ByteArray(10)),
+                header(3, 136, 1, 10, 100, timeRange = SabrTimeRange(0, 5000, 1000)),
+                SabrPart.MediaPart(3, ByteArray(100)),
+                header(4, 137, 1, 10, 100, timeRange = SabrTimeRange(0, 5000, 1000)),
+                SabrPart.MediaPart(4, ByteArray(100)),
+            )
+        )
+    }
+
+    @Test
+    fun adoptionUnderAJatahCapPrefersTheFittingProvenFormat() {
+        val s = cappedSession(cap = 720)
+        proveBothVideos(s)
+        s.adoptServerPins()
+        // 137 is richer and equally proven — the cap still wins.
+        assertEquals(136, s.videoFormat.itag)
+    }
+
+    @Test
+    fun adoptionWithoutACapTakesTheRichestProvenFormat() {
+        val s = cappedSession(cap = null)
+        proveBothVideos(s)
+        s.adoptServerPins()
+        assertEquals(137, s.videoFormat.itag)
+    }
 }

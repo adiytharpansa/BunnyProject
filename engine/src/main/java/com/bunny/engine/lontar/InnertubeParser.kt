@@ -738,7 +738,13 @@ object InnertubeParser {
      * off live by design), or any required field missing. A null here
      * is not an error — the classic road simply remains the only one.
      */
-    fun parseSabrOpen(player: JSONObject, persona: PlayerPersona): SabrOpenData? {
+    fun parseSabrOpen(
+        player: JSONObject,
+        persona: PlayerPersona,
+        capHeightPx: Int? = null,
+        ceiling: com.bunny.engine.lontar.sabr.DeviceCodecCeiling =
+            com.bunny.engine.lontar.sabr.DeviceCodecCeiling.UNKNOWN,
+    ): SabrOpenData? {
         val playability = player.optJSONObject("playabilityStatus") ?: return null
         if (playability.optString("status") != "OK") return null
         val details = player.optJSONObject("videoDetails") ?: return null
@@ -768,13 +774,18 @@ object InnertubeParser {
                 bitrate = f.optLong("bitrate", 0).toInt(),
                 lastModified = f.opt("lastModified")?.toString()?.toLongOrNull(),
                 xtags = f.optString("xtags").takeIf { it.isNotEmpty() },
+                height = f.optInt("height", 0),
             )
         }
         if (formats.isEmpty()) return null
         val audioPin = formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
             ?: return null
-        val videoPin = formats.filter { !it.isAudio }.maxByOrNull { it.bitrate }
-            ?: return null
+        // Mechanisms 6 + 15: the opening video pin is chosen under
+        // the Jatah cap and the device's hardware codec ceiling,
+        // not by bitrate alone.
+        val videoPin = com.bunny.engine.lontar.sabr.chooseVideoPin(
+            formats, capHeightPx, ceiling,
+        ) ?: return null
         val clientInfo = SabrClientInfo(
             clientName = persona.clientNameId.toIntOrNull() ?: return null,
             clientVersion = persona.clientVersion,
@@ -793,6 +804,7 @@ object InnertubeParser {
             clientInfo = clientInfo,
             userAgent = persona.userAgent,
             tracking = parsePlaybackTracking(player),
+            capHeightPx = capHeightPx,
         )
     }
 

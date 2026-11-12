@@ -12,6 +12,8 @@ data class SabrFormat(
     val bitrate: Int,
     val lastModified: Long? = null,
     val xtags: String? = null,
+    /** Pixel height for video formats (0 = the response didn't say). */
+    val height: Int = 0,
 ) {
     val isAudio: Boolean get() = mimeType.startsWith("audio")
     fun id(): SabrFormatId = SabrFormatId(itag, lastModified, xtags)
@@ -117,6 +119,13 @@ class SabrSession(
     val cpn: String = generateCpn(),
     val viewportWidth: Int = 1920,
     val viewportHeight: Int = 1080,
+    /**
+     * Mechanism 6: the Jatah height cap for the video slot, when
+     * the app set one for this open. A preference, stated in the
+     * request pins and preferred at adoption — never a reason to
+     * refuse a proven format the server actually serves.
+     */
+    val videoCapHeightPx: Int? = null,
 ) {
     private val registry: Map<Int, SabrFormat> = formats.associateBy { it.itag }
 
@@ -261,7 +270,20 @@ class SabrSession(
             .mapNotNull { registry[it] }
             .filter { it.isAudio == audio }
         if (proven.isEmpty()) return null
-        return proven.maxWithOrNull(
+        // Mechanism 6: under a Jatah cap, a proven format at or
+        // under the cap outranks a richer one over it — the cap is
+        // the user's, and adoption is where it can still be kept.
+        // When nothing proven fits, the richest proven format
+        // stands (the server served what it served; playback
+        // first, and the request already stated the cap).
+        val cap = videoCapHeightPx
+        val pool = if (!audio && cap != null) {
+            val fitting = proven.filter { it.height <= 0 || it.height <= cap }
+            fitting.ifEmpty { proven }
+        } else {
+            proven
+        }
+        return pool.maxWithOrNull(
             compareBy<SabrFormat> { trackFor(it.itag).segments.isNotEmpty() }
                 .thenBy { it.bitrate },
         )
