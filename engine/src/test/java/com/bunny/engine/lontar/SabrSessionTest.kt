@@ -7,6 +7,7 @@ import com.bunny.engine.lontar.sabr.ProtoField
 import com.bunny.engine.lontar.sabr.ProtoReader
 import com.bunny.engine.lontar.sabr.ProtoWriter
 import com.bunny.engine.lontar.sabr.SabrClientInfo
+import com.bunny.engine.lontar.sabr.SabrEvent
 import com.bunny.engine.lontar.sabr.SabrFormat
 import com.bunny.engine.lontar.sabr.SabrFormatId
 import com.bunny.engine.lontar.sabr.SabrPart
@@ -445,5 +446,41 @@ class SabrSessionTest {
         proveBothVideos(s)
         s.adoptServerPins()
         assertEquals(137, s.videoFormat.itag)
+    }
+
+    @Test
+    fun splitSegmentAcrossTwoHeaderGroupsLandsWhole() {
+        // Regression (device stall, 2026-11-12 22:32): a large
+        // segment's media arrives in TWO header groups carrying
+        // the SAME sequence number. The second group is a
+        // continuation, not a duplicate — suppressing it tore a
+        // permanent hole into the spool while the session ledger
+        // reported the timeline complete.
+        val s = session()
+        val result = s.consume(
+            listOf(
+                header(0, 136, null, 0, 10, init = true),
+                SabrPart.MediaPart(0, ByteArray(10)),
+                header(
+                    1, 136, 1, 10, 100,
+                    timeRange = SabrTimeRange(0, 5000, 1000),
+                ),
+                SabrPart.MediaPart(1, ByteArray(100)),
+                header(
+                    2, 136, 1, 110, 100,
+                    timeRange = SabrTimeRange(0, 5000, 1000),
+                ),
+                SabrPart.MediaPart(2, ByteArray(100)),
+            )
+        )
+        val chunks = result.events.filterIsInstance<SabrEvent.MediaChunk>()
+            .filter { it.header.itag == 136 && !it.header.isInitSegment }
+        assertEquals(listOf(10L, 110L), chunks.map { it.offsetInTrack })
+        val segment = s.trackFor(136).segments.getValue(1)
+        assertEquals(200L, segment.length)
+        assertEquals(200L, segment.expectedLength)
+        assertTrue(segment.isComplete)
+        // The timeline counts the segment once, not once per group.
+        assertEquals(5_000L, s.trackFor(136).timelineEndMs)
     }
 }

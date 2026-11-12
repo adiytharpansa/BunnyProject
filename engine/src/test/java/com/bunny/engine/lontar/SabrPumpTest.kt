@@ -471,4 +471,38 @@ class SabrPumpTest {
             sleeps.count { it == SabrPump.LEAD_PAUSE_MS } >= 2,
         )
     }
+
+    @Test
+    fun splitSegmentLandsWholeInTheSpool() = runBlocking {
+        // Regression (device stall, 2026-11-12 22:32): the video
+        // segment arrives in two header groups with the SAME
+        // sequence number. The spool must end up holding both
+        // groups contiguously — before the fix, the second group
+        // was suppressed as a "duplicate" and the reader starved
+        // at the hole while the session reported the timeline
+        // complete.
+        val resp = response(
+            initMetadataPart(251, 1),
+            initMetadataPart(136, 1),
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, ByteArray(20)),
+            headerPart(1, 251, 1, 20, 100, init = false),
+            mediaPart(1, ByteArray(100) { 7 }),
+            headerPart(2, 136, null, 0, 20, init = true),
+            mediaPart(2, ByteArray(20)),
+            headerPart(3, 136, 1, 20, 100, init = false),
+            mediaPart(3, ByteArray(100) { 1 }),
+            headerPart(4, 136, 1, 120, 100, init = false),
+            mediaPart(4, ByteArray(100) { 2 }),
+        )
+        val sp = spool()
+        val outcome = pump(session(), sp, QueueTransport(listOf(resp)), ArrayList())
+            .run(1)
+        assertEquals(SabrOutcome.Completed, outcome)
+        val video = sp.track(136)
+        assertEquals(220L, video.fileLength())
+        assertEquals(220L, video.frontier())
+        assertTrue(video.read(20, 100).all { it == 1.toByte() })
+        assertTrue(video.read(120, 100).all { it == 2.toByte() })
+    }
 }

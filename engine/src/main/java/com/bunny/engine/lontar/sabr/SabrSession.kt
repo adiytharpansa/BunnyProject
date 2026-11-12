@@ -29,7 +29,20 @@ data class SabrSegment(
     /** Total media bytes received for this segment (it may arrive as
      * many MEDIA chunks; the length grows as they land). */
     var length: Long,
-)
+    /**
+     * Total bytes the wire has announced for this segment: the
+     * furthest (header start + header content length) seen for it.
+     * A segment whose media arrives in several header groups —
+     * the normal shape for large segments — is only complete when
+     * [length] reaches this. Zero means the wire never said (the
+     * segment then counts as complete on any bytes, as before).
+     */
+    var expectedLength: Long = 0,
+) {
+    /** True when every announced byte of this segment has landed. */
+    val isComplete: Boolean
+        get() = expectedLength <= 0 || length >= expectedLength
+}
 
 /** Per-itag session state. */
 class SabrTrack(val format: SabrFormat) {
@@ -201,6 +214,16 @@ class SabrSession(
      * One merged range per pinned track; a sequence gap splits the
      * range (the probe's rule — ranges describe only bytes truly held).
      */
+    /** Grows [segment]'s announced extent from one of its headers. */
+    private fun noteAnnouncedExtent(segment: SabrSegment, header: MediaHeader) {
+        val start = header.startRange ?: return
+        val announced = start - segment.startRange +
+            (header.contentLength ?: 0)
+        if (announced > segment.expectedLength) {
+            segment.expectedLength = announced
+        }
+    }
+
     fun bufferedRanges(): List<SabrBufferedRange> {
         val out = ArrayList<SabrBufferedRange>()
         for (slot in listOf(audioFormat, videoFormat)) {
@@ -401,9 +424,25 @@ class SabrSession(
                         initializedInSession.add(header.itag)
                         registry[header.itag]?.let { serverInitialized[header.itag] = it }
                     } else {
+                        // A segment's media may arrive in SEVERAL
+                        // header groups (large segments do): a
+                        // repeated sequence number is a CONTINUATION,
+                        // not a duplicate. Bind this header to the
+                        // segment that already exists so its chunks
+                        // land at their absolute offsets and grow
+                        // the same segment. (Suppressing these as
+                        // duplicates — the pre-2026-11-12 behaviour —
+                        // tore a permanent hole into the spool at
+                        // the first split segment: the session
+                        // ledger looked complete while the file
+                        // starved the player mid-playback.)
                         val seq = header.sequenceNumber
-                        pending.duplicate =
-                            seq != null && (header.itag to seq) in countedSegments
+                        val existing = seq?.let { track.segments[it] }
+                        if (existing != null) {
+                            pending.segment = existing
+                            pending.attributed = true
+                            noteAnnouncedExtent(existing, header)
+                        }
                     }
                     pendingHeaders[header.headerId] = pending
                 }
@@ -439,11 +478,28 @@ class SabrSession(
                             track.segments[seq] = segment
                             pending.segment = segment
                             countedSegments.add(header.itag to seq)
+                            noteAnnouncedExtent(segment, header)
                             track.timelineEndMs =
                                 maxOf(track.timelineEndMs, startMs + durMs)
                         }
                     }
-                    pending.segment?.let { it.length += part.data.size }
+                    // The vouched length grows only across bytes
+                    // that actually extend the received extent: a
+                    // continuation group extends it, a re-sent
+                    // group rewrites the same bytes in place and
+                    // must not inflate it, and a group beyond a
+                    // gap must not paper over the gap.
+                    pending.segment?.let { seg ->
+                        val chunkStart =
+                            (header.startRange ?: 0) + pending.emittedBytes
+                        val receivedEnd = seg.startRange + seg.length
+                        if (chunkStart <= receivedEnd &&
+                            chunkStart + part.data.size > receivedEnd
+                        ) {
+                            seg.length =
+                                chunkStart + part.data.size - seg.startRange
+                        }
+                    }
                     if (header.isInitSegment) {
                         track.initBytes += part.data.size
                     } else {
