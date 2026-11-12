@@ -218,6 +218,16 @@ class SabrPlayback internal constructor(
                     },
                     onTrackComplete = { roadState.markComplete(it) },
                     hungryUntilMs = HUNGRY_UNTIL_MS,
+                    // Playback temperament (device evidence
+                    // 2026-11-12 22:50): stay hungry until the
+                    // spool leads the playhead by two minutes,
+                    // and beyond that sleep at most 5 s between
+                    // requests — the probe's 45 s / 20 s cadence
+                    // let the supply rate sag to the consumption
+                    // rate, so every slow exchange rebuffered
+                    // the player for 20–42 s.
+                    hungryLeadMs = HUNGRY_LEAD_MS,
+                    politeCapMs = POLITE_CAP_MS,
                     positionHintMs = { playerPositionMs },
                     // Mechanism 13: on device, disk and network
                     // work at the same time.
@@ -360,6 +370,13 @@ class SabrPlayback internal constructor(
 
         /** The pump stays hungry until this much timeline is spooled. */
         const val HUNGRY_UNTIL_MS = 60_000L
+
+        /** Playback hunger: the spool's lead over the playhead
+         *  that keeps the pump at full pace (see the drive). */
+        const val HUNGRY_LEAD_MS = 120_000L
+
+        /** Beyond the hunger lead, the live drive's polite cap. */
+        const val POLITE_CAP_MS = 5_000L
     }
 }
 

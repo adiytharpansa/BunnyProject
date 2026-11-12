@@ -500,9 +500,39 @@ class SabrPumpTest {
             .run(1)
         assertEquals(SabrOutcome.Completed, outcome)
         val video = sp.track(136)
+
         assertEquals(220L, video.fileLength())
         assertEquals(220L, video.frontier())
         assertTrue(video.read(20, 100).all { it == 1.toByte() })
         assertTrue(video.read(120, 100).all { it == 2.toByte() })
+    }
+
+    @Test
+    fun playbackTemperamentKeepsTwoMinutesOfLead() = runBlocking {
+        // The live drive's cadence (device evidence 2026-11-12
+        // 22:50): hungry 1 s sleeps while the spool's lead over
+        // the playhead is under two minutes — the cold window
+        // alone (60 s) is not what keeps it hungry at 100 s —
+        // then polite sleeps capped at 5 s, never the probe's
+        // 20 s. The transport adds 10 s of timeline per request
+        // against a 60 s server backoff; the playhead sits at 0.
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = segmentTransport(),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            hungryUntilMs = 60_000,
+            hungryLeadMs = 120_000,
+            politeCapMs = 5_000,
+            positionHintMs = { 0L },
+        )
+        val outcome = p.run(14)
+        assertEquals(SabrOutcome.RequestsExhausted(14), outcome)
+        assertEquals(
+            List(11) { 1_000L } + List(3) { 5_000L },
+            sleeps,
+        )
     }
 }

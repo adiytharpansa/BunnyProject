@@ -143,6 +143,16 @@ class SabrPump(
      * its exit, exactly like a paused player's.
      */
     private val maxLeadMs: Long = Long.MAX_VALUE,
+    /**
+     * The politeness cap for media-bearing responses once the
+     * pump is no longer hungry. The probe's 20 s default mirrors
+     * what a bench run owes the server; a LIVE player is starved
+     * by it (device evidence 2026-11-12 22:50: 20–42 s rebuffers
+     * on a healthy, far-ahead spool — each starve lasted exactly
+     * one polite sleep plus one slow exchange), so the playback
+     * drive passes a much shorter cap.
+     */
+    private val politeCapMs: Long = 20_000,
 ) {
 
     companion object {
@@ -314,7 +324,7 @@ class SabrPump(
 
             val backoff = result.backoffTimeMs
             val polite = if (backoff != null && backoff > 0) {
-                minOf(backoff, if (result.mediaBytes == 0L) 15_000 else 20_000)
+                minOf(backoff, if (result.mediaBytes == 0L) 15_000 else politeCapMs)
             } else {
                 200L
             }
