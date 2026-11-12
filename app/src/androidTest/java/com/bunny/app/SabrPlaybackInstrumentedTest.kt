@@ -68,7 +68,7 @@ class SabrPlaybackInstrumentedTest {
     private val manifest: JSONObject by lazy { JSONObject(assetText("manifest.json")) }
 
     private fun spec(i: Int): JSONObject =
-        manifest.getJSONArray("pairs").getJSONObject(i).getJSONObject("request")
+        manifest.getJSONArray("pairs").getJSONObject(i).getJSONObject("requestSpec")
 
     private fun optLong(o: JSONObject, key: String): Long =
         if (o.isNull(key)) 0L else o.getLong(key)
