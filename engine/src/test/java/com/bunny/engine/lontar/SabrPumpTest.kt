@@ -441,7 +441,7 @@ class SabrPumpTest {
         // pre-request); it waits in 1 s pauses instead, and each
         // pause here pretends the playhead ate 10 s.
         val s = session()
-        @Volatile var hint = 0L
+        var hint = 0L
         var postsAtFatLead = 0
         val base = segmentTransport()
         val transport = object : SabrTransport {
