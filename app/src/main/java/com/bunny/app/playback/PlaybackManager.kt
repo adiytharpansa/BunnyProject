@@ -205,7 +205,8 @@ class PlaybackManager @Inject constructor(
             ) {
                 PlaybackDiagnostics.log(
                     "SABR tidak kunjung siap setelah 25 detik — " +
-                        "beralih ke jalan klasik",
+                        "beralih ke jalan klasik " +
+                        "(${sabr.statusLine()})",
                 )
                 closeSabr()
                 fallback?.invoke()

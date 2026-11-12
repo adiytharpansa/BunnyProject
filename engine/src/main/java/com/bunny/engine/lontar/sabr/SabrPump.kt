@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar.sabr
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
 /** HTTP failure at the transport seam; carries the status code. */
@@ -109,7 +110,23 @@ class SabrPump(
     private val hungrySleepCapMs: Long = 1_000,
 ) {
 
-    suspend fun run(maxRequests: Int): SabrOutcome {
+    /**
+     * Runs the pump to a terminal outcome. The pump NEVER throws
+     * (cancellation aside): any unexpected failure inside an exchange
+     * becomes [SabrOutcome.Stalled] with the cause named, so the
+     * caller always closes the road and the classic fallthrough
+     * always gets its turn — a silent pump death would leave spool
+     * readers waiting forever.
+     */
+    suspend fun run(maxRequests: Int): SabrOutcome = try {
+        runGuarded(maxRequests)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        SabrOutcome.Stalled("proses: ${e.javaClass.simpleName}: ${e.message}")
+    }
+
+    private suspend fun runGuarded(maxRequests: Int): SabrOutcome {
         var pin = false
         var playerTimeMs = session.startTimeMs
         var dryStreak = 0

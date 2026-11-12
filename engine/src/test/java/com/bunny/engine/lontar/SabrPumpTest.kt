@@ -280,6 +280,33 @@ class SabrPumpTest {
     }
 
     @Test
+    @Test
+    fun spoolWriteFailureBecomesAStalledOutcomeNotADeath() = runBlocking {
+        val initBytes = ByteArray(20).also {
+            it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()
+            it[6] = 'y'.code.toByte(); it[7] = 'p'.code.toByte()
+        }
+        val resp = response(
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, initBytes),
+            nrpPart(60_000),
+        )
+        val sp = spool()
+        // Sabotage the storage: the video's spool directory becomes
+        // a plain file, so every segment write must fail. The pump
+        // must report that as a Stalled outcome — never throw and
+        // die silently (device evidence 2026-11-12: a silent pump
+        // death leaves the player buffering forever).
+        sp.dir.deleteRecursively()
+        assertTrue(sp.dir.createNewFile())
+        val outcome = pump(
+            session(), sp, QueueTransport(listOf(resp)), ArrayList(),
+        ).run(5)
+        val stalled = outcome as SabrOutcome.Stalled
+        assertTrue(stalled.reason.startsWith("proses:"))
+    }
+
+    @Test
     fun hungryStartCapsTheServerBackoff() = runBlocking {
         val initBytes = ByteArray(20).also {
             it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()

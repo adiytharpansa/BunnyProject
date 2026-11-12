@@ -815,11 +815,10 @@ class PlayerViewModel @Inject constructor(
                 // proves the road with a first exchange, and returns
                 // null when the road is not taken — the classic flow
                 // below is then exactly what it was before Fase 8.
-                val sabr = sabrCoordinator.tryOpen(id)
+                val sabr = sabrCoordinator.tryOpen(id) { message ->
+                    PlaybackDiagnostics.log(message)
+                }
                 if (sabr != null) {
-                    sabr.onEvent = { message ->
-                        PlaybackDiagnostics.log(message)
-                    }
                     PlaybackDiagnostics.log(
                         "Jalan SABR (Anyam) terbuka: gulungan " +
                             "video itag ${sabr.servedVideoItag}, " +
