@@ -164,9 +164,9 @@ class SabrReplayTest {
             val buf = ByteArray(size.toInt())
             for ((start, datas) in byHeader) {
                 var off = start
-                for (data in datas) {
-                    data.copyInto(buf, off.toInt())
-                    off += data.size
+                for ((_, bytes) in datas) {
+                    bytes.copyInto(buf, off.toInt())
+                    off += bytes.size
                 }
             }
             out[itag] = buf

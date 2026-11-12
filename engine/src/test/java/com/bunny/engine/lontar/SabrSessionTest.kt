@@ -15,7 +15,6 @@ import com.bunny.engine.lontar.sabr.SabrTimeRange
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Session ledger units the replay does not cover on its own. */
@@ -36,13 +35,20 @@ class SabrSessionTest {
         cpn = "CPN",
     )
 
-    private fun fields(bytes: ByteArray): Map<Int, List<ProtoField>> =
+    private fun fields(bytes: ByteArray): List<ProtoField> =
         ProtoReader.parseOrNull(bytes)!!
 
-    private fun streamerContext(request: ByteArray): Map<Int, List<ProtoField>> {
-        val ctx = fields(request)[19]!!.single().bytesValue!!
-        return fields(ctx)
-    }
+    private fun List<ProtoField>.bytesOf(n: Int): ByteArray? =
+        firstOrNull { it.number == n }?.bytesValue
+
+    private fun List<ProtoField>.varintOf(n: Int): Long? =
+        firstOrNull { it.number == n }?.varintValue
+
+    private fun List<ProtoField>.allBytesOf(n: Int): List<ByteArray> =
+        filter { it.number == n }.mapNotNull { it.bytesValue }
+
+    private fun streamerContext(request: ByteArray): List<ProtoField> =
+        fields(fields(request).bytesOf(19)!!)
 
     private fun header(
         id: Int,
@@ -76,12 +82,12 @@ class SabrSessionTest {
     fun coldRequestCarriesNoSelectionRangesPinsOrCookie() {
         val request = session().buildRequest(0, 5_000_000, pinFormats = false)
         val f = fields(request)
-        assertNull(f[2])
-        assertNull(f[3])
-        assertNull(f[16])
-        assertNull(f[17])
-        assertEquals(0L, f[4]!!.single().varintValue)
-        assertTrue(streamerContext(request)[3] == null)
+        assertNull(f.bytesOf(2))
+        assertNull(f.bytesOf(3))
+        assertNull(f.bytesOf(16))
+        assertNull(f.bytesOf(17))
+        assertEquals(0L, f.varintOf(4))
+        assertNull(streamerContext(request).bytesOf(3))
     }
 
     @Test
@@ -97,7 +103,7 @@ class SabrSessionTest {
             )
         )
         var ctx = streamerContext(s.buildRequest(0, 5_000_000, false))
-        assertArrayEquals(cookieA, ctx[3]!!.single().bytesValue)
+        assertArrayEquals(cookieA, ctx.bytesOf(3))
         s.consume(
             listOf(
                 SabrPart.NextRequestPolicyPart(
@@ -106,7 +112,7 @@ class SabrSessionTest {
             )
         )
         ctx = streamerContext(s.buildRequest(0, 5_000_000, false))
-        assertArrayEquals(cookieB, ctx[3]!!.single().bytesValue)
+        assertArrayEquals(cookieB, ctx.bytesOf(3))
     }
 
     @Test
@@ -117,8 +123,7 @@ class SabrSessionTest {
         s.consume(
             listOf(SabrPart.ContextUpdatePart(listOf(subA, subB)))
         )
-        val echoed = streamerContext(s.buildRequest(0, 5_000_000, false))[5]!!
-            .map { it.bytesValue!! }
+        val echoed = streamerContext(s.buildRequest(0, 5_000_000, false)).allBytesOf(5)
         assertEquals(2, echoed.size)
         assertArrayEquals(subA, echoed[0])
         assertArrayEquals(subB, echoed[1])

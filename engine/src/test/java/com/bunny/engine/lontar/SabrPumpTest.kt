@@ -37,14 +37,14 @@ class SabrPumpTest {
     private fun umpVarint(v: Long): ByteArray = when {
         v < 0x80 -> byteArrayOf(v.toByte())
         v < 0x4000 -> byteArrayOf(
-            (0x80 or (v and 0x3F)).toByte(), (v shr 6).toByte()
+            (0x80L or (v and 0x3FL)).toByte(), (v shr 6).toByte()
         )
         v < 0x200000 -> byteArrayOf(
-            (0xC0 or (v and 0x1F)).toByte(),
+            (0xC0L or (v and 0x1FL)).toByte(),
             ((v shr 5) and 0xFF).toByte(), (v shr 13).toByte()
         )
         v < 0x10000000 -> byteArrayOf(
-            (0xE0 or (v and 0xF)).toByte(), ((v shr 4) and 0xFF).toByte(),
+            (0xE0L or (v and 0xFL)).toByte(), ((v shr 4) and 0xFF).toByte(),
             ((v shr 12) and 0xFF).toByte(), (v shr 20).toByte()
         )
         else -> byteArrayOf(
