@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar
 
+import com.bunny.engine.lontar.sabr.SabrKillThreshold
 import org.json.JSONObject
 
 /**
@@ -65,6 +66,17 @@ object EngineConfig {
          * waiting out the full watchdog. Halved on cellular.
          */
         val sabrRaceBudgetKb: Int = 4096,
+        /**
+         * Fase 8 Langkah 7, mechanism 7 (design Bagian 7): the
+         * self-disabling governance's threshold — when the SABR
+         * road's failure rate over its rolling attempt window on
+         * one network class reaches this, the road disables itself
+         * locally for that class until the window heals. The
+         * shipped defaults are the safe ones (see
+         * [SabrKillThreshold]); a malformed remote field falls
+         * back to them field by field.
+         */
+        val sabrKillThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
     )
 
     val DEFAULTS = Values(
@@ -108,6 +120,13 @@ object EngineConfig {
             }
         }
         val radar = json.optJSONObject("radar")
+        val killThreshold = json.optJSONObject("sabrKillThreshold")
+        val killWindow = killThreshold
+            ?.optInt("windowAttempts")
+            ?.takeIf { it > 0 } ?: SabrKillThreshold.DEFAULT_WINDOW_ATTEMPTS
+        val killMin = killThreshold
+            ?.optInt("minAttempts")
+            ?.takeIf { it > 0 } ?: SabrKillThreshold.DEFAULT_MIN_ATTEMPTS
         val sabrPersonas = mutableListOf<String>()
         val sabrPersonaArray = json.optJSONArray("sabrPersonas")
         if (sabrPersonaArray != null) {
@@ -148,6 +167,17 @@ object EngineConfig {
                 .takeIf { it > 0 } ?: DEFAULTS.spoolBudgetMb,
             sabrRaceBudgetKb = json.optInt("sabrRaceBudgetKb")
                 .takeIf { it > 0 } ?: DEFAULTS.sabrRaceBudgetKb,
+            sabrKillThreshold = SabrKillThreshold(
+                maxFailureRate = killThreshold
+                    ?.optDouble("maxFailureRate")
+                    ?.takeIf { it > 0.0 && it <= 1.0 }
+                    ?: SabrKillThreshold.DEFAULT_MAX_FAILURE_RATE,
+                windowAttempts = killWindow,
+                // A minimum above the window could never fire;
+                // clamp it into the window instead of shipping a
+                // threshold that silently means "never".
+                minAttempts = minOf(killMin, killWindow),
+            ),
         )
     }
 }

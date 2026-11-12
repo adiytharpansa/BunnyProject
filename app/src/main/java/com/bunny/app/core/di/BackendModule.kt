@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.bunny.app.data.PersonaStatDao
 import com.bunny.app.playback.AppSurfaceFailureReporter
+import com.bunny.app.data.PrefsSabrGovernanceStore
 import com.bunny.app.data.PrefsVisitorStore
 import com.bunny.app.data.RoomPersonaStatsStore
 import com.bunny.core.backend.ExtractionBackend
@@ -12,7 +13,9 @@ import com.bunny.engine.lontar.LontarAuth
 import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.NetworkClassProvider
 import com.bunny.engine.lontar.PersonaStatsStore
+import com.bunny.engine.lontar.SabrGovernanceStore
 import com.bunny.engine.lontar.VisitorStore
+import com.bunny.engine.lontar.sabr.SabrGovernance
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -69,6 +72,12 @@ object BackendModule {
 
     @Provides
     @Singleton
+    fun provideSabrGovernanceStore(
+        store: PrefsSabrGovernanceStore,
+    ): SabrGovernanceStore = store
+
+    @Provides
+    @Singleton
     fun provideLontarEngine(
         @ApplicationContext context: Context,
         httpClient: OkHttpClient,
@@ -76,6 +85,7 @@ object BackendModule {
         statsStore: PersonaStatsStore,
         networkClass: NetworkClassProvider,
         visitorStore: VisitorStore,
+        governanceStore: SabrGovernanceStore,
     ): LontarEngine = LontarEngine(
         httpClient,
         auth,
@@ -83,6 +93,7 @@ object BackendModule {
         networkClass,
         visitorStore,
         failureReporter = AppSurfaceFailureReporter(context),
+        sabrGovernance = SabrGovernance(governanceStore),
     )
 
     @Provides

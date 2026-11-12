@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.PersonaHealthReport
+import com.bunny.engine.lontar.LontarEngine
+import com.bunny.engine.lontar.sabr.SabrGovernance
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,17 +23,26 @@ import javax.inject.Inject
 @HiltViewModel
 class EngineHealthViewModel @Inject constructor(
     private val backend: ExtractionBackend,
+    private val engine: LontarEngine,
 ) : ViewModel() {
 
     data class State(
         val reports: List<PersonaHealthReport> = emptyList(),
         val isChecking: Boolean = false,
+        /**
+         * Langkah 7, mechanism 7: the SABR road's standing on
+         * this network class — the remote config's switch and
+         * the governance's window verdict. Null until first read.
+         */
+        val sabrConfigEnabled: Boolean = false,
+        val sabrGovernance: SabrGovernance.Verdict? = null,
     )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
     init {
+        refreshGovernance()
         viewModelScope.launch {
             val snapshot = try {
                 backend.engineHealth()
@@ -39,6 +50,17 @@ class EngineHealthViewModel @Inject constructor(
                 emptyList()
             }
             _state.update { it.copy(reports = snapshot) }
+        }
+    }
+
+    /** The governance readout is local bookkeeping: read it fresh
+     *  whenever the panel (re)opens or a check completes. */
+    private fun refreshGovernance() {
+        _state.update {
+            it.copy(
+                sabrConfigEnabled = engine.sabrSettings().enabled,
+                sabrGovernance = engine.sabrGovernanceVerdict(),
+            )
         }
     }
 
@@ -55,7 +77,14 @@ class EngineHealthViewModel @Inject constructor(
                     emptyList()
                 }
             }
-            _state.update { State(reports = reports, isChecking = false) }
+            _state.update {
+                State(
+                    reports = reports,
+                    isChecking = false,
+                    sabrConfigEnabled = engine.sabrSettings().enabled,
+                    sabrGovernance = engine.sabrGovernanceVerdict(),
+                )
+            }
         }
     }
 }

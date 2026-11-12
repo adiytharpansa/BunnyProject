@@ -82,15 +82,21 @@ data class SabrSettings(
      *  Unbounded off-metered (the spool may complete while
      *  watching); the classic buffer ceiling on metered links. */
     val leadCapMs: Long = Long.MAX_VALUE,
+    /** Langkah 7, mechanism 7: the self-disabling governance's
+     *  threshold, carried with the rest of the SABR config slice. */
+    val killThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
 )
 
 /**
  * The basic road oracle of Langkah 3: SABR goes first only when the
- * remote config allows it, for a persona the matrix names, and never
- * for live content (the design keeps SABR off live entirely). The
- * per-network-class activation and the self-disabling governance
- * arrive with Langkah 7; this gate is deliberately the simple,
- * auditable core they will extend.
+ * remote config allows it, for a persona the matrix names
+ * (mechanism 27 — the config's `sabrPersonas` list IS the
+ * per-persona permission matrix), and never for live content (the
+ * design keeps SABR off live entirely). Langkah 7 added the
+ * self-disabling governance (mechanism 7) as a further conjunct
+ * INSIDE LontarEngine.openSabrSession — config && persona &&
+ * !governanceDisabled(class) — so this oracle stays the simple,
+ * auditable core and governance can only ever veto, never enable.
  */
 class RoadOracle(private val settings: SabrSettings) {
 

@@ -871,7 +871,25 @@ class PlayerViewModel @Inject constructor(
                             "untuk video ini — langsung jalan klasik",
                     )
                 }
-                val sabr = if (roadRefused) {
+                // Langkah 7, mechanism 7 — the self-disabling
+                // governance is consulted beside the road memory:
+                // when this network class's recent SABR verdicts
+                // crossed the config threshold, the road has
+                // disabled itself locally and the classic flow
+                // below runs. The skip is named here, with its
+                // evidence — no silent deaths. (The engine's own
+                // gate applies the same verdict as a backstop on
+                // every other SABR path.)
+                val governance = engine.sabrGovernanceVerdict()
+                if (governance.disabled) {
+                    PlaybackDiagnostics.log(
+                        "Tata kelola: SABR sedang dinonaktifkan lokal " +
+                            "untuk jaringan ini (${governance.failures} dari " +
+                            "${governance.attempts} percobaan gagal) — " +
+                            "jalan klasik dipakai",
+                    )
+                }
+                val sabr = if (roadRefused || governance.disabled) {
                     null
                 } else {
                     sabrCoordinator.tryOpen(id, jatahCap) { message ->

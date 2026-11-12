@@ -160,6 +160,37 @@ class SabrPlayback internal constructor(
 
     private val readySignal = CompletableDeferred<Boolean>()
 
+    /**
+     * Langkah 7, mechanism 7: this open's governance verdicts are
+     * recorded at most once each — ready firing is the success,
+     * the first road-level death is the failure. A handle may
+     * honestly contribute both (it readied, then the road died
+     * mid-play); it may never contribute either twice. Written
+     * only by the drive thread (success also by its onProgress
+     * callback — the same pump thread).
+     */
+    private var governanceSuccessRecorded = false
+    private var governanceFailureRecorded = false
+
+    /** Completes the ready signal, recording the open's success
+     *  verdict for the governance the first time it fires. */
+    private fun signalReady() {
+        if (readySignal.isCompleted) return
+        readySignal.complete(true)
+        if (!governanceSuccessRecorded) {
+            governanceSuccessRecorded = true
+            engine.recordSabrOutcome(success = true)
+        }
+    }
+
+    /** Records this open's failure verdict for the governance —
+     *  called at the drive's road-level deaths only. */
+    private fun recordGovernanceFailure() {
+        if (governanceFailureRecorded) return
+        governanceFailureRecorded = true
+        engine.recordSabrOutcome(success = false)
+    }
+
     /** The session currently being driven; read by [statusLine]. */
     @Volatile
     private var activeSession: SabrSession? = null
@@ -305,7 +336,7 @@ class SabrPlayback internal constructor(
                     val track = session.trackFor(format.itag)
                     if (track.isComplete) roadState.markComplete(format.itag)
                 }
-                readySignal.complete(true)
+                signalReady()
                 onEvent?.invoke(
                     "SABR: mulai dari gulungan dingin " +
                         "(video itag ${provenVideo.itag}, " +
@@ -377,7 +408,7 @@ class SabrPlayback internal constructor(
                             if (provenAudio != null && provenVideo != null) {
                                 servedAudioItag = provenAudio.itag
                                 servedVideoItag = provenVideo.itag
-                                readySignal.complete(true)
+                                signalReady()
                                 onEvent?.invoke(
                                     "SABR: data pertama tiba, pompa berjalan " +
                                         "(video itag ${provenVideo.itag}, " +
@@ -490,9 +521,7 @@ class SabrPlayback internal constructor(
                             gap == null -> {
                                 roadState.markComplete(session.audioFormat.itag)
                                 roadState.markComplete(session.videoFormat.itag)
-                                if (!readySignal.isCompleted) {
-                                    readySignal.complete(true)
-                                }
+                                signalReady()
                                 onEvent?.invoke("SABR: gulungan lengkap terisi")
                                 return
                             }
@@ -540,6 +569,9 @@ class SabrPlayback internal constructor(
                             "token",
                             "SPS 3: server menuntut token — jalan SABR ditutup",
                         )
+                        // Langkah 7, mechanism 7: a token demand is
+                        // the governance's headline failure signal.
+                        recordGovernanceFailure()
                         // Mechanism 10: a token demand is a hard
                         // refusal of THIS video on this road — the
                         // road memory may keep it.
@@ -549,11 +581,13 @@ class SabrPlayback internal constructor(
                     }
                     is SabrOutcome.SabrErrorReceived -> {
                         engine.noteSabrFailure("sabr-error", "SABR_ERROR dari server")
+                        recordGovernanceFailure()
                         die("SABR_ERROR")
                         return
                     }
                     is SabrOutcome.HttpFailed -> {
                         engine.noteSabrFailure("HTTP ${outcome.status}", "POST SABR gagal")
+                        recordGovernanceFailure()
                         die("HTTP ${outcome.status}")
                         return
                     }
@@ -583,6 +617,12 @@ class SabrPlayback internal constructor(
                             // keep them off the failure evidence surface.
                             if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
                                 engine.noteSabrFailure("macet", outcome.reason)
+                                // Langkah 7, mechanism 7: a real
+                                // stall is a road-level death; the
+                                // lifecycle kind above is not, and
+                                // the governance applies the same
+                                // distinction as the evidence surface.
+                                recordGovernanceFailure()
                             }
                             die(outcome.reason)
                             return

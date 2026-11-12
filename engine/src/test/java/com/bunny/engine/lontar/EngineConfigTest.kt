@@ -108,6 +108,52 @@ class EngineConfigTest {
     }
 
     @Test
+    fun parse_killThreshold_fullObject_isApplied() {
+        val values = EngineConfig.parse(
+            JSONObject(
+                """{"sabrKillThreshold":{"maxFailureRate":0.25,""" +
+                    """"windowAttempts":30,"minAttempts":5}}""",
+            ),
+        )
+        assertEquals(0.25, values.sabrKillThreshold.maxFailureRate, 0.0)
+        assertEquals(30, values.sabrKillThreshold.windowAttempts)
+        assertEquals(5, values.sabrKillThreshold.minAttempts)
+    }
+
+    @Test
+    fun parse_killThreshold_absentOrMalformed_keepsSafeDefaults() {
+        val absent = EngineConfig.parse(JSONObject("{}"))
+        assertEquals(
+            com.bunny.engine.lontar.sabr.SabrKillThreshold.DEFAULT,
+            absent.sabrKillThreshold,
+        )
+        // Out-of-range rate, non-positive window and minimum:
+        // every field falls back on its own.
+        val malformed = EngineConfig.parse(
+            JSONObject(
+                """{"sabrKillThreshold":{"maxFailureRate":1.5,""" +
+                    """"windowAttempts":0,"minAttempts":-3}}""",
+            ),
+        )
+        assertEquals(
+            com.bunny.engine.lontar.sabr.SabrKillThreshold.DEFAULT,
+            malformed.sabrKillThreshold,
+        )
+    }
+
+    @Test
+    fun parse_killThreshold_minAboveWindow_isClampedIntoTheWindow() {
+        val values = EngineConfig.parse(
+            JSONObject(
+                """{"sabrKillThreshold":{"windowAttempts":10,""" +
+                    """"minAttempts":30}}""",
+            ),
+        )
+        assertEquals(10, values.sabrKillThreshold.windowAttempts)
+        assertEquals(10, values.sabrKillThreshold.minAttempts)
+    }
+
+    @Test
     fun session_remoteFallback_usedWhenHomepageHasNoVersion() {
         val html = """<script>ytcfg.set({"INNERTUBE_API_KEY":"AIzaTEST",
             "INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtTEST123"}}});</script>"""

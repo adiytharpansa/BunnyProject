@@ -53,6 +53,14 @@ class LontarEngine(
     private val visitorStore: VisitorStore = VisitorStore.NONE,
     /** Fase 7-A: the metadata surfaces' failure notebook. */
     private val failureReporter: SurfaceFailureReporter = SurfaceFailureReporter.NONE,
+    /**
+     * Fase 8 Langkah 7, mechanism 7: the self-disabling SABR
+     * governance's outcome log (a NONE shelf by default: verdicts
+     * are heard, nothing persists, the window starts clean every
+     * process — the safe direction for a veto gate).
+     */
+    private val sabrGovernance: com.bunny.engine.lontar.sabr.SabrGovernance =
+        com.bunny.engine.lontar.sabr.SabrGovernance(SabrGovernanceStore.NONE),
 ) : ExtractionBackend {
 
     override val id: String = "lontar"
@@ -452,6 +460,9 @@ class LontarEngine(
             } else {
                 Long.MAX_VALUE
             },
+            // Langkah 7, mechanism 7: the governance threshold
+            // rides the same config slice as the rest of the gate.
+            killThreshold = config.sabrKillThreshold,
         )
 
     /**
@@ -484,11 +495,27 @@ class LontarEngine(
             throw e
         } catch (e: Exception) {
             noteSabrFailure("player", e.message ?: "respons player gagal")
+            // Langkah 7, mechanism 7: a /player fetch that failed
+            // at transport level is a verdict about the ROAD (no
+            // session ever existed), so the governance hears it —
+            // unlike a missing offer below, which is the video's
+            // own property and never reaches the governance.
+            recordSabrOutcome(success = false)
             return null
         }
         val details = response.optJSONObject("videoDetails")
         val isLive = details?.optBoolean("isLive", false) == true
         if (!oracle.allowsSabr(persona.name, isLive)) {
+            return null
+        }
+        // Langkah 7, mechanism 7: the governance is the third
+        // conjunct of the gate — under the config switch, beside
+        // the persona matrix (mechanism 27). A governance skip is
+        // not a failure of this video and is NOT recorded on the
+        // evidence surface: the classic road proceeds exactly as
+        // it does for a config refusal, and the player names the
+        // skip in its own diagnostics (see PlayerViewModel).
+        if (sabrGovernanceVerdict().disabled) {
             return null
         }
         val open = InnertubeParser.parseSabrOpen(
@@ -569,6 +596,37 @@ class LontarEngine(
     fun reportSabrHardRefusal(videoId: String) {
         onSabrHardRefusal?.invoke(videoId)
     }
+
+    /**
+     * Fase 8 Langkah 7, mechanism 7 — the governance's ear. Only
+     * verdicts reach this seam, and the call sites are the whole
+     * list: a playback whose ready signal fired (success, from
+     * SabrPlayback's drive), a road-level death — token demanded
+     * (SPS 3), SABR_ERROR, an HTTP failure, a non-lifecycle stall
+     * (also from the drive) — and a /player fetch that failed at
+     * transport level, reported by [openSabrSession] itself.
+     * Per-video refusals ("tawaran": this video carries no SABR
+     * offer) NEVER pass here; they are the road memory's
+     * business (mechanism 10), and counting them would let a run
+     * of refused videos disable the road for everyone.
+     */
+    fun recordSabrOutcome(success: Boolean) {
+        sabrGovernance.record(success, networkClass.current())
+    }
+
+    /**
+     * The governance's current reading for THIS network class
+     * under the config's threshold — the same verdict the gate in
+     * [openSabrSession] obeys, exposed so the player can name a
+     * governance skip in its diagnostics and the Profile Radar
+     * panel can show the road's standing (no silent deaths).
+     */
+    fun sabrGovernanceVerdict():
+        com.bunny.engine.lontar.sabr.SabrGovernance.Verdict =
+        sabrGovernance.verdict(
+            networkClass.current(),
+            config.sabrKillThreshold,
+        )
 
     /**
      * The SABR transport over this engine's shared HTTP client, with

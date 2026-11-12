@@ -397,6 +397,43 @@ private fun EngineHealthPanel(
                 }
             }
         }
+        // Langkah 7, mechanism 7: the SABR road's standing — the
+        // remote config's switch and the governance's verdict for
+        // this network class. No silent deaths: a road the
+        // governance disabled says so here, with its evidence.
+        val sabrGovernance = state.sabrGovernance
+        if (sabrGovernance != null) {
+            Text(
+                stringResource(R.string.health_sabr_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                when {
+                    !state.sabrConfigEnabled -> stringResource(
+                        R.string.health_sabr_config_off,
+                    )
+                    sabrGovernance.disabled -> stringResource(
+                        R.string.health_sabr_governed,
+                        sabrGovernance.networkClass,
+                        sabrGovernance.attempts,
+                        sabrGovernance.failures,
+                    )
+                    else -> stringResource(
+                        R.string.health_sabr_active,
+                        sabrGovernance.networkClass,
+                        sabrGovernance.attempts,
+                        sabrGovernance.failures,
+                    )
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center,
+            )
+        }
         OutlinedButton(
             onClick = { viewModel.check() },
             enabled = !state.isChecking,

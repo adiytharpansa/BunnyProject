@@ -140,6 +140,10 @@
     <string name="health_state_ditolak">Ditolak YouTube</string>
     <string name="health_state_jaringan">Gagal karena jaringan</string>
     <string name="health_state_unknown">Belum jelas</string>
+    <string name="health_sabr_title">Jalan SABR (Anyam)</string>
+    <string name="health_sabr_config_off">Nonaktif oleh konfigurasi jarak jauh — yang dipakai jalan klasik.</string>
+    <string name="health_sabr_active">Aktif di jaringan %1$s — %2$d percobaan terakhir tercatat, %3$d gagal.</string>
+    <string name="health_sabr_governed">Dinonaktifkan sementara oleh tata kelola di jaringan %1$s — %3$d dari %2$d percobaan terakhir gagal, melewati ambang konfigurasi. Jalan klasik dipakai; SABR mencoba lagi setelah catatannya membaik.</string>
     <string name="guest_title">Pemanasan Tamu</string>
     <string name="guest_hint">Bunny menyimpan satu identitas tamu yang awet dan melaporkan tontonan Anda atas nama identitas itu — persis cara peramban menghangatkan rekomendasinya. Panel ini membaca dua tanda apa adanya: apakah Beranda server mulai menjawab identitas ini, dan apakah riwayat tamu mencatat tontonannya.</string>
     <string name="guest_never">Belum pernah diperiksa.</string>
