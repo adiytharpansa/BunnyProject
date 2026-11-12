@@ -46,6 +46,16 @@ data class PlaybackStreams(
      * accumulating", tied to the session's visitor identity.
      */
     val tracking: PlaybackTrackingUrls? = null,
+    /**
+     * Fase 8 mechanism 14: itag → lastModified (the rendition
+     * identity) for exactly the formats the generated DASH manifest
+     * ([dashManifestContent]) is built from. The classic road uses
+     * it to decide whether bytes it downloads may be recorded into
+     * the video's spool: a rendition is a byte space, and bytes may
+     * only join a spool state that speaks the same one. Empty when
+     * no generated manifest exists or no format named a rendition.
+     */
+    val dashRenditions: Map<Int, Long> = emptyMap(),
 )
 
 /** The stats addresses inside a player response's playbackTracking. */

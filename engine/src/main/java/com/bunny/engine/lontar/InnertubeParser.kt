@@ -705,8 +705,9 @@ object InnertubeParser {
         // formats' URLs and byte ranges. See DashManifestBuilder.
         val durationSeconds = player.optJSONObject("videoDetails")
             ?.opt("lengthSeconds")?.toString()?.toLongOrNull()
+        val adaptiveFormats = streaming.optJSONArray("adaptiveFormats")
         val dashContent = DashManifestBuilder.build(
-            streaming.optJSONArray("adaptiveFormats"),
+            adaptiveFormats,
             durationSeconds,
         )
 
@@ -717,10 +718,11 @@ object InnertubeParser {
             expiresAtEpochMs = expiresAt,
             dashManifestContent = dashContent,
             estimatedSizeBytes = estimateAdaptiveSize(
-                streaming.optJSONArray("adaptiveFormats"),
+                adaptiveFormats,
                 durationSeconds,
             ),
             tracking = parsePlaybackTracking(player),
+            dashRenditions = DashManifestBuilder.renditions(adaptiveFormats),
         )
     }
 

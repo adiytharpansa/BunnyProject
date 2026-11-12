@@ -217,6 +217,7 @@ class SabrPlayback internal constructor(
         // the road is ready from disk immediately and the pump's
         // first request already asks only for the frontier onward.
         session.restoreFrom(spool)
+        adoptClassicRanges(session)
         if (session.initReceived) {
             val provenAudio = session.wireProvenFormat(audio = true)
             val provenVideo = session.wireProvenFormat(audio = false)
@@ -336,6 +337,7 @@ class SabrPlayback internal constructor(
                         session = fresh.newSession()
                         activeSession = session
                         session.restoreFrom(spool)
+                        adoptClassicRanges(session)
                     }
                     is SabrOutcome.TokenDemanded -> {
                         engine.noteSabrFailure(
@@ -384,6 +386,20 @@ class SabrPlayback internal constructor(
             die("penggerak pompa gagal: ${e.javaClass.simpleName}")
         } finally {
             if (!readySignal.isCompleted) readySignal.complete(false)
+        }
+    }
+
+    /**
+     * Mechanism 14: right after a session is hydrated from the
+     * spool, let it adopt whatever the classic road contributed
+     * to the same files — under the session's own trust gate
+     * (see [SabrSession.adoptClassicRanges]) — and put the count
+     * on the event line when the classic road completed anything.
+     */
+    private fun adoptClassicRanges(session: SabrSession) {
+        val adopted = session.adoptClassicRanges(spool)
+        if (adopted > 0) {
+            onEvent?.invoke("SABR: $adopted segmen dilengkapi jalan klasik")
         }
     }
 
@@ -558,6 +574,34 @@ class SabrPlaybackCoordinator(
         }
         store.enforceBudget(protectVideoId = videoId)
         return handle
+    }
+
+    /**
+     * Mechanism 14: opens a spool recorder for a CLASSIC playback
+     * of [videoId] — the bytes the classic road downloads are
+     * written into the same spool the SABR road uses, under the
+     * per-track trust gate the recorder itself applies (see
+     * [ClassicSpoolRecorder]). [renditions] maps itag → the
+     * classic rendition (lastModified) the player response named
+     * for the formats the DASH manifest uses; itags absent from
+     * it, or mapped to 0, are simply never recorded. Null when
+     * nothing at all is recordable — no renditions offered, or
+     * every track refused by the gate.
+     */
+    fun openClassicRecorder(
+        videoId: String,
+        renditions: Map<Int, Long>,
+    ): ClassicSpoolRecorder? {
+        val usable = renditions.filterValues { it > 0 }
+        if (usable.isEmpty()) return null
+        val store = SpoolStore(spoolRoot, engine.sabrSettings().spoolBudgetBytes)
+        val spool = store.open(videoId)
+        val recorder = ClassicSpoolRecorder(store, spool, usable)
+        if (recorder.recordableItags.isEmpty()) {
+            recorder.close()
+            return null
+        }
+        return recorder
     }
 
     // ------------------------------------------------------ pemanasan

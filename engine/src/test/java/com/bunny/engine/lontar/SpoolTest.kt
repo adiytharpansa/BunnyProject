@@ -149,4 +149,47 @@ class SpoolTest {
         assertFalse(store.exists("mid"))
         assertTrue(store.exists("new"))
     }
+
+    @Test
+    fun classicRangesMergePersistAndReload() {
+        val dir = File(tempFolder.root, "cr")
+        val spool = SpoolStore(dir).open("vid")
+        val track = spool.track(251)
+        track.noteClassicRendition(4242)
+        // Out of order, adjacent, and overlapping contributions
+        // must land as one merged, ordered sidecar.
+        track.noteClassicRange(1000, 500)
+        track.noteClassicRange(0, 1000)
+        track.noteClassicRange(1400, 200)
+        track.noteClassicRange(5000, 250)
+        assertEquals(listOf(0L..1599L, 5000L..5249L), track.classicRanges())
+        // The sidecar never vouches for the frontier: classic
+        // bytes are not SABR's word.
+        assertEquals(emptyList<LongRange>(), track.writtenRanges())
+        track.flushManifest()
+        spool.close()
+
+        val reopened = SpoolStore(dir).open("vid").track(251)
+        assertEquals(4242L, reopened.classicRendition)
+        assertEquals(listOf(0L..1599L, 5000L..5249L), reopened.classicRanges())
+    }
+
+    @Test
+    fun sabrAuthorshipClearsClassicRanges() {
+        val dir = File(tempFolder.root, "cc")
+        val spool = SpoolStore(dir).open("vid")
+        val track = spool.track(251)
+        track.noteClassicRendition(4242)
+        track.noteClassicRange(0, 500)
+        track.noteSegment(SabrSegment(1, 0, 5000, 0, 500))
+        assertEquals(0L, track.classicRendition)
+        assertEquals(emptyList<LongRange>(), track.classicRanges())
+
+        track.noteClassicRendition(4242)
+        track.noteClassicRange(0, 500)
+        track.noteInit(16)
+        assertEquals(0L, track.classicRendition)
+        assertEquals(emptyList<LongRange>(), track.classicRanges())
+        spool.close()
+    }
 }

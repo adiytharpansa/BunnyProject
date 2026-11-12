@@ -50,6 +50,28 @@ class DashManifestBuilderTest {
     }
 
     @Test
+    fun renditions_coverExactlyTheIncludedFormats() {
+        val formats = JSONArray(
+            "[" +
+                format(137, "video/mp4; codecs=\"avc1.640028\"", "https://v.example/137", extra = ",\"lastModified\":\"1700000000000001\"") +
+                "," +
+                format(251, "audio/webm; codecs=\"opus\"", "https://v.example/251", extra = ",\"lastModified\":\"1700000000000002\"") +
+                "," +
+                // Included in the manifest but names no rendition:
+                // absent from the map (not recordable, never guessed).
+                format(140, "audio/mp4; codecs=\"mp4a.40.2\"", "https://v.example/140") +
+                "," +
+                // Ciphered formats are excluded from both.
+                format(248, "video/webm; codecs=\"vp9\"", url = null, extra = ",\"lastModified\":\"1700000000000003\"") +
+                "]",
+        )
+        assertEquals(
+            mapOf(137 to 1700000000000001L, 251 to 1700000000000002L),
+            DashManifestBuilder.renditions(formats),
+        )
+    }
+
+    @Test
     fun build_skipsCipheredAndRangelessFormats() {
         val formats = JSONArray(
             "[" +

@@ -23,11 +23,7 @@ object DashManifestBuilder {
 
         val videoSets = linkedMapOf<String, MutableList<JSONObject>>()
         val audioSets = linkedMapOf<String, MutableList<JSONObject>>()
-        for (i in 0 until adaptiveFormats.length()) {
-            val format = adaptiveFormats.optJSONObject(i) ?: continue
-            if (format.optString("url").isEmpty()) continue
-            if (format.optJSONObject("initRange") == null) continue
-            if (format.optJSONObject("indexRange") == null) continue
+        for (format in includedFormats(adaptiveFormats)) {
             val mime = format.optString("mimeType")
             when {
                 mime.startsWith("video/") -> videoSets.getOrPut(mime) { mutableListOf() } += format
@@ -52,6 +48,47 @@ object DashManifestBuilder {
         for ((mime, formats) in audioSets) appendSet(out, setId++, mime, formats, isVideo = false)
         out.append(" </Period>\n</MPD>")
         return out.toString()
+    }
+
+    /**
+     * The formats [build] would include, in response order — the
+     * single inclusion rule both the manifest and [renditions]
+     * read: a direct URL, an init range, an index range, and a
+     * video/ or audio/ mime type. Ciphered formats (no URL) never
+     * qualify.
+     */
+    private fun includedFormats(adaptiveFormats: JSONArray?): List<JSONObject> {
+        if (adaptiveFormats == null) return emptyList()
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until adaptiveFormats.length()) {
+            val format = adaptiveFormats.optJSONObject(i) ?: continue
+            if (format.optString("url").isEmpty()) continue
+            if (format.optJSONObject("initRange") == null) continue
+            if (format.optJSONObject("indexRange") == null) continue
+            val mime = format.optString("mimeType")
+            if (!mime.startsWith("video/") && !mime.startsWith("audio/")) continue
+            out += format
+        }
+        return out
+    }
+
+    /**
+     * Fase 8 mechanism 14: itag → lastModified for exactly the
+     * formats [build] includes — the rendition identity of every
+     * representation in the generated manifest, which the classic
+     * road's spool recording is gated on. Formats whose response
+     * named no rendition (or no itag) are simply absent: absent
+     * means not recordable, never guessed.
+     */
+    fun renditions(adaptiveFormats: JSONArray?): Map<Int, Long> {
+        val out = LinkedHashMap<Int, Long>()
+        for (format in includedFormats(adaptiveFormats)) {
+            val itag = format.optInt("itag", 0)
+            val lastModified = format.opt("lastModified")
+                ?.toString()?.toLongOrNull() ?: 0L
+            if (itag > 0 && lastModified > 0) out[itag] = lastModified
+        }
+        return out
     }
 
     private fun appendSet(

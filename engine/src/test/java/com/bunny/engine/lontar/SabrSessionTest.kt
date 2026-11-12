@@ -16,6 +16,7 @@ import com.bunny.engine.lontar.sabr.SabrSession
 import com.bunny.engine.lontar.sabr.SabrSegment
 import com.bunny.engine.lontar.sabr.SabrTimeRange
 import com.bunny.engine.lontar.sabr.SpoolStore
+import com.bunny.engine.lontar.sabr.VideoSpool
 import java.io.File
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -702,6 +703,141 @@ class SabrSessionTest {
         assertEquals(-118L, track.segments.getValue(2).spoolDelta)
         assertEquals(999L, track.wireRendition)
         assertEquals(-118L, track.currentDelta)
+        reopened.close()
+    }
+
+    /**
+     * A reopened spool whose audio track holds SABR's init (100 B)
+     * and a segment 1 vouched at 400 of the 1000 its header
+     * announced, plus a classic sidecar: [classicRendition] over
+     * [classicRangeStart, +classicRangeLength). The sidecar is
+     * noted last — SABR authorship (noteInit/noteSegment above)
+     * clears an earlier one by design (M14 invariant).
+     */
+    private fun adoptionSpool(
+        dirName: String,
+        delta: Long = 0L,
+        classicRendition: Long,
+        classicRangeStart: Long,
+        classicRangeLength: Long,
+    ): VideoSpool {
+        val store = SpoolStore(File(tempFolder.root, dirName))
+        val spool = store.open("vid")
+        val audio = spool.track(251)
+        val bytes = ByteArray(2000)
+        byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte())
+            .copyInto(bytes, 0)
+        audio.write(0, bytes)
+        audio.noteFormat(SabrFormatId(251, 111L, "x"))
+        audio.noteInit(100)
+        audio.noteSegment(
+            SabrSegment(
+                1, 0L, 10_000L, 100L + delta, 400L,
+                expectedLength = 1000L, spoolDelta = delta,
+            )
+        )
+        audio.noteWireState(111L, delta)
+        audio.noteClassicRendition(classicRendition)
+        audio.noteClassicRange(classicRangeStart, classicRangeLength)
+        audio.flushManifest()
+        spool.close()
+        return store.open("vid")
+    }
+
+    @Test
+    fun classicAdoptionExtendsAShortSegmentOnMatchingRendition() {
+        val spool = adoptionSpool(
+            "adopt-ok",
+            classicRendition = 111L,
+            classicRangeStart = 100L,
+            classicRangeLength = 1000L,
+        )
+        val s = session()
+        s.restoreFrom(spool)
+        assertEquals(1, s.adoptClassicRanges(spool))
+        val segment = s.trackFor(251).segments.getValue(1)
+        assertEquals(1000L, segment.length)
+        assertTrue(segment.isComplete)
+        spool.close()
+    }
+
+    @Test
+    fun classicAdoptionRefusesAMismatchedRendition() {
+        val spool = adoptionSpool(
+            "adopt-mismatch",
+            classicRendition = 999L,
+            classicRangeStart = 100L,
+            classicRangeLength = 1000L,
+        )
+        val s = session()
+        s.restoreFrom(spool)
+        assertEquals(0, s.adoptClassicRanges(spool))
+        assertEquals(400L, s.trackFor(251).segments.getValue(1).length)
+        spool.close()
+    }
+
+    @Test
+    fun classicAdoptionRefusesPartialCoverage() {
+        val spool = adoptionSpool(
+            "adopt-partial",
+            classicRendition = 111L,
+            classicRangeStart = 100L,
+            classicRangeLength = 500L,
+        )
+        val s = session()
+        s.restoreFrom(spool)
+        assertEquals(0, s.adoptClassicRanges(spool))
+        assertEquals(400L, s.trackFor(251).segments.getValue(1).length)
+        spool.close()
+    }
+
+    @Test
+    fun classicAdoptionRefusesAShiftedTrack() {
+        // The spool track is anchored (delta −50): its spool
+        // offsets are not the classic file's offsets, so even a
+        // rendition match adopts nothing.
+        val spool = adoptionSpool(
+            "adopt-shifted",
+            delta = -50L,
+            classicRendition = 111L,
+            classicRangeStart = 50L,
+            classicRangeLength = 1000L,
+        )
+        val s = session()
+        s.restoreFrom(spool)
+        assertEquals(-50L, s.trackFor(251).currentDelta)
+        assertEquals(0, s.adoptClassicRanges(spool))
+        assertEquals(400L, s.trackFor(251).segments.getValue(1).length)
+        spool.close()
+    }
+
+    @Test
+    fun classicAdoptionTakesTheInitWhenClassicCoversTheHead() {
+        // No SABR init in the manifest at all — but segment 1 sits
+        // at spool offset 300 and the classic road covered [0, 300)
+        // in full: that covered run IS the init segment.
+        val store = SpoolStore(File(tempFolder.root, "adopt-init"))
+        val spool = store.open("vid")
+        val audio = spool.track(251)
+        audio.write(0, ByteArray(2000))
+        audio.noteFormat(SabrFormatId(251, 111L, "x"))
+        audio.noteSegment(
+            SabrSegment(1, 0L, 10_000L, 300L, 500L, expectedLength = 500L)
+        )
+        audio.noteWireState(111L, 0L)
+        audio.noteClassicRendition(111L)
+        audio.noteClassicRange(0L, 300L)
+        audio.flushManifest()
+        spool.close()
+
+        val reopened = store.open("vid")
+        val s = session()
+        s.restoreFrom(reopened)
+        val track = s.trackFor(251)
+        assertTrue(!track.gotInit)
+        assertEquals(0, s.adoptClassicRanges(reopened))
+        assertTrue(track.gotInit)
+        assertEquals(300L, track.initBytes)
         reopened.close()
     }
 }

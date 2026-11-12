@@ -872,11 +872,25 @@ class PlayerViewModel @Inject constructor(
                         details.thumbnailUrl,
                     )
                 } else {
+                    // Fase 8 mechanism 14: on the classic road, the
+                    // playback itself fills the spool — a recorder
+                    // gated per track by the spool's own rendition
+                    // testimony (null when nothing is recordable).
+                    val classicRecorder = sabrCoordinator.openClassicRecorder(
+                        id,
+                        streams.dashRenditions,
+                    )
+                    if (classicRecorder != null) {
+                        PlaybackDiagnostics.log(
+                            "Gulungan: jalan klasik ikut mengisi (video $id)",
+                        )
+                    }
                     playbackManager.play(
                         streams,
                         details.title,
                         details.channelName,
                         details.thumbnailUrl,
+                        classicRecorder,
                     )
                 }
 

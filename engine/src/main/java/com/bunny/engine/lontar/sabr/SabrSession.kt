@@ -505,6 +505,82 @@ class SabrSession(
         if (initReceived) adoptServerPins()
     }
 
+    /**
+     * Mechanism 14 — adoption of the classic road's contributions:
+     * while this video played over the classic road, the player
+     * downloaded bytes into the same spool files and the spool
+     * recorded the covered ranges as a sidecar, stamped with the
+     * rendition that served them (see [TrackSpool.classicRanges]).
+     * Classic bytes belong to the classic rendition's byte space,
+     * so a restored segment may only grow over them when every
+     * part of the identity matches: the sidecar's rendition
+     * ([TrackSpool.classicRendition]) equals this track's wire
+     * rendition (the one [restoreFrom] brought back from the
+     * manifest, or the registry format's lastModified when the
+     * manifest named none) AND the track's current anchor delta
+     * is zero — a shifted track's spool offsets are not the
+     * classic file's offsets, and no translation between the two
+     * spaces is ever guessed.
+     *
+     * What adoption may do, per track passing the gate:
+     * - Segments: a restored segment whose announced extent
+     *   ([SabrSegment.expectedLength], named by a SABR header)
+     *   exceeds the bytes SABR itself vouched for grows to that
+     *   extent when classic ranges FULLY cover
+     *   [spoolStartRange, spoolStartRange + expectedLength) —
+     *   the bytes are already in the file; the next pump persist
+     *   writes the grown length back into the manifest, which is
+     *   what lets the reader serve them. Partial coverage extends
+     *   nothing: a segment is whole or it is SABR's to finish.
+     * - Init: only in the one shape where the classic file itself
+     *   defines the length — a restored segment 1 exists and
+     *   classic ranges fully cover [0, segment 1's spool start):
+     *   the covered run IS the init segment, so the track gains
+     *   it (gotInit, initBytes = the covered length). Any other
+     *   shape leaves the init unadopted; SABR will fetch its own.
+     *
+     * Returns how many segments were extended.
+     */
+    fun adoptClassicRanges(spool: VideoSpool): Int {
+        var extended = 0
+        val spoolItags = spool.trackItags()
+        for ((itag, track) in _tracks) {
+            if (itag !in spoolItags) continue
+            val trackSpool = spool.track(itag)
+            val classicRendition = trackSpool.classicRendition
+            if (classicRendition == 0L) continue
+            val rendition = if (track.wireRendition != 0L) {
+                track.wireRendition
+            } else {
+                track.format.lastModified ?: 0L
+            }
+            if (rendition == 0L || classicRendition != rendition) continue
+            if (track.currentDelta != 0L) continue
+            val ranges = trackSpool.classicRanges()
+            if (ranges.isEmpty()) continue
+            fun covered(start: Long, length: Long): Boolean =
+                ranges.any { it.first <= start && start + length <= it.last + 1 }
+            if (!track.gotInit) {
+                val first = track.segments[1]
+                if (first != null && first.spoolStartRange > 0 &&
+                    covered(0L, first.spoolStartRange)
+                ) {
+                    track.gotInit = true
+                    track.initBytes = first.spoolStartRange
+                }
+            }
+            for (segment in track.segments.values) {
+                if (segment.expectedLength > segment.length &&
+                    covered(segment.spoolStartRange, segment.expectedLength)
+                ) {
+                    segment.length = segment.expectedLength
+                    extended++
+                }
+            }
+        }
+        return extended
+    }
+
     fun buildRequest(
         playerTimeMs: Long,
         bandwidthBps: Long,

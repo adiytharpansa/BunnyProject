@@ -37,7 +37,9 @@ import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.engine.lontar.sabr.ClassicSpoolRecorder
 import com.bunny.engine.lontar.sabr.SabrPlayback
+import com.bunny.engine.lontar.sabr.TeeDataSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -138,8 +140,10 @@ class PlaybackManager @Inject constructor(
         title: String,
         channelName: String = "",
         artworkUrl: String? = null,
+        classicRecorder: ClassicSpoolRecorder? = null,
     ) {
         closeSabr()
+        currentClassicRecorder = classicRecorder
         currentPersonaName = streams.personaName
         currentSourceIsLocal = false
         clearQualityOverride()
@@ -148,7 +152,7 @@ class PlaybackManager @Inject constructor(
             .setArtist(channelName.takeIf { it.isNotEmpty() })
             .setArtworkUri(artworkUrl?.let { Uri.parse(it) })
             .build()
-        val sources = buildSourceChain(streams, metadata)
+        val sources = buildSourceChain(streams, metadata, classicRecorder)
         if (sources.isEmpty()) {
             PlaybackDiagnostics.log("Tidak ada sumber yang dapat diputar untuk \"$title\"")
             return
@@ -180,6 +184,22 @@ class PlaybackManager @Inject constructor(
 
     /** The SABR playback currently feeding the player, if any. */
     private var currentSabr: SabrPlayback? = null
+
+    /**
+     * Fase 8 mechanism 14: the classic playback's spool recorder,
+     * when the classic road is filling the spool as it plays. Its
+     * lifetime is the classic playback's: it closes wherever the
+     * SABR handle closes (see [closeSabr]) — a recorder closed
+     * late would be harmless anyway, since its sink only fires
+     * while its tee is being read, and the tee dies with the
+     * source it wraps.
+     */
+    private var currentClassicRecorder: ClassicSpoolRecorder? = null
+
+    private fun closeClassicRecorder() {
+        currentClassicRecorder?.close()
+        currentClassicRecorder = null
+    }
 
     // ------------------------------------------------- anti-buffering M2
 
@@ -222,6 +242,9 @@ class PlaybackManager @Inject constructor(
         resetCatchUp()
         currentSabr?.close()
         currentSabr = null
+        // M14: the classic recorder shares the SABR handle's
+        // closing points — every road change closes both.
+        closeClassicRecorder()
     }
 
     // ------------------------------------------------------------ pengawas
@@ -945,6 +968,7 @@ class PlaybackManager @Inject constructor(
     private fun buildSourceChain(
         streams: PlaybackStreams,
         metadata: MediaMetadata,
+        classicRecorder: ClassicSpoolRecorder? = null,
     ): List<Pair<String, MediaSource>> {
         val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(userAgent)
@@ -963,14 +987,26 @@ class PlaybackManager @Inject constructor(
             val manifestUri = Uri.parse(MANIFEST_URI)
             val delegatingFactory = DataSource.Factory {
                 val upstream = httpFactory.createDataSource()
+                // Fase 8 mechanism 14: only THIS source — the
+                // generated DASH, whose representations are the
+                // spool's own tracks — is teed into the spool
+                // recorder. The manifest bytes themselves are not
+                // media and never pass the tee; HLS and progressive
+                // sources are NOT wrapped (different containers —
+                // their bytes are not the spool tracks' bytes).
+                val network: DataSource = if (classicRecorder != null) {
+                    TeeDataSource(upstream, classicRecorder.sink)
+                } else {
+                    upstream
+                }
                 object : DataSource {
-                    private var active: DataSource = upstream
+                    private var active: DataSource = network
 
                     override fun open(dataSpec: DataSpec): Long {
                         active = if (dataSpec.uri == manifestUri) {
                             ByteArrayDataSource(manifestBytes)
                         } else {
-                            upstream
+                            network
                         }
                         return active.open(dataSpec)
                     }

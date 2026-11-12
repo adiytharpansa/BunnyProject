@@ -167,6 +167,27 @@ class TrackSpool internal constructor(
         private set
     var currentDelta: Long = 0
         private set
+
+    /**
+     * Mechanism 14 — the classic road's contributions to this
+     * track: byte ranges the classic (generated-DASH) playback
+     * downloaded into this very file, recorded under the rendition
+     * ([classicRendition], the format's lastModified) that served
+     * them. A sidecar, deliberately NOT segments: classic bytes
+     * are never SABR's word, so they never enter [writtenRanges]
+     * or the frontier — a later SABR session may ADOPT them (see
+     * SabrSession.adoptClassicRanges), and only when its own
+     * rendition matches [classicRendition] exactly. SABR
+     * (re-)authorship of the track — [noteInit]/[noteSegment] —
+     * clears the sidecar: SABR's own bytes supersede whatever the
+     * classic road contributed.
+     */
+    private val _classicRanges = ArrayList<LongRange>()
+
+    /** The rendition the classic ranges were recorded under
+     * (a format lastModified); 0 = no classic contributions. */
+    var classicRendition: Long = 0
+        private set
     private val _segments = LinkedHashMap<Int, SabrSegment>()
     val segments: Map<Int, SabrSegment> get() = _segments
 
@@ -261,10 +282,44 @@ class TrackSpool internal constructor(
 
     fun noteInit(length: Long) {
         initLength = length
+        // SABR authorship supersedes classic contributions (M14).
+        clearClassicRanges()
     }
 
     fun noteSegment(segment: SabrSegment) {
         _segments[segment.sequence] = segment
+        // SABR authorship supersedes classic contributions (M14).
+        clearClassicRanges()
+    }
+
+    // ------------------------------------- classic ranges (M14)
+
+    /** Records [length] classic-downloaded bytes at [start],
+     * merged into the sidecar. Persisted by [flushManifest]. */
+    @Synchronized
+    fun noteClassicRange(start: Long, length: Long) {
+        if (length <= 0) return
+        _classicRanges.add(start until start + length)
+        val merged = mergeRanges(_classicRanges)
+        _classicRanges.clear()
+        _classicRanges.addAll(merged)
+    }
+
+    /** The merged classic ranges, in order. */
+    @Synchronized
+    fun classicRanges(): List<LongRange> = ArrayList(_classicRanges)
+
+    /** Stamps the rendition the classic ranges belong to. */
+    @Synchronized
+    fun noteClassicRendition(lastModified: Long) {
+        if (lastModified > 0) classicRendition = lastModified
+    }
+
+    /** Drops every classic contribution and its rendition stamp. */
+    @Synchronized
+    fun clearClassicRanges() {
+        _classicRanges.clear()
+        classicRendition = 0
     }
 
     /** Mirrors the session track's rendition state (see above). */
@@ -285,6 +340,15 @@ class TrackSpool internal constructor(
         root.put("initLength", initLength)
         root.put("wr", wireRendition)
         root.put("cd", currentDelta)
+        root.put("crr", classicRendition)
+        val cr = JSONArray()
+        for (range in classicRanges()) {
+            val o = JSONObject()
+            o.put("s", range.first)
+            o.put("l", range.last - range.first + 1)
+            cr.put(o)
+        }
+        root.put("cr", cr)
         val arr = JSONArray()
         for (seg in _segments.values.sortedBy { it.sequence }) {
             val o = JSONObject()
@@ -294,6 +358,7 @@ class TrackSpool internal constructor(
             o.put("startMs", seg.startMs)
             o.put("durMs", seg.durationMs)
             o.put("d", seg.spoolDelta)
+            o.put("e", seg.expectedLength)
             arr.put(o)
         }
         root.put("segments", arr)
@@ -340,6 +405,19 @@ class TrackSpool internal constructor(
         initLength = init
         wireRendition = root.optLong("wr", 0)
         currentDelta = root.optLong("cd", 0)
+        classicRendition = root.optLong("crr", 0)
+        val cr = root.optJSONArray("cr")
+        if (cr != null) {
+            for (i in 0 until cr.length()) {
+                val o = cr.optJSONObject(i) ?: continue
+                val start = o.optLong("s", 0)
+                val length = o.optLong("l", 0)
+                if (length > 0) _classicRanges.add(start until start + length)
+            }
+            val merged = mergeRanges(_classicRanges)
+            _classicRanges.clear()
+            _classicRanges.addAll(merged)
+        }
         val arr = root.optJSONArray("segments") ?: return
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
@@ -349,6 +427,7 @@ class TrackSpool internal constructor(
                 durationMs = o.getLong("durMs"),
                 startRange = o.getLong("startRange"),
                 length = o.getLong("length"),
+                expectedLength = o.optLong("e", 0),
                 spoolDelta = o.optLong("d", 0),
             )
             // Sanity: never vouch for bytes past the real file end.
@@ -370,4 +449,23 @@ class TrackSpool internal constructor(
             return ftyp || ebml
         }
     }
+}
+
+/** Sorts [ranges] and merges overlapping or adjacent intervals —
+ * the same merge [TrackSpool.writtenRanges] applies. */
+private fun mergeRanges(ranges: List<LongRange>): List<LongRange> {
+    if (ranges.size < 2) return ranges.sortedBy { it.first }
+    val sorted = ranges.sortedBy { it.first }
+    val merged = ArrayList<LongRange>()
+    var cur = sorted.first()
+    for (next in sorted.drop(1)) {
+        if (next.first <= cur.last + 1) {
+            cur = cur.first..maxOf(cur.last, next.last)
+        } else {
+            merged.add(cur)
+            cur = next
+        }
+    }
+    merged.add(cur)
+    return merged
 }
