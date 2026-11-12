@@ -96,6 +96,7 @@ object BackendModule {
      * never user data, evictable by the system and by the spool
      * store's own budget alike.
      */
+    @androidx.media3.common.util.UnstableApi
     @Provides
     @Singleton
     fun provideSabrPlaybackCoordinator(

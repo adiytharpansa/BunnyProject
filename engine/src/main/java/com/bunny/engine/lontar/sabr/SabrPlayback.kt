@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar.sabr
 
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import com.bunny.engine.lontar.LontarEngine
 import java.io.File
@@ -56,6 +57,7 @@ class OkHttpSabrTransport(
  * readers throw, the player falls through to the classic chain, and
  * the spool keeps every byte for the next open.
  */
+@UnstableApi
 class SabrPlayback internal constructor(
     val openData: SabrOpenData,
     val spool: VideoSpool,
@@ -199,6 +201,7 @@ class SabrPlayback internal constructor(
  * bytes are cache, never user data) and the coroutine scope the
  * pumps live on.
  */
+@UnstableApi
 class SabrPlaybackCoordinator(
     private val engine: LontarEngine,
     private val spoolRoot: File,

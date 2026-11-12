@@ -2,6 +2,7 @@ package com.bunny.engine.lontar.sabr
 
 import android.net.Uri
 import androidx.media3.common.C
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.BaseDataSource
 import androidx.media3.datasource.DataSpec
 import java.io.IOException
@@ -18,6 +19,7 @@ import java.io.IOException
  * by [SabrPlayback], and instances of this class are disposable
  * windows onto their shared spool.
  */
+@UnstableApi
 class SabrDataSource(
     private val spool: VideoSpool,
     private val road: SpoolRoadState,
