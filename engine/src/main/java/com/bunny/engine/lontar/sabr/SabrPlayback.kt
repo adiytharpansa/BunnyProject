@@ -241,6 +241,9 @@ class SabrPlayback internal constructor(
         }
         var reloads = 0
         var lastLoggedSpoolSecond = 0L
+        // Mechanism 21: the honest preroll wait is named at most
+        // once per open (see the pump's onSleepDecision below).
+        var prerollWaitLogged = false
         try {
             while (true) {
                 val pump = SabrPump(
@@ -292,6 +295,25 @@ class SabrPlayback internal constructor(
                     onSleepDecision = { backoff, sleep ->
                         lastBackoffMs = backoff
                         lastSleepMs = sleep
+                        // Langkah 6, mechanism 21 — the honest
+                        // preroll: a long server-imposed wait
+                        // BEFORE the road has proven itself (the
+                        // classic preroll shape: the server answers
+                        // with backoff and no media) is named on
+                        // the diagnostics surface, once per open —
+                        // the wait is the server's, and the line
+                        // says so with its size, instead of leaving
+                        // a silent spinner to be blamed on the road.
+                        if (!prerollWaitLogged && !readySignal.isCompleted &&
+                            sleep >= PREROLL_WAIT_EVENT_MS
+                        ) {
+                            prerollWaitLogged = true
+                            onEvent?.invoke(
+                                "SABR: server meminta menunggu " +
+                                    "±${sleep / 1000} dtk sebelum media " +
+                                    "pertama (preroll)",
+                            )
+                        }
                     },
                     // Anti-buffering M8 (supersedes the fixed
                     // temperament of 2026-11-12 23:05): the sleep
@@ -307,6 +329,22 @@ class SabrPlayback internal constructor(
                     // Mechanism 13: on device, disk and network
                     // work at the same time.
                     pipelined = true,
+                    // Langkah 6 audit (mechanisms 8 + 24, 2026-11-13):
+                    // listen-only is a PLAYER-side switch today —
+                    // PlaybackManager disables the video TRACK TYPE
+                    // in background mode, so the player stops
+                    // consuming video — but the pump does not learn
+                    // about it and keeps fetching video segments:
+                    // this cap is global (the lead is the MINIMUM
+                    // across tracks), and every response still
+                    // carries both tracks. A pump-side video brake
+                    // would need a per-track request knob; the only
+                    // wire candidate is ClientAbrState's
+                    // enabled_track_types, whose bitmask semantics
+                    // our captures never proved — inventing it is
+                    // banned by the honesty rules. Deferred until a
+                    // capture proves the knob; the player-side
+                    // saving (no decode, no display) stands.
                     maxLeadMs = leadCapMs,
                 )
                 when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
@@ -344,6 +382,10 @@ class SabrPlayback internal constructor(
                             "token",
                             "SPS 3: server menuntut token — jalan SABR ditutup",
                         )
+                        // Mechanism 10: a token demand is a hard
+                        // refusal of THIS video on this road — the
+                        // road memory may keep it.
+                        engine.reportSabrHardRefusal(videoId)
                         die("server menuntut token (SPS 3)")
                         return
                     }
@@ -513,6 +555,10 @@ class SabrPlayback internal constructor(
         const val MAX_PUMP_REQUESTS = 5000
         const val MAX_RELOADS = 3
         const val READY_TIMEOUT_MS = 15_000L
+
+        /** Mechanism 21: a pre-ready pump sleep at least this long
+         *  is a named preroll wait, not a hiccup. */
+        const val PREROLL_WAIT_EVENT_MS = 5_000L
         // The pre-M8 hunger constants (cold window 60 s, hunger
         // lead 120 s, polite cap 5 s) are gone: leadBoundedSleep's
         // bands carry the same shape as the pump's own rule now.

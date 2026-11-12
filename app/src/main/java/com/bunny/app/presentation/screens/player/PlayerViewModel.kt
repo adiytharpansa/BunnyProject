@@ -14,6 +14,7 @@ import androidx.media3.session.SessionToken
 import com.bunny.app.data.DownloadEntity
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.data.RoadMemoryStore
 import com.bunny.app.data.WatchPositionStore
 import java.io.File
 import com.bunny.app.playback.PlaybackDiagnostics
@@ -22,6 +23,7 @@ import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoComment
+import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
@@ -117,7 +119,18 @@ class PlayerViewModel @Inject constructor(
     private val downloadManager: DownloadManager,
     private val positions: WatchPositionStore,
     private val sabrCoordinator: SabrPlaybackCoordinator,
+    private val engine: LontarEngine,
+    private val roadMemory: RoadMemoryStore,
 ) : ViewModel() {
+
+    init {
+        // Fase 8 Langkah 6, mechanism 10: the road memory hears
+        // the engine's hard refusals (no SABR offer in the player
+        // response, or a token demanded mid-stream) as they
+        // happen — including refusals inside a playback this
+        // ViewModel opened, which is exactly when they occur.
+        engine.onSabrHardRefusal = { videoId -> roadMemory.recordHard(videoId) }
+    }
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
@@ -845,10 +858,30 @@ class PlayerViewModel @Inject constructor(
                             "${jatahCap}p (sisa anggaran menipis)",
                     )
                 }
-                val sabr = sabrCoordinator.tryOpen(id, jatahCap) { message ->
-                    PlaybackDiagnostics.log(message)
+                // Langkah 6, mechanism 10 — the road memory is
+                // consulted BEFORE the offer: a video the road
+                // refused outright while the memory is fresh skips
+                // the doomed attempt entirely, and the classic
+                // flow below runs exactly as it would after a
+                // failed tryOpen.
+                val roadRefused = roadMemory.isHardRefused(id)
+                if (roadRefused) {
+                    PlaybackDiagnostics.log(
+                        "Ingatan jalan: SABR pernah ditolak tuntas " +
+                            "untuk video ini — langsung jalan klasik",
+                    )
+                }
+                val sabr = if (roadRefused) {
+                    null
+                } else {
+                    sabrCoordinator.tryOpen(id, jatahCap) { message ->
+                        PlaybackDiagnostics.log(message)
+                    }
                 }
                 if (sabr != null) {
+                    // A road that opened replaces any older
+                    // refusal in the memory.
+                    roadMemory.recordOk(id)
                     PlaybackDiagnostics.log(
                         "Jalan SABR (Anyam) terbuka: gulungan " +
                             "video itag ${sabr.servedVideoItag}, " +

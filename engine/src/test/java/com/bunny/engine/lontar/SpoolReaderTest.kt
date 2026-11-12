@@ -182,6 +182,55 @@ class SpoolReaderTest {
     }
 
     @Test
+    fun backwardSeekIntoSpooledBytesIsServedAtOnce() {
+        // Mechanism 23: a seek BACK into bytes the spool already
+        // holds is served immediately, at the seeked position —
+        // no wait, no error, the exact bytes the file holds there.
+        val track = filledTrack(SpoolStore(File(tempFolder.root, "h")))
+        val reader = SpoolReader(track, SpoolRoadState())
+        val buffer = ByteArray(10)
+        // Read near the end first (the playhead's first home)...
+        assertEquals(10, reader.readAt(110, buffer, 0, 10))
+        // ...then seek back into the segment region and the init.
+        assertEquals(10, reader.readAt(30, buffer, 0, 10))
+        assertEquals(0x61.toByte(), buffer[0])
+        assertEquals(10, reader.readAt(0, buffer, 0, 10))
+        assertEquals(0x1A.toByte(), buffer[0])
+    }
+
+    @Test
+    fun forwardSeekPastTheFrontierWaitsAndCompletesWhenTheFillPassesIt() {
+        // Mechanism 23: a seek FORWARD past everything the spool
+        // holds is not an error — the read waits (like any read at
+        // the frontier) and completes once the pump's fill passes
+        // the seeked position, serving the bytes that landed there.
+        val store = SpoolStore(File(tempFolder.root, "i"))
+        val track = filledTrack(store)
+        val road = SpoolRoadState()
+        val reader = SpoolReader(track, road)
+        val result = AtomicReference<Int>()
+        val content = AtomicReference<Byte>()
+        val done = CountDownLatch(1)
+        val thread = Thread {
+            val buffer = ByteArray(10)
+            result.set(reader.readAt(140, buffer, 0, 10))
+            content.set(buffer[0])
+            done.countDown()
+        }
+        thread.start()
+        // The frontier is 120; position 140 is beyond everything.
+        assertTrue(!done.await(300, TimeUnit.MILLISECONDS))
+        // The pump lands the next segment (120..170) and pulses.
+        track.write(120, ByteArray(50) { 0x62 })
+        track.noteSegment(SabrSegment(2, 10001, 10001, 120, 50))
+        road.pulse()
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        assertEquals(10, result.get())
+        assertEquals(0x62.toByte(), content.get())
+        thread.join(1000)
+    }
+
+    @Test
     fun servedBytesAreCountedForDiagnostics() {
         val track = filledTrack(SpoolStore(File(tempFolder.root, "f")))
         val reader = SpoolReader(track, SpoolRoadState())

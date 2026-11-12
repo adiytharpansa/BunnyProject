@@ -399,6 +399,57 @@ class SabrSessionTest {
         reopened.close()
     }
 
+    @Test
+    fun restoredSessionClaimsTheSpooledRangesAfterReload() {
+        // Mechanism 18: a session that RELOADS (a fresh player
+        // response, a fresh SabrSession) must tell the server the
+        // spool's truth in its FIRST request — bufferedRanges()
+        // claims exactly the restored segments, per track, and
+        // the buffered end is the shorter track. That claim is
+        // what makes the reload spool-honest: the server resumes
+        // past what we hold instead of restarting the media.
+        val store = SpoolStore(File(tempFolder.root, "spool2"))
+        val spool = store.open("vid")
+        val audio = spool.track(251)
+        val audioBytes = ByteArray(116)
+        byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte())
+            .copyInto(audioBytes, 0)
+        audio.write(0, audioBytes)
+        audio.noteFormat(SabrFormatId(251, 111L, "x"))
+        audio.noteInit(16)
+        audio.noteSegment(SabrSegment(1, 0L, 10_000L, 16L, 100L))
+        audio.flushManifest()
+        val video = spool.track(136)
+        val videoBytes = ByteArray(220)
+        "ftyp".toByteArray().copyInto(videoBytes, 4)
+        video.write(0, videoBytes)
+        video.noteFormat(SabrFormatId(136, 222L, null))
+        video.noteInit(20)
+        video.noteSegment(SabrSegment(1, 0L, 6_000L, 20L, 200L))
+        video.flushManifest()
+        spool.close()
+
+        val reopened = store.open("vid")
+        val restored = session()
+        restored.restoreFrom(reopened)
+        val ranges = restored.bufferedRanges()
+        assertEquals(2, ranges.size)
+        val audioRange = ranges.first { it.formatId.itag == 251 }
+        assertEquals(0L, audioRange.startTimeMs)
+        assertEquals(10_000L, audioRange.durationMs)
+        assertEquals(1, audioRange.startSegmentIndex)
+        assertEquals(1, audioRange.endSegmentIndex)
+        val videoRange = ranges.first { it.formatId.itag == 136 }
+        assertEquals(0L, videoRange.startTimeMs)
+        assertEquals(6_000L, videoRange.durationMs)
+        assertEquals(1, videoRange.startSegmentIndex)
+        assertEquals(1, videoRange.endSegmentIndex)
+        // The buffered end is the shorter track: playback resumes
+        // there, media beyond it is still owed by the server.
+        assertEquals(6_000L, restored.bufferedEndMs())
+        reopened.close()
+    }
+
     private fun cappedSession(cap: Int?): SabrSession = SabrSession(
         videoId = "vid",
         initialUrl = "https://x.invalid/s",

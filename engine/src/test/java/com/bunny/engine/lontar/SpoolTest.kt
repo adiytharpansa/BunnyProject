@@ -113,6 +113,39 @@ class SpoolTest {
     }
 
     @Test
+    fun sanityClampsSegmentReachingPastFileEnd() {
+        // Mechanism 9 (Langkah 6) — surgical repair: a segment
+        // that starts inside the file but claims bytes past its
+        // end is CLAMPED to what the file truly holds instead of
+        // dropped — the vouched part is real data. (A segment
+        // starting AT the end still drops: see the test above —
+        // its claimed start equals the file length, so nothing of
+        // it is real.)
+        val dir = File(tempFolder.root, "s")
+        val spool = SpoolStore(dir).open("vid5")
+        val track = spool.track(140)
+        track.write(0, ftypInit(16))
+        track.write(16, ByteArray(100) { 0x64 })
+        track.noteInit(16)
+        // The manifest claims 5000 bytes; the file holds 100.
+        track.noteSegment(
+            SabrSegment(1, 0, 5000, 16, 5000, expectedLength = 5000),
+        )
+        track.flushManifest()
+        spool.close()
+
+        val reopened = SpoolStore(dir).open("vid5").track(140)
+        assertEquals(setOf(1), reopened.segments.keys)
+        assertEquals(100L, reopened.segments[1]?.length)
+        // The announced extent is kept: the segment is honestly
+        // NOT complete — SABR still owes its tail.
+        assertEquals(5000L, reopened.segments[1]?.expectedLength)
+        assertEquals(16L, reopened.initLength)
+        // Init + clamped segment tile the whole real file.
+        assertEquals(116L, reopened.frontier())
+    }
+
+    @Test
     fun sanityStrikesInitWithUnknownHeadButKeepsSegments() {
         val dir = File(tempFolder.root, "s")
         val spool = SpoolStore(dir).open("vid4")

@@ -262,6 +262,19 @@ class PlaybackManager @Inject constructor(
 
     private var sabrStallRescue: Runnable? = null
 
+    /**
+     * The M12 rescue's buffering clock: when the current
+     * continuous BUFFERING stretch began (uptime), -1 while not
+     * buffering. A field rather than a local of the rescue
+     * runnable because a SEEK must be able to restart it
+     * (Langkah 6, mechanism 23 — see the position-discontinuity
+     * hook in the player listener): buffering measured across a
+     * seek would charge the road for the viewer's own travel
+     * time, and a seek past the frontier earns the pump a fresh
+     * threshold before the rescue may judge it.
+     */
+    private var rescueBufferingSinceMs: Long = -1
+
     private fun cancelSabrStallRescue() {
         sabrStallRescue?.let { mainHandler.removeCallbacks(it) }
         sabrStallRescue = null
@@ -341,8 +354,8 @@ class PlaybackManager @Inject constructor(
      */
     private fun armSabrStallRescue(sabr: SabrPlayback) {
         cancelSabrStallRescue()
+        rescueBufferingSinceMs = -1
         var hasBeenReady = false
-        var bufferingSinceMs = -1L
         val rescue = object : Runnable {
             override fun run() {
                 if (currentSabr !== sabr) return
@@ -356,13 +369,15 @@ class PlaybackManager @Inject constructor(
                 when (player.playbackState) {
                     Player.STATE_READY -> {
                         hasBeenReady = true
-                        bufferingSinceMs = -1
+                        rescueBufferingSinceMs = -1
                     }
                     Player.STATE_BUFFERING -> {
                         if (hasBeenReady && player.playWhenReady) {
                             val now = SystemClock.uptimeMillis()
-                            if (bufferingSinceMs < 0) bufferingSinceMs = now
-                            if (now - bufferingSinceMs >= SABR_STALL_RESCUE_MS) {
+                            if (rescueBufferingSinceMs < 0) {
+                                rescueBufferingSinceMs = now
+                            }
+                            if (now - rescueBufferingSinceMs >= SABR_STALL_RESCUE_MS) {
                                 PlaybackDiagnostics.log(
                                     "SABR macet di tengah putar (BUFFERING > " +
                                         "${SABR_STALL_RESCUE_MS / 1000} dtk) — " +
@@ -375,7 +390,7 @@ class PlaybackManager @Inject constructor(
                             }
                         }
                     }
-                    else -> bufferingSinceMs = -1
+                    else -> rescueBufferingSinceMs = -1
                 }
                 mainHandler.postDelayed(this, SABR_WATCHDOG_TICK_MS)
             }
@@ -743,6 +758,36 @@ class PlaybackManager @Inject constructor(
                             else -> "STATE_$state"
                         }
                         PlaybackDiagnostics.log("Player: $name")
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int,
+                    ) {
+                        // Langkah 6, mechanism 23 — panic-free
+                        // seek: a seek on the SABR road is a named
+                        // event, and it restarts every buffering
+                        // clock that could otherwise convict the
+                        // road for the viewer's travel time: the
+                        // M12 rescue measures its stretch from the
+                        // seek, and an episode already open in the
+                        // AnalyticsListener's accounting restarts
+                        // (with its dropped-frame baseline) so the
+                        // post-seek wait is judged on its own.
+                        if (reason != Player.DISCONTINUITY_REASON_SEEK ||
+                            currentSabr == null
+                        ) {
+                            return
+                        }
+                        PlaybackDiagnostics.log(
+                            "SABR: lompat ke ${newPosition.positionMs / 1000} dtk",
+                        )
+                        rescueBufferingSinceMs = -1
+                        if (sabrBufferingSinceMs >= 0) {
+                            sabrBufferingSinceMs = SystemClock.uptimeMillis()
+                            episodeDroppedStart = droppedFramesTotal
+                        }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {

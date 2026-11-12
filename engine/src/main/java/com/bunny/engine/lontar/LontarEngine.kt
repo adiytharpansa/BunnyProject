@@ -64,8 +64,16 @@ class LontarEngine(
     @Volatile private var config: EngineConfig.Values = EngineConfig.DEFAULTS
     @Volatile private var configFetched = false
 
-    /** Player responses are shared by details + streams calls for one video. */
-    private val playerCache = ConcurrentHashMap<String, Pair<JSONObject, PlayerPersona>>()
+    /**
+     * Player responses are shared by details + streams calls for one
+     * video — behind the expiry watch (Fase 8 Langkah 6, mechanism
+     * 20): an entry stops being served before the URLs inside it
+     * die, so a stale offer is refetched instead of its refusal
+     * being misread as a road or persona failure.
+     */
+    private val playerCache = PlayerResponseCache(
+        maxEntries = MAX_PLAYER_CACHE_ENTRIES,
+    )
 
     /** Paket Mesin B: short-window metadata answers (see [MetadataCache]). */
     private val metadataCache = MetadataCache()
@@ -491,6 +499,10 @@ class LontarEngine(
         )
         if (open == null) {
             noteSabrFailure("tawaran", "respons ${persona.name} tanpa SABR")
+            // Mechanism 10: no SABR offer in the response is a
+            // property of THIS video (a refusal category), not of
+            // the road — the road memory may keep it.
+            reportSabrHardRefusal(videoId)
             return null
         }
         return if (viewport != null) {
@@ -535,6 +547,27 @@ class LontarEngine(
     /** Records one fact on the "sabr" failure-evidence surface (7-A). */
     fun noteSabrFailure(kind: String, detail: String) {
         failureReporter.record("sabr", kind, detail.take(MAX_FAILURE_DETAIL_CHARS))
+    }
+
+    /**
+     * Fase 8 Langkah 6, mechanism 10 — the road memory's ear: set
+     * by the app (once, at player wiring time) to learn which
+     * videos the SABR road refused OUTRIGHT, so a later open of
+     * the same video can skip the doomed attempt while the memory
+     * is fresh. Only [reportSabrHardRefusal] callers speak here,
+     * and they are exactly the two hard facts: the player response
+     * carried no SABR offer for the video ("tawaran", below), and
+     * the server demanded a token mid-stream (SPS 3, reported by
+     * the playback drive). Soft, transient failures — transport,
+     * HTTP, stalls — never reach this hook: they are the road's
+     * weather, not the video's verdict.
+     */
+    @Volatile
+    var onSabrHardRefusal: ((videoId: String) -> Unit)? = null
+
+    /** Reports one hard refusal to the road memory, if it listens. */
+    fun reportSabrHardRefusal(videoId: String) {
+        onSabrHardRefusal?.invoke(videoId)
     }
 
     /**
@@ -700,7 +733,7 @@ class LontarEngine(
         if (failedPersonaName != null) {
             reportPlaybackSuspectedGvs(failedPersonaName)
         }
-        playerCache.remove(videoId)
+        playerCache.invalidate(videoId)
         return getPlaybackStreams(videoId)
     }
 
@@ -941,8 +974,22 @@ class LontarEngine(
      * intermittent LOGIN_REQUIRED bot gate) earns one retry, then the next
      * persona, and the last refusal is what the caller sees.
      */
+    /**
+     * The lifetime the response itself states for its URLs
+     * (`streamingData.expiresInSeconds`) — read with the same
+     * flexible coercion [InnertubeParser.parsePlaybackStreams]
+     * uses, because InnerTube sends it as a JSON string and
+     * org.json's optLong does not coerce strings. Null when the
+     * response does not say (the cache's default lifetime then
+     * applies — see [PlayerResponseCache]).
+     */
+    private fun playerExpirySeconds(response: JSONObject): Long? =
+        response.optJSONObject("streamingData")
+            ?.opt("expiresInSeconds")?.toString()?.toLongOrNull()
+            ?.takeIf { it > 0 }
+
     private suspend fun playerResponse(videoId: String): Pair<JSONObject, PlayerPersona> {
-        playerCache[videoId]?.let { return it }
+        playerCache.get(videoId)?.let { return it }
         val firstPass = attemptPlayerChain(videoId, sessionVisitorData())
         if (firstPass.accepted != null) return firstPass.accepted
         // Fase 4 resilience: the bot gate is bound to the session (see
@@ -1026,8 +1073,12 @@ class LontarEngine(
                 // real formats.
                 if (status == "OK" && hasPlayableStreams(response)) {
                     val accepted = response to persona
-                    if (playerCache.size >= MAX_PLAYER_CACHE_ENTRIES) playerCache.clear()
-                    playerCache[videoId] = accepted
+                    playerCache.put(
+                        videoId,
+                        response,
+                        persona,
+                        playerExpirySeconds(response),
+                    )
                     recordStat(persona.name, net, PersonaHealthState.SEHAT)
                     return ChainOutcome(accepted, null)
                 }

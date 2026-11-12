@@ -27,8 +27,12 @@ import org.json.JSONObject
  * segment length, and its known end segment number. The manifest is
  * the truth; data without a manifest entry is not trusted.
  *
- * Sanity before trust (mechanism 5): on load, segments reaching past
- * the real file length are dropped, and an init segment that does not
+ * Sanity before trust (mechanism 5): on load, a segment reaching
+ * past the real file length is CLAMPED to what the file truly
+ * holds (Langkah 6, mechanism 9 — surgical repair: the vouched
+ * part is real data, and dropping it would reopen a hole the pump
+ * already filled; only a segment starting at or past the file's
+ * end is dropped outright), and an init segment that does not
  * begin with a known container head — an fMP4 `ftyp` box or a WebM
  * EBML header (the opus audio track is WebM; both arrive over SABR) —
  * is struck from the manifest (the media segments are kept — they
@@ -430,9 +434,19 @@ class TrackSpool internal constructor(
                 expectedLength = o.optLong("e", 0),
                 spoolDelta = o.optLong("d", 0),
             )
-            // Sanity: never vouch for bytes past the real file end.
-            if (seg.startRange + seg.length <= fileLen) {
-                _segments[seg.sequence] = seg
+            // Sanity with a scalpel, not an axe (mechanism 9):
+            // never vouch for bytes past the real file end — but
+            // a segment that STARTS inside the file keeps every
+            // byte the file truly holds (its length clamped to
+            // the file end; expectedLength keeps the header's
+            // announced figure, so the segment honestly stays
+            // "not complete" for the session that restores it).
+            // Only a segment starting at or past the end of the
+            // file is dropped: nothing of it is real.
+            if (seg.startRange < fileLen) {
+                val real = minOf(seg.length, fileLen - seg.startRange)
+                _segments[seg.sequence] =
+                    if (real == seg.length) seg else seg.copy(length = real)
             }
         }
     }
