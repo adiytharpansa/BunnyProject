@@ -255,7 +255,8 @@ class SpoolReaderTest {
     private fun twoRegionTrack(store: SpoolStore): TrackSpool {
         val track = store.open("vid").track(251)
         val head = ByteArray(20)
-        byteArrayOf(0x1A, 0x45, 0xDF, 0xA3).copyInto(head)
+        byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte())
+            .copyInto(head)
         track.write(0, head)
         track.write(20, ByteArray(100) { 0x61 })
         track.write(220, ByteArray(100) { 0x63 })
