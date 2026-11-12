@@ -181,6 +181,26 @@ class SabrPumpTest {
     }
 
     @Test
+    fun tokenDemandedMidStreamEndsTheRunAndKeepsSpooledBytes() = runBlocking {
+        val initBytes = ByteArray(20).also {
+            it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()
+            it[6] = 'y'.code.toByte(); it[7] = 'p'.code.toByte()
+        }
+        val media = response(
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, initBytes),
+            nrpPart(60_000),
+        )
+        val sp = spool()
+        val transport = QueueTransport(listOf(media, response(spsPart(3))))
+        val outcome = pump(session(), sp, transport, ArrayList()).run(5)
+        assertEquals(SabrOutcome.TokenDemanded, outcome)
+        // What already flowed stays in the spool for the next open —
+        // a mid-stream death never takes rolled bytes with it.
+        assertEquals(20L, sp.track(251).fileLength())
+    }
+
+    @Test
     fun sabrErrorEndsTheRun() = runBlocking {
         val transport = QueueTransport(listOf(response(umpPart(44, ByteArray(0)))))
         val outcome = pump(session(), spool(), transport, ArrayList()).run(5)

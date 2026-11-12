@@ -128,6 +128,98 @@ class SabrSessionTest {
     }
 
     @Test
+    fun adoptionPrefersTheProvenFormatThatAlreadyCarriesMedia() {
+        val s = SabrSession(
+            videoId = "vid",
+            initialUrl = "https://x.invalid/s",
+            ustreamerConfig = byteArrayOf(9, 9),
+            clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+            durationSeconds = 100,
+            formats = listOf(
+                SabrFormat(251, "audio/webm", 160_000, 111L, "x"),
+                SabrFormat(136, "video/mp4", 2_000_000, 222L, null),
+                SabrFormat(137, "video/mp4", 4_500_000, 333L, null),
+            ),
+            audioItag = 251,
+            videoItag = 137,
+            cpn = "CPN",
+        )
+        s.consume(
+            listOf(
+                SabrPart.InitMetadataPart(
+                    mapOf(
+                        136 to FormatInit(40, 1000, emptyMap()),
+                        137 to FormatInit(40, 1000, emptyMap()),
+                    )
+                )
+            )
+        )
+        // BOTH video formats are proven at init-segment level, but
+        // only 136 ever carries a media segment.
+        s.consume(
+            listOf(
+                header(0, 137, null, 0, 100, init = true),
+                SabrPart.MediaPart(0, ByteArray(100)),
+                header(1, 136, null, 0, 100, init = true),
+                SabrPart.MediaPart(1, ByteArray(100)),
+                header(2, 136, 1, 100, 500),
+                SabrPart.MediaPart(2, ByteArray(500)),
+            )
+        )
+        s.adoptServerPins()
+        // The format carrying media wins over the higher-bitrate
+        // format that only ever sent its init segment.
+        assertEquals(136, s.videoFormat.itag)
+    }
+
+    @Test
+    fun requestPinsTheWireProvenFormatNotThePaperPin() {
+        val s = SabrSession(
+            videoId = "vid",
+            initialUrl = "https://x.invalid/s",
+            ustreamerConfig = byteArrayOf(9, 9),
+            clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+            durationSeconds = 100,
+            formats = listOf(
+                SabrFormat(251, "audio/webm", 160_000, 111L, "x"),
+                SabrFormat(136, "video/mp4", 2_000_000, 222L, null),
+                SabrFormat(137, "video/mp4", 4_500_000, 333L, null),
+            ),
+            audioItag = 251,
+            videoItag = 137,
+            cpn = "CPN",
+        )
+        s.consume(
+            listOf(
+                SabrPart.InitMetadataPart(
+                    mapOf(
+                        136 to FormatInit(40, 1000, emptyMap()),
+                        137 to FormatInit(40, 1000, emptyMap()),
+                    )
+                )
+            )
+        )
+        s.consume(
+            listOf(
+                header(0, 136, null, 0, 100, init = true),
+                SabrPart.MediaPart(0, ByteArray(100)),
+                header(1, 136, 1, 100, 500),
+                SabrPart.MediaPart(1, ByteArray(500)),
+            )
+        )
+        s.adoptServerPins()
+        val f = fields(s.buildRequest(0, 5_000_000, pinFormats = true))
+        // Field 17 is the preferred-video FormatId; its field 1 is
+        // the itag. The request must pin the wire-proven 136, never
+        // the paper pin 137 the player response arrived with.
+        assertEquals(136L, fields(f.bytesOf(17)!!).varintOf(1))
+        // Field 2 (selected ids) likewise names only proven formats.
+        val selected = f.allBytesOf(2).map { fields(it).varintOf(1) }
+        assertTrue(136L in selected)
+        assertTrue(137L !in selected)
+    }
+
+    @Test
     fun coldRequestCarriesNoSelectionRangesPinsOrCookie() {
         val request = session().buildRequest(0, 5_000_000, pinFormats = false)
         val f = fields(request)

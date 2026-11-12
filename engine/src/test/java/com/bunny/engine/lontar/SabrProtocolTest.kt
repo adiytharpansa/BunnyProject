@@ -321,6 +321,36 @@ class SabrProtocolTest {
     }
 
     @Test
+    fun decoderSurvivesMalformedKnownParts() {
+        // The tolerance law, hostile edition: parts whose TYPE is
+        // known but whose payload is garbage must degrade, never
+        // throw — and must not poison the well-formed part beside
+        // them. (Single-byte UMP varints: every type and size here
+        // is below 0x80.)
+        fun part(type: Int, payload: ByteArray): com.bunny.engine.lontar.sabr.UmpPart =
+            com.bunny.engine.lontar.sabr.UmpPart(type, payload)
+        val okSps = ProtoWriter().fieldVarint(1, 1).build()
+        val decoded = SabrPartDecoder.decodeAll(
+            listOf(
+                // Media header with an invalid protobuf payload.
+                part(20, byteArrayOf(0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte())),
+                // Media part with no header-id varint at all.
+                part(21, ByteArray(0)),
+                // Init metadata with a truncated field.
+                part(42, byteArrayOf(0x0A, 0x7F, 0x01)),
+                // Protection status with a lone continuation byte.
+                part(58, byteArrayOf(0x80.toByte())),
+                // The well-formed neighbour still decodes.
+                part(58, okSps),
+            ),
+            knownItags = setOf(251, 136),
+        )
+        val statuses = decoded.filterIsInstance<SabrPart.ProtectionStatusPart>()
+        assertEquals(1, statuses.size)
+        assertEquals(1, statuses[0].status.status)
+    }
+
+    @Test
     fun abrRequestsRebuildByteExactFromRecordedSpecs() {
         val pairs = manifest.getJSONArray("pairs")
         for (i in 0 until pairs.length()) {

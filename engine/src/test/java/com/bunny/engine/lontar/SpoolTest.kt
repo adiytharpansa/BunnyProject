@@ -53,6 +53,26 @@ class SpoolTest {
     }
 
     @Test
+    fun frontierStopsAtTheFirstGapAndResumesWhenFilled() {
+        val store = SpoolStore(File(tempFolder.root, "g"))
+        val track = store.open("vid").track(140)
+        track.write(0, ftypInit(16))
+        track.noteInit(16)
+        // Only segment 2 lands (bytes 116..165); segment 1 is missing.
+        track.write(116, ByteArray(50) { 0x63 })
+        track.noteSegment(SabrSegment(2, 5000, 5000, 116, 50))
+        track.flushManifest()
+        // The frontier must stop at the gap: only the init is playable.
+        assertEquals(16L, track.frontier())
+        // Segment 1 fills the gap (bytes 16..115): the frontier now
+        // runs unbroken to the end of segment 2.
+        track.write(16, ByteArray(100) { 0x64 })
+        track.noteSegment(SabrSegment(1, 0, 5000, 16, 100))
+        track.flushManifest()
+        assertEquals(166L, track.frontier())
+    }
+
+    @Test
     fun manifestSurvivesReopen() {
         val dir = File(tempFolder.root, "s")
         val spool = SpoolStore(dir).open("vid2")
