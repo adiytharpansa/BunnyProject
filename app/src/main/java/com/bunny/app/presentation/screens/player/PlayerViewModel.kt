@@ -22,6 +22,7 @@ import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoComment
+import com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import com.google.common.util.concurrent.ListenableFuture
@@ -112,6 +113,7 @@ class PlayerViewModel @Inject constructor(
     private val library: LibraryRepository,
     private val downloadManager: DownloadManager,
     private val positions: WatchPositionStore,
+    private val sabrCoordinator: SabrPlaybackCoordinator,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
@@ -807,7 +809,21 @@ class PlayerViewModel @Inject constructor(
                     .takeIf { it.isNotEmpty() }
                     ?.let { PlaybackDiagnostics.log("Tangga mesin: $it") }
 
-                if (sources.isEmpty()) {
+                // Fase 8 (Anyam), Langkah 3: the SABR road is offered
+                // first when the remote config allows it. tryOpen
+                // rides the same cached player response fetched above,
+                // proves the road with a first exchange, and returns
+                // null when the road is not taken — the classic flow
+                // below is then exactly what it was before Fase 8.
+                val sabr = sabrCoordinator.tryOpen(id)
+                if (sabr != null) {
+                    PlaybackDiagnostics.log(
+                        "Jalan SABR (Anyam) terbuka: gulungan " +
+                            "video itag ${sabr.servedVideoItag}, " +
+                            "audio itag ${sabr.servedAudioItag}",
+                    )
+                }
+                if (sources.isEmpty() && sabr == null) {
                     _uiState.value = PlayerUiState.Error(
                         "Video ini tidak menyediakan aliran yang dapat diputar.",
                     )
@@ -815,12 +831,22 @@ class PlayerViewModel @Inject constructor(
                 }
                 PlaybackService.start(application)
                 playbackManager.configure(streams.playbackUserAgent)
-                playbackManager.play(
-                    streams,
-                    details.title,
-                    details.channelName,
-                    details.thumbnailUrl,
-                )
+                if (sabr != null) {
+                    playbackManager.playWithSabr(
+                        sabr,
+                        streams,
+                        details.title,
+                        details.channelName,
+                        details.thumbnailUrl,
+                    )
+                } else {
+                    playbackManager.play(
+                        streams,
+                        details.title,
+                        details.channelName,
+                        details.thumbnailUrl,
+                    )
+                }
 
                 // Jatah: charge the estimate once playback starts, then
                 // judge the month WITH this video included — the warning

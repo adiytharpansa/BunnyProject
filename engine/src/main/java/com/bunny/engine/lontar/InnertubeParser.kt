@@ -9,6 +9,9 @@ import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoComment
 import com.bunny.core.model.VideoItem
+import com.bunny.engine.lontar.sabr.SabrClientInfo
+import com.bunny.engine.lontar.sabr.SabrFormat
+import com.bunny.engine.lontar.sabr.SabrOpenData
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -719,6 +722,112 @@ object InnertubeParser {
             ),
             tracking = parsePlaybackTracking(player),
         )
+    }
+
+    /**
+     * Fase 8 (Anyam): lifts the SABR offer out of a player response —
+     * the serverAbrStreamingUrl, the ustreamer configuration (found by
+     * a bounded recursive search, the way the proving probe found it:
+     * its exact parentage inside playerConfig is not a contract), the
+     * adaptive format registry, and the opening pins (richest audio,
+     * richest video — the server may adopt its own pins after init,
+     * and the Jatah ceiling that will discipline this choice arrives
+     * in Langkah 5).
+     *
+     * Null when the road is not offered: unplayable, live (SABR stays
+     * off live by design), or any required field missing. A null here
+     * is not an error — the classic road simply remains the only one.
+     */
+    fun parseSabrOpen(player: JSONObject, persona: PlayerPersona): SabrOpenData? {
+        val playability = player.optJSONObject("playabilityStatus") ?: return null
+        if (playability.optString("status") != "OK") return null
+        val details = player.optJSONObject("videoDetails") ?: return null
+        if (details.optBoolean("isLive", false)) return null
+        val videoId = details.optString("videoId").takeIf { it.isNotEmpty() }
+            ?: return null
+        val streaming = player.optJSONObject("streamingData") ?: return null
+        val sabrUrl = streaming.optString("serverAbrStreamingUrl")
+            .takeIf { it.isNotEmpty() } ?: return null
+        val ustreamerB64 = findStringRecursive(
+            player.optJSONObject("playerConfig"),
+            "videoPlaybackUstreamerConfig",
+            depth = 0,
+        ) ?: return null
+        val ustreamer = decodeBase64Lenient(ustreamerB64) ?: return null
+
+        val formatsArray = streaming.optJSONArray("adaptiveFormats") ?: return null
+        val formats = ArrayList<SabrFormat>()
+        for (i in 0 until formatsArray.length()) {
+            val f = formatsArray.optJSONObject(i) ?: continue
+            val itag = f.optInt("itag", 0)
+            val mimeType = f.optString("mimeType")
+            if (itag <= 0 || mimeType.isEmpty()) continue
+            formats += SabrFormat(
+                itag = itag,
+                mimeType = mimeType,
+                bitrate = f.optLong("bitrate", 0).toInt(),
+                lastModified = f.opt("lastModified")?.toString()?.toLongOrNull(),
+                xtags = f.optString("xtags").takeIf { it.isNotEmpty() },
+            )
+        }
+        if (formats.isEmpty()) return null
+        val audioPin = formats.filter { it.isAudio }.maxByOrNull { it.bitrate }
+            ?: return null
+        val videoPin = formats.filter { !it.isAudio }.maxByOrNull { it.bitrate }
+            ?: return null
+        val clientInfo = SabrClientInfo(
+            clientName = persona.clientNameId.toIntOrNull() ?: return null,
+            clientVersion = persona.clientVersion,
+            osName = persona.clientFields["osName"] as? String ?: return null,
+            osVersion = persona.clientFields["osVersion"] as? String ?: return null,
+        )
+        return SabrOpenData(
+            videoId = videoId,
+            sabrUrl = sabrUrl,
+            ustreamerConfig = ustreamer,
+            formats = formats,
+            audioPin = audioPin,
+            videoPin = videoPin,
+            durationSeconds = details.opt("lengthSeconds")?.toString()
+                ?.toIntOrNull() ?: 0,
+            clientInfo = clientInfo,
+            userAgent = persona.userAgent,
+            tracking = parsePlaybackTracking(player),
+        )
+    }
+
+    /** Bounded recursive key search over a JSON subtree. */
+    private fun findStringRecursive(
+        node: JSONObject?,
+        key: String,
+        depth: Int,
+    ): String? {
+        if (node == null || depth > 6) return null
+        val direct = node.optString(key).takeIf { it.isNotEmpty() }
+        if (direct != null) return direct
+        val names = node.names() ?: return null
+        for (i in 0 until names.length()) {
+            val child = node.optJSONObject(names.getString(i)) ?: continue
+            val found = findStringRecursive(child, key, depth + 1)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    /** URL-safe or standard base64, padding optional (probe recipe). */
+    private fun decodeBase64Lenient(value: String): ByteArray? {
+        val padded = value.trim().let {
+            it + "=".repeat((4 - it.length % 4) % 4)
+        }
+        return try {
+            java.util.Base64.getUrlDecoder().decode(padded)
+        } catch (e: IllegalArgumentException) {
+            try {
+                java.util.Base64.getDecoder().decode(padded)
+            } catch (e2: IllegalArgumentException) {
+                null
+            }
+        }
     }
 
     /**

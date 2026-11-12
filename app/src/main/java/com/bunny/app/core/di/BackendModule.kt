@@ -90,6 +90,23 @@ object BackendModule {
     fun provideExtractionBackend(engine: LontarEngine): ExtractionBackend =
         engine
 
+    /**
+     * Fase 8 (Anyam): the SABR playback coordinator. Spools live
+     * under the app's cache directory — media bytes in transit,
+     * never user data, evictable by the system and by the spool
+     * store's own budget alike.
+     */
+    @Provides
+    @Singleton
+    fun provideSabrPlaybackCoordinator(
+        @ApplicationContext context: Context,
+        engine: LontarEngine,
+    ): com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator =
+        com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator(
+            engine,
+            java.io.File(context.cacheDir, "sabr-spool"),
+        )
+
     /** Jalan A: the official Data API client for the personal layer. */
     @Provides
     @Singleton

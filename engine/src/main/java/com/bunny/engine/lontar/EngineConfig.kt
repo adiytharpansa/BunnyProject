@@ -45,6 +45,18 @@ object EngineConfig {
         val radarDeepProbeOffsetBytes: Long = 3_000_000L,
         /** A Radar result older than this is stale and may be refreshed. */
         val radarMaxAgeHours: Int = 6,
+        /**
+         * Fase 8 (Anyam, RANCANGAN-FASE-8 Bagian 7): the SABR road's
+         * remote gate. The shipped default is OFF — the road exists in
+         * code from Langkah 3 but serves nobody until the config
+         * deliberately opens it (activation is Langkah 7's ceremony,
+         * per network class, on device evidence).
+         */
+        val sabrEnabled: Boolean = false,
+        /** Personas allowed to speak SABR, by [PlayerPersona.name]. */
+        val sabrPersonas: List<String> = listOf("VISIONOS"),
+        /** Total on-disk budget for all spools, in megabytes. */
+        val spoolBudgetMb: Int = 512,
     )
 
     val DEFAULTS = Values(
@@ -88,6 +100,14 @@ object EngineConfig {
             }
         }
         val radar = json.optJSONObject("radar")
+        val sabrPersonas = mutableListOf<String>()
+        val sabrPersonaArray = json.optJSONArray("sabrPersonas")
+        if (sabrPersonaArray != null) {
+            for (i in 0 until sabrPersonaArray.length()) {
+                val name = sabrPersonaArray.optString(i).trim()
+                if (name.isNotEmpty()) sabrPersonas += name
+            }
+        }
         return Values(
             fallbackClientVersion = json.optString("fallbackClientVersion")
                 .takeIf { it.isNotBlank() } ?: DEFAULTS.fallbackClientVersion,
@@ -109,6 +129,15 @@ object EngineConfig {
             radarMaxAgeHours = radar
                 ?.optInt("maxAgeHours")
                 ?.takeIf { it > 0 } ?: DEFAULTS.radarMaxAgeHours,
+            sabrEnabled = if (json.has("sabrEnabled")) {
+                json.optBoolean("sabrEnabled")
+            } else {
+                DEFAULTS.sabrEnabled
+            },
+            sabrPersonas = sabrPersonas.takeIf { it.isNotEmpty() }
+                ?: DEFAULTS.sabrPersonas,
+            spoolBudgetMb = json.optInt("spoolBudgetMb")
+                .takeIf { it > 0 } ?: DEFAULTS.spoolBudgetMb,
         )
     }
 }

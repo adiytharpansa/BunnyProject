@@ -107,6 +107,15 @@ class VideoSpool internal constructor(
         TrackSpool(dir, itag)
     }
 
+    /** Itags with a manifest on disk, including ones this instance
+     * has not opened yet (a previous session's tracks). */
+    fun trackItags(): Set<Int> =
+        dir.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".json") }
+            ?.mapNotNull { it.name.removeSuffix(".json").toIntOrNull() }
+            ?.toSet()
+            ?: emptySet()
+
     fun touch() {
         val marker = File(dir, SpoolStore.ACCESS_MARKER)
         if (!marker.exists()) marker.createNewFile()
@@ -198,6 +207,17 @@ class TrackSpool internal constructor(
 
     fun hasRange(offset: Long, length: Long): Boolean =
         writtenRanges().any { it.first <= offset && offset + length <= it.last + 1 }
+
+    /**
+     * The playable frontier: bytes readable from the very start —
+     * the end of the first merged range when it begins at offset 0,
+     * else 0. SABR fills sequentially, so this is what a reader may
+     * consume right now.
+     */
+    fun frontier(): Long {
+        val first = writtenRanges().firstOrNull() ?: return 0
+        return if (first.first == 0L) first.last + 1 else 0
+    }
 
     /** True when the spool head is a playable container start. */
     fun hasPlayableHead(): Boolean = initLength > 0 && hasRange(0, initLength)

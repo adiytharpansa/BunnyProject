@@ -36,6 +36,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // Fase 8 (Anyam): SabrDataSource is the Media3 face of the spool.
+    // Only the datasource module — the player itself stays in :app.
+    implementation("androidx.media3:media3-datasource:1.11.1")
+
     testImplementation("junit:junit:4.13.2")
     // Real org.json on the JVM so parser tests exercise the same API the
     // Android runtime provides on device.

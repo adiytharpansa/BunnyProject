@@ -92,6 +92,10 @@ class SabrPump(
     private val bandwidth: BandwidthMeter,
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
     private val onExchange: ((SabrExchange) -> Unit)? = null,
+    /** Called after each response's chunks are persisted. */
+    private val onProgress: (() -> Unit)? = null,
+    /** Called once per track whose final segment has landed. */
+    private val onTrackComplete: ((Int) -> Unit)? = null,
 ) {
 
     suspend fun run(maxRequests: Int): SabrOutcome {
@@ -100,6 +104,7 @@ class SabrPump(
         var dryStreak = 0
         var waitStreak = 0
         var requests = 0
+        val completedNotified = HashSet<Int>()
 
         while (requests < maxRequests) {
             val body = session.buildRequest(playerTimeMs, bandwidth.estimateBps(), pin)
@@ -128,6 +133,12 @@ class SabrPump(
             val result = session.consume(decoded)
 
             persist(result)
+            onProgress?.invoke()
+            for ((itag, track) in session.tracks) {
+                if (track.isComplete && completedNotified.add(itag)) {
+                    onTrackComplete?.invoke(itag)
+                }
+            }
             onExchange?.invoke(
                 SabrExchange(
                     rn = exchangeRn,

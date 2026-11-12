@@ -29,6 +29,7 @@ import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.engine.lontar.sabr.SabrPlayback
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -130,6 +131,7 @@ class PlaybackManager @Inject constructor(
         channelName: String = "",
         artworkUrl: String? = null,
     ) {
+        closeSabr()
         currentPersonaName = streams.personaName
         currentSourceIsLocal = false
         clearQualityOverride()
@@ -161,10 +163,87 @@ class PlaybackManager @Inject constructor(
     }
 
     fun stop() {
+        closeSabr()
         watchReporter.stop()
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
+    }
+
+    /** The SABR playback currently feeding the player, if any. */
+    private var currentSabr: SabrPlayback? = null
+
+    private fun closeSabr() {
+        currentSabr?.close()
+        currentSabr = null
+    }
+
+    /**
+     * Fase 8 (Anyam), Langkah 3: plays [sabr] FIRST, with the whole
+     * classic chain behind it as the fallthrough. The spool road and
+     * the classic road are two ways into the same video: if SABR
+     * dies before or during playback, the chain advances to the
+     * classic sources and the position is carried over — the spool
+     * keeps every byte it already holds for the next open. Stats
+     * reporting rides the addresses the SABR response itself handed
+     * out, exactly as on the classic road.
+     */
+    fun playWithSabr(
+        sabr: SabrPlayback,
+        streams: PlaybackStreams,
+        title: String,
+        channelName: String = "",
+        artworkUrl: String? = null,
+    ) {
+        closeSabr()
+        currentSabr = sabr
+        currentPersonaName = streams.personaName
+        currentSourceIsLocal = false
+        clearQualityOverride()
+        val metadata = MediaMetadata.Builder()
+            .setTitle(title)
+            .setArtist(channelName.takeIf { it.isNotEmpty() })
+            .setArtworkUri(artworkUrl?.let { Uri.parse(it) })
+            .build()
+        val chain = listOf("SABR (Anyam)" to buildSabrSource(sabr, metadata)) +
+            buildSourceChain(streams, metadata)
+        PlaybackDiagnostics.log(
+            "Jalan untuk \"$title\": SABR (Anyam) lebih dulu, " +
+                "klasik di belakangnya",
+        )
+        playChain(chain, title, resumeOnFirstFallthrough = true)
+        val tracking = sabr.openData.tracking ?: streams.tracking
+        if (tracking != null) {
+            watchReporter.start(
+                tracking = tracking,
+                userAgent = sabr.openData.userAgent,
+                positionMs = { player.currentPosition },
+                isPlaying = { player.isPlaying },
+            )
+        } else {
+            watchReporter.stop()
+        }
+    }
+
+    /** The player's view of the spool: two progressive fMP4 streams
+     * (video + audio tracks) merged, served by [SabrDataSource]. */
+    private fun buildSabrSource(
+        sabr: SabrPlayback,
+        metadata: MediaMetadata,
+    ): MediaSource {
+        fun source(itag: Int): MediaSource {
+            val item = MediaItem.Builder()
+                .setUri(Uri.parse("bunny-sabr://${sabr.videoId}/$itag"))
+                .setMediaMetadata(metadata)
+                .build()
+            return ProgressiveMediaSource.Factory(sabr.dataSourceFactory)
+                .createMediaSource(item)
+        }
+        return MergingMediaSource(
+            true,
+            source(sabr.servedVideoItag),
+            source(sabr.servedAudioItag),
+        )
     }
 
     /**
@@ -181,6 +260,7 @@ class PlaybackManager @Inject constructor(
     ) {
         // Local files earn no reports — the addresses belong to a
         // streamed view, and this is not one.
+        closeSabr()
         watchReporter.stop()
         currentPersonaName = null
         currentSourceIsLocal = true
@@ -438,7 +518,11 @@ class PlaybackManager @Inject constructor(
         return null
     }
 
-    private fun playChain(sources: List<Pair<String, MediaSource>>, title: String) {
+    private fun playChain(
+        sources: List<Pair<String, MediaSource>>,
+        title: String,
+        resumeOnFirstFallthrough: Boolean = false,
+    ) {
         currentTitle = title
         val (label, source) = sources.first()
         val rest = sources.drop(1)
@@ -449,7 +533,19 @@ class PlaybackManager @Inject constructor(
             {
                 // A late error event from the previous source must not
                 // advance the chain a second time.
-                if (generation == chainGeneration) playChain(rest, title)
+                if (generation == chainGeneration) {
+                    // Anyam (Fase 8): when the head source was the SABR
+                    // road, the classic road continues from the same
+                    // position — the viewer keeps their place, the
+                    // spool keeps its bytes.
+                    val resumeAt = if (resumeOnFirstFallthrough) {
+                        player.currentPosition
+                    } else {
+                        0L
+                    }
+                    playChain(rest, title)
+                    if (resumeAt > 0) player.seekTo(resumeAt)
+                }
             }
         }
         PlaybackDiagnostics.log("Memutar \"$title\" via $label")

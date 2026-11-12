@@ -257,6 +257,46 @@ class SabrSession(
         best(false)?.let { if (it.itag != videoFormat.itag) videoFormat = it }
     }
 
+    /**
+     * Rehydrates this session's track state from a spool an earlier
+     * session filled (the RELOAD road, design mechanism 18): the new
+     * session must tell the truth about what the disk already holds —
+     * its buffered ranges, its selections, its playhead — or it would
+     * re-ask for segments it already owns. Tracks the spool holds
+     * beyond the opening pins (the server's adopted formats) are
+     * loaded too, and the pin adoption runs over the restored state.
+     */
+    fun restoreFrom(spool: VideoSpool) {
+        fun load(itag: Int) {
+            val trackSpool = spool.track(itag)
+            if (trackSpool.initLength == 0L && trackSpool.segments.isEmpty()) return
+            val track = trackFor(itag)
+            trackSpool.endSegmentNumber?.let {
+                if (track.endSegmentNumber == null) track.endSegmentNumber = it
+            }
+            if (trackSpool.initLength > 0) {
+                track.gotInit = true
+                track.initBytes = trackSpool.initLength
+            }
+            for ((seq, segment) in trackSpool.segments) {
+                track.segments[seq] = segment
+                countedSegments.add(itag to seq)
+                track.timelineEndMs =
+                    maxOf(track.timelineEndMs, segment.startMs + segment.durationMs)
+                track.mediaBytes += segment.length
+            }
+            initializedInSession.add(itag)
+            registry[itag]?.let { serverInitialized[itag] = it }
+            initReceived = true
+        }
+        load(audioFormat.itag)
+        load(videoFormat.itag)
+        for (itag in spool.trackItags()) {
+            if (itag != audioFormat.itag && itag != videoFormat.itag) load(itag)
+        }
+        if (initReceived) adoptServerPins()
+    }
+
     fun buildRequest(
         playerTimeMs: Long,
         bandwidthBps: Long,

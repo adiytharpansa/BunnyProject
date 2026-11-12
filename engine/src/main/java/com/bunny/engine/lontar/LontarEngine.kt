@@ -379,6 +379,66 @@ class LontarEngine(
         )
     }
 
+    // ------------------------------------------------------------ fase 8
+
+    /** The SABR slice of the current configuration (remote or defaults). */
+    fun sabrSettings(): com.bunny.engine.lontar.sabr.SabrSettings =
+        com.bunny.engine.lontar.sabr.SabrSettings(
+            enabled = config.sabrEnabled,
+            personas = config.sabrPersonas,
+            spoolBudgetBytes = config.spoolBudgetMb.toLong() * 1024 * 1024,
+        )
+
+    /**
+     * Fase 8 (Anyam), Langkah 3: offers the SABR road for [videoId],
+     * or null when the road is not there. Rides the SAME cached
+     * player response the classic chain uses — when the ladder's
+     * accepted persona is not the SABR persona, the road is not
+     * attempted (a demoted persona is itself evidence, and the
+     * oracle's statistics are the ladder's). Never throws: a SABR
+     * refusal is a fact for the "sabr" evidence surface, not an
+     * error the user should ever see — the classic road decides
+     * what the user experiences.
+     */
+    suspend fun openSabrSession(
+        videoId: String,
+    ): com.bunny.engine.lontar.sabr.SabrOpenData? {
+        val oracle = com.bunny.engine.lontar.sabr.RoadOracle(sabrSettings())
+        val (response, persona) = try {
+            playerResponse(videoId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteSabrFailure("player", e.message ?: "respons player gagal")
+            return null
+        }
+        val details = response.optJSONObject("videoDetails")
+        val isLive = details?.optBoolean("isLive", false) == true
+        if (!oracle.allowsSabr(persona.name, isLive)) {
+            return null
+        }
+        val open = InnertubeParser.parseSabrOpen(response, persona)
+        if (open == null) {
+            noteSabrFailure("tawaran", "respons ${persona.name} tanpa SABR")
+        }
+        return open
+    }
+
+    /** Records one fact on the "sabr" failure-evidence surface (7-A). */
+    fun noteSabrFailure(kind: String, detail: String) {
+        failureReporter.record("sabr", kind, detail.take(MAX_FAILURE_DETAIL_CHARS))
+    }
+
+    /**
+     * The SABR transport over this engine's shared HTTP client, with
+     * exactly the headers the proving probe sent (protobuf content
+     * type, UMP accept, identity encoding — no transparent gzip).
+     */
+    fun createSabrTransport(
+        userAgent: String,
+    ): com.bunny.engine.lontar.sabr.SabrTransport =
+        com.bunny.engine.lontar.sabr.OkHttpSabrTransport(httpClient, userAgent)
+
     /**
      * Selera Tamu (Langkah 2): the warming probe. Both browses ride
      * the ordinary metadata session — which, since Langkah 0,
