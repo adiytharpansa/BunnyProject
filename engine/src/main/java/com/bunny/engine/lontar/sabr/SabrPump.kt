@@ -96,6 +96,17 @@ class SabrPump(
     private val onProgress: (() -> Unit)? = null,
     /** Called once per track whose final segment has landed. */
     private val onTrackComplete: ((Int) -> Unit)? = null,
+    /**
+     * Playback hunger (device verdict 2026-11-12, Langkah 3): while
+     * the spooled timeline is shorter than [hungryUntilMs], the
+     * server's backoff sleep is capped to [hungrySleepCapMs] — a
+     * player waiting to start needs its opening stock filled
+     * promptly, and full politeness starved it into silence on
+     * device. Zero disables; probe and replay runs keep the
+     * recorded cadence.
+     */
+    private val hungryUntilMs: Long = 0,
+    private val hungrySleepCapMs: Long = 1_000,
 ) {
 
     suspend fun run(maxRequests: Int): SabrOutcome {
@@ -194,11 +205,19 @@ class SabrPump(
             if (session.isComplete()) return SabrOutcome.Completed
 
             val backoff = result.backoffTimeMs
-            if (backoff != null && backoff > 0) {
-                sleeper(minOf(backoff, if (result.mediaBytes == 0L) 15_000 else 20_000))
+            val polite = if (backoff != null && backoff > 0) {
+                minOf(backoff, if (result.mediaBytes == 0L) 15_000 else 20_000)
             } else {
-                sleeper(200)
+                200L
             }
+            val sleep = if (
+                hungryUntilMs > 0 && session.bufferedEndMs() < hungryUntilMs
+            ) {
+                minOf(polite, hungrySleepCapMs)
+            } else {
+                polite
+            }
+            sleeper(sleep)
         }
         return SabrOutcome.RequestsExhausted(requests)
     }

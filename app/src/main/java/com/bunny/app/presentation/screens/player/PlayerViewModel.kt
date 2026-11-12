@@ -817,6 +817,9 @@ class PlayerViewModel @Inject constructor(
                 // below is then exactly what it was before Fase 8.
                 val sabr = sabrCoordinator.tryOpen(id)
                 if (sabr != null) {
+                    sabr.onEvent = { message ->
+                        PlaybackDiagnostics.log(message)
+                    }
                     PlaybackDiagnostics.log(
                         "Jalan SABR (Anyam) terbuka: gulungan " +
                             "video itag ${sabr.servedVideoItag}, " +

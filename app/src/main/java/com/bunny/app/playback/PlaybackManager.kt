@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -178,6 +180,41 @@ class PlaybackManager @Inject constructor(
         currentSabr = null
     }
 
+    // ------------------------------------------------------------ pengawas
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var sabrWatchdog: Runnable? = null
+
+    private fun cancelSabrWatchdog() {
+        sabrWatchdog?.let { mainHandler.removeCallbacks(it) }
+        sabrWatchdog = null
+    }
+
+    /**
+     * The watchdog (device verdict 2026-11-12): a SABR head that is
+     * still buffering after the ready deadline is a failed road,
+     * whatever its cause — advance the chain to the classic sources
+     * exactly as a player error would, and write the decision into
+     * the diagnostics. The viewer never hangs on a silent stall.
+     */
+    private fun armSabrWatchdog(sabr: SabrPlayback) {
+        cancelSabrWatchdog()
+        val watchdog = Runnable {
+            if (currentSabr === sabr &&
+                player.playbackState == Player.STATE_BUFFERING
+            ) {
+                PlaybackDiagnostics.log(
+                    "SABR tidak kunjung siap setelah 25 detik — " +
+                        "beralih ke jalan klasik",
+                )
+                closeSabr()
+                fallback?.invoke()
+            }
+        }
+        sabrWatchdog = watchdog
+        mainHandler.postDelayed(watchdog, SABR_READY_WATCHDOG_MS)
+    }
+
     /**
      * Fase 8 (Anyam), Langkah 3: plays [sabr] FIRST, with the whole
      * classic chain behind it as the fallthrough. The spool road and
@@ -212,6 +249,7 @@ class PlaybackManager @Inject constructor(
                 "klasik di belakangnya",
         )
         playChain(chain, title, resumeOnFirstFallthrough = true)
+        armSabrWatchdog(sabr)
         val tracking = sabr.openData.tracking ?: streams.tracking
         if (tracking != null) {
             watchReporter.start(
@@ -523,6 +561,7 @@ class PlaybackManager @Inject constructor(
         title: String,
         resumeOnFirstFallthrough: Boolean = false,
     ) {
+        cancelSabrWatchdog()
         currentTitle = title
         val (label, source) = sources.first()
         val rest = sources.drop(1)
@@ -629,6 +668,10 @@ class PlaybackManager @Inject constructor(
     companion object {
         private const val MANIFEST_URI = "bunny://dash/manifest.mpd"
         private const val DEFAULT_USER_AGENT = "Bunny/0.1 (Android)"
+
+        /** How long a SABR head may stay buffering before the
+         * watchdog hands the video to the classic road. */
+        private const val SABR_READY_WATCHDOG_MS = 25_000L
 
         /**
          * Past this position, an HTTP 403 is no longer a cold-start

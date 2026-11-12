@@ -278,4 +278,29 @@ class SabrPumpTest {
         assertEquals(SabrOutcome.Completed, outcome)
         assertTrue(s.isComplete())
     }
+
+    @Test
+    fun hungryStartCapsTheServerBackoff() = runBlocking {
+        val initBytes = ByteArray(20).also {
+            it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()
+            it[6] = 'y'.code.toByte(); it[7] = 'p'.code.toByte()
+        }
+        val resp = response(
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, initBytes),
+            nrpPart(60_000),
+        )
+        val sleeps = ArrayList<Long>()
+        val hungryPump = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = QueueTransport(listOf(resp)),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            hungryUntilMs = 60_000,
+        )
+        val outcome = hungryPump.run(1)
+        assertEquals(SabrOutcome.RequestsExhausted(1), outcome)
+        assertEquals(listOf(1_000L), sleeps)
+    }
 }

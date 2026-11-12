@@ -80,6 +80,14 @@ class SabrPlayback internal constructor(
     val dataSourceFactory: DataSource.Factory =
         DataSource.Factory { SabrDataSource(spool, roadState) }
 
+    /**
+     * Optional observer for road events (the app wires this to its
+     * playback diagnostics ring, so a stall always leaves written
+     * evidence). Set right after the handle is created.
+     */
+    @Volatile
+    var onEvent: ((String) -> Unit)? = null
+
     private val readySignal = CompletableDeferred<Boolean>()
 
     @Volatile
@@ -122,15 +130,22 @@ class SabrPlayback internal constructor(
                             servedAudioItag = session.audioFormat.itag
                             servedVideoItag = session.videoFormat.itag
                             readySignal.complete(true)
+                            onEvent?.invoke(
+                                "SABR: data pertama tiba, pompa berjalan " +
+                                    "(video itag ${session.videoFormat.itag}, " +
+                                    "audio itag ${session.audioFormat.itag})",
+                            )
                         }
                     },
                     onTrackComplete = { roadState.markComplete(it) },
+                    hungryUntilMs = HUNGRY_UNTIL_MS,
                 )
                 when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
                     is SabrOutcome.Completed -> {
                         roadState.markComplete(session.audioFormat.itag)
                         roadState.markComplete(session.videoFormat.itag)
                         if (!readySignal.isCompleted) readySignal.complete(true)
+                        onEvent?.invoke("SABR: gulungan lengkap terisi")
                         return
                     }
                     is SabrOutcome.ReloadRequested -> {
@@ -185,6 +200,7 @@ class SabrPlayback internal constructor(
 
     private fun die(reason: String) {
         if (!readySignal.isCompleted) readySignal.complete(false)
+        onEvent?.invoke("SABR berhenti: $reason — jalan klasik mengambil alih")
         roadState.kill(reason)
     }
 
@@ -192,6 +208,9 @@ class SabrPlayback internal constructor(
         const val MAX_PUMP_REQUESTS = 5000
         const val MAX_RELOADS = 3
         const val READY_TIMEOUT_MS = 15_000L
+
+        /** The pump stays hungry until this much timeline is spooled. */
+        const val HUNGRY_UNTIL_MS = 60_000L
     }
 }
 
