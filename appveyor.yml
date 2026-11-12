@@ -1,0 +1,71 @@
+# AppVeyor — dapur kedua Bunny (dipilih pengguna 2026-11-12
+# setelah pendaftaran CircleCI ditolak servernya; hasil riset:
+# paket sumber terbuka tanpa hitungan menit + tanpa kartu).
+# Perintah verifikasi yang SAMA PERSIS dengan .github/workflows/ci.yml:
+# lint + unit test + assembleDebug, keystore debug tetap direstorasi
+# dari variabel proyek, pasangan Desktop disuntik sebagai env.
+# Rahasia hidup sebagai environment variable proyek di AppVeyor,
+# tidak pernah di berkas ini.
+
+version: 0.1.0-{build}
+
+image: Ubuntu2204
+
+stack: jdk 17
+
+branches:
+  only:
+    - main
+
+skip_tags: true
+
+max_jobs: 1
+
+environment:
+  GRADLE_VERSION: "8.13"
+
+install:
+  - sh: |
+      set -e
+      java -version
+      export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+      SDKMANAGER="$(command -v sdkmanager || true)"
+      if [ -z "$SDKMANAGER" ]; then
+        SDKMANAGER="$(find /opt /usr/lib -name sdkmanager -type f 2>/dev/null | head -n 1)"
+      fi
+      echo "sdkmanager: $SDKMANAGER"
+      yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+      "$SDKMANAGER" "platforms;android-36"
+
+  - sh: |
+      set -e
+      curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+      unzip -q /tmp/gradle.zip -d "$HOME"
+      export PATH="$HOME/gradle-${GRADLE_VERSION}/bin:$PATH"
+      gradle --version
+
+  - sh: |
+      if [ -n "$BUNNY_DEBUG_KEYSTORE_B64" ]; then
+        echo "$BUNNY_DEBUG_KEYSTORE_B64" | base64 -d > bunny-debug.keystore
+        echo "Fixed debug keystore restored."
+      else
+        echo "No fixed debug keystore secret; using ephemeral CI debug key."
+      fi
+
+build_script:
+  - sh: |
+      set -e
+      export PATH="$HOME/gradle-${GRADLE_VERSION}/bin:$PATH"
+      gradle lint testDebugUnitTest assembleDebug --stacktrace
+
+test: off
+
+artifacts:
+  - path: app/build/outputs/apk/debug
+    name: BunnyDebugApk
+  - path: app/build/reports
+    name: AppReports
+  - path: engine/build/reports
+    name: EngineReports
+  - path: core/build/reports
+    name: CoreReports
