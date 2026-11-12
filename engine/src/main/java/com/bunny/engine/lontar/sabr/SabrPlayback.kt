@@ -77,6 +77,14 @@ class SabrPlayback internal constructor(
     var servedVideoItag: Int = openData.videoPin.itag
         private set
 
+    /**
+     * The player's current position, fed by the app while this
+     * handle feeds the player: the pump measures its spool lead
+     * against it and stays hungry while the lead is thin.
+     */
+    @Volatile
+    var playerPositionMs: Long = 0
+
     val dataSourceFactory: DataSource.Factory =
         DataSource.Factory {
             SabrDataSource(spool, roadState) { itag, position, frontier ->
@@ -177,6 +185,7 @@ class SabrPlayback internal constructor(
                     },
                     onTrackComplete = { roadState.markComplete(it) },
                     hungryUntilMs = HUNGRY_UNTIL_MS,
+                    positionHintMs = { playerPositionMs },
                 )
                 when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
                     is SabrOutcome.Completed -> {

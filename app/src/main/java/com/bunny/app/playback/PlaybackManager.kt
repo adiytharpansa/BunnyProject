@@ -176,6 +176,7 @@ class PlaybackManager @Inject constructor(
     private var currentSabr: SabrPlayback? = null
 
     private fun closeSabr() {
+        cancelSabrPositionReporter()
         currentSabr?.close()
         currentSabr = null
     }
@@ -188,6 +189,33 @@ class PlaybackManager @Inject constructor(
     private fun cancelSabrWatchdog() {
         sabrWatchdog?.let { mainHandler.removeCallbacks(it) }
         sabrWatchdog = null
+    }
+
+    private var sabrPositionReporter: Runnable? = null
+
+    private fun cancelSabrPositionReporter() {
+        sabrPositionReporter?.let { mainHandler.removeCallbacks(it) }
+        sabrPositionReporter = null
+    }
+
+    /**
+     * Feeds the player's position to the live SABR handle every two
+     * seconds: the pump keeps its request cadence hungry while the
+     * spool lead over the playhead is thin, and relaxes only when
+     * the lead is fat (device verdict 2026-11-12: polite 20-second
+     * sleeps after the cold window starved a playing video).
+     */
+    private fun armSabrPositionReporter(sabr: SabrPlayback) {
+        cancelSabrPositionReporter()
+        val reporter = object : Runnable {
+            override fun run() {
+                if (currentSabr !== sabr) return
+                sabr.playerPositionMs = player.currentPosition
+                mainHandler.postDelayed(this, 2_000)
+            }
+        }
+        sabrPositionReporter = reporter
+        mainHandler.post(reporter)
     }
 
     /**
@@ -251,6 +279,7 @@ class PlaybackManager @Inject constructor(
         )
         playChain(chain, title, resumeOnFirstFallthrough = true)
         armSabrWatchdog(sabr)
+        armSabrPositionReporter(sabr)
         val tracking = sabr.openData.tracking ?: streams.tracking
         if (tracking != null) {
             watchReporter.start(

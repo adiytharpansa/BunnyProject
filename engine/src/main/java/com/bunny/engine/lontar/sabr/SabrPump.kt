@@ -108,6 +108,17 @@ class SabrPump(
      */
     private val hungryUntilMs: Long = 0,
     private val hungrySleepCapMs: Long = 1_000,
+    /**
+     * Live-playback hunger: while the spool's lead over the playhead
+     * ([positionHintMs]) is thinner than [hungryLeadMs], the sleep
+     * stays capped too — politeness after the cold window starved a
+     * playing video on device (2026-11-12: bursts arrived slower
+     * than real time and the player rebuffered mid-stream). Only
+     * consulted when [hungryUntilMs] > 0, so probe and replay runs
+     * keep the recorded cadence.
+     */
+    private val positionHintMs: () -> Long = { 0L },
+    private val hungryLeadMs: Long = 45_000,
 ) {
 
     /**
@@ -227,9 +238,10 @@ class SabrPump(
             } else {
                 200L
             }
-            val sleep = if (
-                hungryUntilMs > 0 && session.bufferedEndMs() < hungryUntilMs
-            ) {
+            val leadMs = session.bufferedEndMs() - positionHintMs()
+            val hungry = hungryUntilMs > 0 &&
+                (session.bufferedEndMs() < hungryUntilMs || leadMs < hungryLeadMs)
+            val sleep = if (hungry) {
                 minOf(polite, hungrySleepCapMs)
             } else {
                 polite

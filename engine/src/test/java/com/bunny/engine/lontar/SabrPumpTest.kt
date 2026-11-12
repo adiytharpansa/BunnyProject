@@ -9,6 +9,8 @@ import com.bunny.engine.lontar.sabr.SabrOutcome
 import com.bunny.engine.lontar.sabr.SabrPump
 import com.bunny.engine.lontar.sabr.SabrSession
 import com.bunny.engine.lontar.sabr.SabrTransport
+import com.bunny.engine.lontar.sabr.SpoolReader
+import com.bunny.engine.lontar.sabr.SpoolRoadState
 import com.bunny.engine.lontar.sabr.SpoolStore
 import com.bunny.engine.lontar.sabr.VideoSpool
 import java.io.File
@@ -277,6 +279,87 @@ class SabrPumpTest {
         val outcome = pump(s, spool(), QueueTransport(listOf(resp)), ArrayList()).run(5)
         assertEquals(SabrOutcome.Completed, outcome)
         assertTrue(s.isComplete())
+    }
+
+    /**
+     * Every answer carries one more 10-second audio segment (the
+     * session lasts 100 s over 10 segments, so each prices at 10 s)
+     * plus the server's usual 60 s backoff.
+     */
+    private fun segmentTransport(): SabrTransport = object : SabrTransport {
+        private var calls = 0
+
+        override suspend fun post(url: String, body: ByteArray): ByteArray {
+            calls++
+            val seq = calls
+            return if (seq == 1) {
+                response(
+                    initMetadataPart(251, 10),
+                    headerPart(0, 251, null, 0, 20, init = true),
+                    mediaPart(0, ByteArray(20)),
+                    headerPart(1, 251, 1, 20, 100),
+                    mediaPart(1, ByteArray(100)),
+                    nrpPart(60_000),
+                )
+            } else {
+                response(
+                    headerPart(1, 251, seq, 20L + (seq - 1) * 100, 100),
+                    mediaPart(1, ByteArray(100)),
+                    nrpPart(60_000),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun thinLiveLeadKeepsThePumpHungryPastTheColdWindow() = runBlocking {
+        val s = session()
+        val sp = spool()
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = s,
+            spool = sp,
+            transport = segmentTransport(),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            hungryUntilMs = 60_000,
+            positionHintMs = { 30_000 },
+        )
+        val outcome = p.run(7)
+        assertEquals(SabrOutcome.RequestsExhausted(7), outcome)
+        // The cold window closes at 60 s of timeline (request 6),
+        // but the playhead sits at 30 s: the lead stays under the
+        // 45 s line, so every sleep remains at the hungry cap. On
+        // device, the polite 20 s sleep in exactly this window
+        // starved a playing video into a mid-stream rebuffer.
+        assertEquals(7, sleeps.size)
+        assertTrue(sleeps.all { it == 1_000L })
+        // And the reader side of the same spool serves from byte
+        // zero: the pump → spool → reader chain, proven end to end.
+        val reader = SpoolReader(sp.track(251), SpoolRoadState())
+        assertEquals(10, reader.readAt(0, ByteArray(10), 0, 10))
+    }
+
+    @Test
+    fun fatLiveLeadLetsThePumpSleepPolitely() = runBlocking {
+        val s = session()
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = s,
+            spool = spool(),
+            transport = segmentTransport(),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            hungryUntilMs = 60_000,
+            positionHintMs = { s.bufferedEndMs() - 60_000 },
+        )
+        p.run(7)
+        // The lead is a constant 60 s — beyond the hunger line — so
+        // once the cold window closes (request 6 leaves 60 s
+        // spooled), the pump returns to the polite cadence.
+        assertEquals(1_000L, sleeps[4])
+        assertEquals(20_000L, sleeps[5])
+        assertEquals(20_000L, sleeps[6])
     }
 
     @Test
