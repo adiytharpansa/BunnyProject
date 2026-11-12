@@ -168,46 +168,6 @@ object PlayerPersonas {
     )
 
     /**
-     * The TV app's "downgraded" shape (TVHTML5 5.x, Cobalt) — the
-     * ecosystem's last token-free door beside VISIONOS (yt-dlp's kids
-     * fallback since Jul 2026; the only anonymous door reported to
-     * play non-embeddable kids content VISIONOS refuses). Probed from
-     * the project VM 2026-11-13: it answered ONCE in full (playability
-     * OK, 59 direct formats) — then every later knock from that
-     * network met the `tcl` player experiment's UNPLAYABLE wall, and
-     * the one answer's media URLs were refused at the byte layer
-     * (the `n` parameter lock is the suspect; untested behind the
-     * wall). It is therefore NOT a ladder persona: playback through
-     * it would additionally need a JS cipher engine this project does
-     * not have. It ships as a Radar candidate only — measured on real
-     * home networks, never played — so the byte verdict comes from
-     * the user's own network instead of a datacenter bucket. Uses the
-     * public WEB API key, the arrangement TV clients use.
-     */
-    val TV_DOWNGRADED = PlayerPersona(
-        name = "TV_DOWNGRADED",
-        host = "https://youtubei.googleapis.com",
-        apiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
-        clientNameId = "7",
-        userAgent = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version",
-        clientFields = mapOf(
-            "clientName" to "TVHTML5",
-            "clientVersion" to "5.20260901",
-            "hl" to LontarPersona.HL,
-            "gl" to LontarPersona.GL,
-        ),
-    )
-
-    /**
-     * Personas the Radar measures WITHOUT admitting them to the
-     * playback ladder: candidate doors whose health on real networks
-     * is worth knowing before any build decision rests on them. The
-     * Adaptive Ladder only ever orders configured ladder names, so a
-     * candidate's statistics can never leak into playback.
-     */
-    val RADAR_CANDIDATES: List<PlayerPersona> = listOf(TV_DOWNGRADED)
-
-    /**
      * Personas are tried in order until one returns playable streams.
      * VISIONOS heads the ladder (see its doc); ANDROID_VR remains as
      * the last resort — token-gated since Aug 2026 but selectively
@@ -268,7 +228,6 @@ object PlayerPersonas {
                 "ANDROID" -> android(config.androidClientVersion)
                 "IOS" -> ios(config.iosClientVersion)
                 "VISIONOS" -> visionOs(config.visionOsClientVersion)
-                "TV_DOWNGRADED" -> TV_DOWNGRADED
                 else -> null
             }
         }
