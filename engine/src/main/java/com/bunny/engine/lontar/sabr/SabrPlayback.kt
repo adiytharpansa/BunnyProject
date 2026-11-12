@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar.sabr
 
+import android.os.SystemClock
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import com.bunny.engine.lontar.LontarEngine
@@ -90,12 +91,38 @@ class SabrPlayback internal constructor(
     @Volatile
     var playerPositionMs: Long = 0
 
+    /**
+     * One reader wait, kept for the app's stall detector
+     * (anti-buffering package): the waited position against the
+     * frontier and the whole file is what separates a far-ahead
+     * extractor probe from sequential starvation.
+     */
+    class ReaderWait(
+        val itag: Int,
+        val position: Long,
+        val frontier: Long,
+        val fileLength: Long,
+        val longWait: Boolean,
+        val atUptimeMs: Long,
+    )
+
+    /** The most recent reader wait on either track, if any. */
+    @Volatile
+    var lastReaderWait: ReaderWait? = null
+        private set
+
     val dataSourceFactory: DataSource.Factory =
         DataSource.Factory {
             SabrDataSource(
                 spool = spool,
                 road = roadState,
                 onWait = { itag, position, frontier ->
+                    lastReaderWait = ReaderWait(
+                        itag, position, frontier,
+                        spool.track(itag).fileLength(),
+                        longWait = false,
+                        atUptimeMs = SystemClock.uptimeMillis(),
+                    )
                     onEvent?.invoke(
                         "SABR baca: itag $itag menunggu data di posisi " +
                             "$position (gulungan baru sampai $frontier)",
@@ -107,6 +134,11 @@ class SabrPlayback internal constructor(
                 // a far-ahead extractor probe (Cues/index hunting)
                 // from plain sequential starvation.
                 onLongWait = { itag, position, frontier, fileLength ->
+                    lastReaderWait = ReaderWait(
+                        itag, position, frontier, fileLength,
+                        longWait = true,
+                        atUptimeMs = SystemClock.uptimeMillis(),
+                    )
                     onEvent?.invoke(
                         "SABR baca lama: itag $itag menunggu >2 dtk di posisi " +
                             "$position (frontier $frontier, berkas $fileLength)",
@@ -313,7 +345,12 @@ class SabrPlayback internal constructor(
                         return
                     }
                     is SabrOutcome.Stalled -> {
-                        engine.noteSabrFailure("macet", outcome.reason)
+                        // Cancellation-shaped stalls are lifecycle
+                        // noise (the handle was closed on purpose);
+                        // keep them off the failure evidence surface.
+                        if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
+                            engine.noteSabrFailure("macet", outcome.reason)
+                        }
                         die(outcome.reason)
                         return
                     }

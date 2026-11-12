@@ -295,6 +295,11 @@ class SabrPump(
                 transport.post(url, body)
             } catch (e: SabrHttpException) {
                 return SabrOutcome.HttpFailed(e.status)
+            } catch (e: CancellationException) {
+                // The drive was closed (the viewer moved on): that is
+                // lifecycle, not a stall — never let it be recorded
+                // as one.
+                throw e
             } catch (e: Exception) {
                 return SabrOutcome.Stalled("transport: ${e.message}")
             }

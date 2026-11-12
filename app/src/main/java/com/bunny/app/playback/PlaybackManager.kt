@@ -188,6 +188,8 @@ class PlaybackManager @Inject constructor(
 
     /** Uptime the current SABR buffering episode began; -1 = none. */
     private var sabrBufferingSinceMs: Long = -1
+    /** Dropped-frame total when the current episode began (detector). */
+    private var episodeDroppedStart = 0
 
     /** True once the current SABR session has reached READY. */
     private var sabrHasBeenReady = false
@@ -808,11 +810,47 @@ class PlaybackManager @Inject constructor(
                                     // M15: an episode ENDED — the
                                     // catch-up speed may engage.
                                     catchUpEpisodeSeen = true
+                                    // Detektor macet: one verdict
+                                    // line per episode, classified
+                                    // from the episode's own evidence
+                                    // — a far-ahead wait during the
+                                    // episode convicts the extractor,
+                                    // frames dropped during it convict
+                                    // the decoder, a wait exactly at
+                                    // the frontier convicts supply,
+                                    // and anything else is reported
+                                    // honestly as unclassified.
+                                    val wait = currentSabr?.lastReaderWait
+                                    val verdict = when {
+                                        wait != null &&
+                                            wait.atUptimeMs >= since &&
+                                            wait.position - wait.frontier > 262_144L ->
+                                            "diduga penyelidikan jauh ekstraktor " +
+                                                "(itag ${wait.itag} menunggu di " +
+                                                "${wait.position}, frontier " +
+                                                "${wait.frontier})"
+                                        droppedFramesTotal - episodeDroppedStart >= 30 ->
+                                            "diduga decode tertinggal " +
+                                                "(${droppedFramesTotal - episodeDroppedStart} " +
+                                                "frame dibuang selama episode)"
+                                        wait != null && wait.atUptimeMs >= since ->
+                                            "pasokan gulungan tipis di posisi putar " +
+                                                "(itag ${wait.itag} menunggu tepat " +
+                                                "di frontier)"
+                                        else ->
+                                            "penyebab belum terklasifikasi " +
+                                                "dari bukti episode ini"
+                                    }
+                                    PlaybackDiagnostics.log(
+                                        "Detektor: buffering ke-" +
+                                            "$sabrBufferingEpisodes — $verdict",
+                                    )
                                 }
                             }
                             Player.STATE_BUFFERING -> {
                                 if (sabrHasBeenReady && sabrBufferingSinceMs < 0) {
                                     sabrBufferingSinceMs = now
+                                    episodeDroppedStart = droppedFramesTotal
                                 }
                             }
                         }

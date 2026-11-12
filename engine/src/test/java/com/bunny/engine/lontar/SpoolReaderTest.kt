@@ -115,9 +115,13 @@ class SpoolReaderTest {
         val track = filledTrack(SpoolStore(File(tempFolder.root, "e")))
         val road = SpoolRoadState()
         val waits = ArrayList<Triple<Int, Long, Long>>()
-        val reader = SpoolReader(track, road) { itag, pos, front ->
-            synchronized(waits) { waits.add(Triple(itag, pos, front)) }
-        }
+        val reader = SpoolReader(
+            track,
+            road,
+            onWait = { itag, pos, front ->
+                synchronized(waits) { waits.add(Triple(itag, pos, front)) }
+            },
+        )
         val done = CountDownLatch(1)
         val thread = Thread {
             try {
