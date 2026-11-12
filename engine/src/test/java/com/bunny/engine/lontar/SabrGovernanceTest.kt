@@ -30,7 +30,7 @@ class SabrGovernanceTest {
         store: SabrGovernanceStore = MemoryStore(),
     ): SabrGovernance {
         var tick = 1_700_000_000_000L
-        return SabrGovernance(store) { tick += 1000 }
+        return SabrGovernance(store) { tick += 1000; tick }
     }
 
     private fun record(
