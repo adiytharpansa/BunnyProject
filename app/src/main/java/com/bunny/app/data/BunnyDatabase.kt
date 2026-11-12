@@ -60,6 +60,8 @@ data class DownloadEntity(
     val videoBytes: Long = 0,
     /** Bytes of the file currently downloading (progress display). */
     val progressBytes: Long = 0,
+    /** Total bytes of the file currently downloading; 0 when unknown. */
+    val totalBytes: Long = 0,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
 )
@@ -207,7 +209,7 @@ interface SettingDao {
         DownloadEntity::class,
         PersonaStatEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class BunnyDatabase : RoomDatabase() {

@@ -721,11 +721,25 @@ fun PlayerScreen(
                                 icon = Icons.Outlined.Download,
                                 label = when (dl?.stage) {
                                     DownloadManager.STAGE_AUDIO ->
-                                        stringResource(R.string.download_stage_audio)
+                                        if (dl != null && dl.totalBytes > 0) {
+                                            stringResource(
+                                                R.string.download_stage_audio_pct,
+                                                (dl.progressBytes * 100 / dl.totalBytes).toInt(),
+                                            )
+                                        } else {
+                                            stringResource(R.string.download_stage_audio)
+                                        }
                                     DownloadManager.STAGE_WAITING_WIFI ->
                                         stringResource(R.string.download_stage_waiting_wifi)
                                     DownloadManager.STAGE_VIDEO ->
-                                        stringResource(R.string.download_stage_video)
+                                        if (dl != null && dl.totalBytes > 0) {
+                                            stringResource(
+                                                R.string.download_stage_video_pct,
+                                                (dl.progressBytes * 100 / dl.totalBytes).toInt(),
+                                            )
+                                        } else {
+                                            stringResource(R.string.download_stage_video)
+                                        }
                                     DownloadManager.STAGE_COMPLETE ->
                                         stringResource(R.string.download_stage_complete)
                                     DownloadManager.STAGE_FAILED ->

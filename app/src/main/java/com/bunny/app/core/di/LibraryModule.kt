@@ -27,7 +27,7 @@ object LibraryModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): BunnyDatabase =
         Room.databaseBuilder(context, BunnyDatabase::class.java, "bunny.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides
@@ -87,6 +87,18 @@ object LibraryModule {
                     "progressBytes INTEGER NOT NULL, " +
                     "createdAtEpochMs INTEGER NOT NULL, " +
                     "updatedAtEpochMs INTEGER NOT NULL)",
+            )
+        }
+    }
+
+    /**
+     * v3 -> v4 (mesin unduh potongan): downloads gain the total size
+     * of the file in flight, so progress can be shown honestly.
+     */
+    private val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE downloads ADD COLUMN totalBytes INTEGER NOT NULL DEFAULT 0",
             )
         }
     }

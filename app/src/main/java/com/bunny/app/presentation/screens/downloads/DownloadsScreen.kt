@@ -168,7 +168,17 @@ private fun DownloadRow(
         if (item.stage == DownloadManager.STAGE_AUDIO ||
             item.stage == DownloadManager.STAGE_VIDEO
         ) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            if (item.totalBytes > 0) {
+                LinearProgressIndicator(
+                    progress = {
+                        (item.progressBytes.toFloat() / item.totalBytes)
+                            .coerceIn(0f, 1f)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
         }
     }
 }
@@ -176,13 +186,29 @@ private fun DownloadRow(
 @Composable
 private fun stageText(item: DownloadEntity): String = when (item.stage) {
     DownloadManager.STAGE_AUDIO ->
-        stringResource(R.string.downloads_row_audio_progress)
+        if (item.totalBytes > 0) {
+            stringResource(
+                R.string.downloads_row_audio_progress_size,
+                DataCost.formatSize(item.progressBytes),
+                DataCost.formatSize(item.totalBytes),
+            )
+        } else {
+            stringResource(R.string.downloads_row_audio_progress)
+        }
     DownloadManager.STAGE_WAITING_WIFI -> stringResource(
         R.string.downloads_row_waiting_wifi,
         DataCost.formatSize(item.audioBytes),
     )
     DownloadManager.STAGE_VIDEO ->
-        stringResource(R.string.downloads_row_video_progress)
+        if (item.totalBytes > 0) {
+            stringResource(
+                R.string.downloads_row_video_progress_size,
+                DataCost.formatSize(item.progressBytes),
+                DataCost.formatSize(item.totalBytes),
+            )
+        } else {
+            stringResource(R.string.downloads_row_video_progress)
+        }
     DownloadManager.STAGE_COMPLETE -> stringResource(
         R.string.downloads_row_complete,
         item.videoHeight,

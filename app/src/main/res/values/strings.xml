@@ -100,6 +100,8 @@
     <string name="profile_downloads_button">Unduhan</string>
     <string name="download_action">Unduh</string>
     <string name="download_stage_audio">Mengunduh audio…</string>
+    <string name="download_stage_audio_pct">Mengunduh audio… %1$d%%</string>
+    <string name="download_stage_video_pct">Mengunduh video… %1$d%%</string>
     <string name="download_stage_waiting_wifi">Audio tersimpan • video menunggu Wi-Fi</string>
     <string name="download_stage_video">Mengunduh video…</string>
     <string name="download_stage_complete">Terunduh • ketuk untuk hapus</string>
@@ -110,6 +112,8 @@
     <string name="downloads_retry">Coba lagi</string>
     <string name="downloads_delete">Hapus unduhan</string>
     <string name="downloads_row_audio_progress">Mengunduh audio…</string>
+    <string name="downloads_row_audio_progress_size">Mengunduh audio… %1$s dari %2$s</string>
+    <string name="downloads_row_video_progress_size">Mengunduh video… %1$s dari %2$s</string>
     <string name="downloads_row_waiting_wifi">Audio tersimpan (%1$s) • video menunggu Wi-Fi</string>
     <string name="downloads_row_video_progress">Mengunduh video…</string>
     <string name="downloads_row_complete">Lengkap • %1$dp • %2$s</string>
