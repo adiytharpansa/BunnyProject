@@ -67,6 +67,9 @@ class LontarEngine(
     /** Player responses are shared by details + streams calls for one video. */
     private val playerCache = ConcurrentHashMap<String, Pair<JSONObject, PlayerPersona>>()
 
+    /** Paket Mesin B: short-window metadata answers (see [MetadataCache]). */
+    private val metadataCache = MetadataCache()
+
     // ----------------------------------------------------- lontar hidup
 
     /** Background lane for warm-session harvests; never user-blocking. */
@@ -105,14 +108,19 @@ class LontarEngine(
     }
 
     override suspend fun search(query: String, page: String?): Page<VideoItem> {
-        val body = baseBody()
         if (page != null) {
-            body.put("continuation", page)
-        } else {
-            body.put("query", query)
-            body.put("params", SEARCH_PARAMS_VIDEO_ONLY)
+            val body = baseBody().put("continuation", page)
+            return InnertubeParser.parseFeedPage(post("search", body))
         }
-        return InnertubeParser.parseFeedPage(post("search", body))
+        // First pages repeat constantly (the home mixture re-asks its
+        // seed topics on every rebuild); continuations are one-time
+        // tokens and stay uncached.
+        return metadataCache.get("search:$query") {
+            val body = baseBody()
+                .put("query", query)
+                .put("params", SEARCH_PARAMS_VIDEO_ONLY)
+            InnertubeParser.parseFeedPage(post("search", body))
+        }
     }
 
     override suspend fun getLiveFeed(): Page<VideoItem> {
@@ -162,6 +170,12 @@ class LontarEngine(
         if (!channelId.startsWith("UC") || channelId.length < 4) {
             throw LontarException("ID kanal tidak dikenal: $channelId")
         }
+        return metadataCache.get("channelVideos:$channelId") {
+            channelVideosUncached(channelId)
+        }
+    }
+
+    private suspend fun channelVideosUncached(channelId: String): Page<VideoItem> {
         val uploadsPlaylist = "UU" + channelId.substring(2)
         for (browseId in listOf("VL$uploadsPlaylist", uploadsPlaylist)) {
             try {
@@ -191,6 +205,12 @@ class LontarEngine(
      */
     override suspend fun getChannelInfo(channelId: String): ChannelInfo? {
         if (!channelId.startsWith("UC") || channelId.length < 4) return null
+        return metadataCache.get("channelInfo:$channelId") {
+            channelInfoUncached(channelId)
+        }
+    }
+
+    private suspend fun channelInfoUncached(channelId: String): ChannelInfo? {
         return try {
             val body = baseBody().put("browseId", channelId)
             val info = InnertubeParser.parseChannelInfo(post("browse", body), channelId)
@@ -226,11 +246,27 @@ class LontarEngine(
      * decorations — any failure reads as "no comments".
      */
     override suspend fun getComments(videoId: String, page: String?): CommentsPage {
-        return try {
-            if (page != null) {
+        if (page != null) {
+            return try {
                 val body = baseBody().put("continuation", page)
                 InnertubeParser.parseCommentsPage(post("next", body))
-            } else {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                noteFailure(SURFACE_KOMENTAR, e)
+                CommentsPage()
+            }
+        }
+        // First pages repeat on every reopen of the same video;
+        // continuation pages are one-time tokens and stay uncached.
+        return metadataCache.get("comments:$videoId") {
+            commentsFirstPage(videoId)
+        }
+    }
+
+    private suspend fun commentsFirstPage(videoId: String): CommentsPage {
+        return try {
+            run {
                 val watch = post("next", baseBody().put("videoId", videoId))
                 val ownerAvatar = InnertubeParser.parseOwnerAvatarUrl(watch)
                 val token = InnertubeParser.findCommentsToken(watch)
@@ -286,6 +322,15 @@ class LontarEngine(
      * server list" and the caller composes its local fallback instead.
      */
     override suspend fun getRelatedVideos(videoId: String): List<VideoItem> {
+        // The next-watch chain walk re-asks this for the same videos
+        // again and again; inside the window the stored real answer
+        // is served instead (Paket Mesin B).
+        return metadataCache.get("related:$videoId") {
+            relatedUncached(videoId)
+        }
+    }
+
+    private suspend fun relatedUncached(videoId: String): List<VideoItem> {
         return try {
             val watch = post("next", baseBody().put("videoId", videoId))
             val items = InnertubeParser.parseRelatedVideos(watch)
