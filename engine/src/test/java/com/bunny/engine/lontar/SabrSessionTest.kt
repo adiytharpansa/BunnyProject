@@ -366,7 +366,7 @@ class SabrSessionTest {
         // Audio 251: WebM head (EBML magic), 16 B init + 100 B segment.
         val audio = spool.track(251)
         val audioBytes = ByteArray(116)
-        byteArrayOf(0x1A, 0x45, 0xDF, 0xA3.toByte())
+        byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte())
             .copyInto(audioBytes, 0)
         audio.write(0, audioBytes)
         audio.noteFormat(SabrFormatId(251, 111L, "x"))
