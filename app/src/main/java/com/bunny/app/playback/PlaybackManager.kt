@@ -788,6 +788,13 @@ class PlaybackManager @Inject constructor(
                             sabrBufferingSinceMs = SystemClock.uptimeMillis()
                             episodeDroppedStart = droppedFramesTotal
                         }
+                        // Mechanism 23, full form: hand the
+                        // target to the road itself. If the spool
+                        // does not cover it, the drive jumps — a
+                        // fresh session seeded at the target —
+                        // instead of rolling sequentially from
+                        // zero and racing the rescue clock.
+                        currentSabr?.onSeekObserved(newPosition.positionMs)
                     }
 
                     override fun onPlayerError(error: PlaybackException) {

@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Rule
@@ -249,4 +250,73 @@ class SpoolReaderTest {
         assertEquals(120L, reader.knownLength())
         assertEquals(-1, reader.readAt(120, ByteArray(8), 0, 8))
     }
+
+    /** A track with two vouched islands: [0, 120) and [220, 320). */
+    private fun twoRegionTrack(store: SpoolStore): TrackSpool {
+        val track = store.open("vid").track(251)
+        val head = ByteArray(20)
+        byteArrayOf(0x1A, 0x45, 0xDF, 0xA3).copyInto(head)
+        track.write(0, head)
+        track.write(20, ByteArray(100) { 0x61 })
+        track.write(220, ByteArray(100) { 0x63 })
+        track.noteFormat(SabrFormatId(251, 111L, "x"))
+        track.noteInit(20)
+        track.noteSegment(SabrSegment(1, 0, 10001, 20, 100))
+        track.noteSegment(SabrSegment(3, 20002, 10001, 220, 100))
+        track.flushManifest()
+        return track
+    }
+
+    @Test
+    fun readInsideTheSecondRegionIsServedAtOnce() {
+        // Mechanism 23: service follows WRITTEN RANGES, not just
+        // the first contiguous frontier — a jump-seeded island
+        // serves while the seam before it is still open.
+        val store = SpoolStore(File(tempFolder.root, "s-two"))
+        val reader = SpoolReader(twoRegionTrack(store), SpoolRoadState())
+        val buffer = ByteArray(16)
+        assertEquals(10, reader.readAt(250, buffer, 0, 10))
+        assertEquals(0x63.toByte(), buffer[0])
+        // Up to the region's end, and no further.
+        assertEquals(5, reader.readAt(315, buffer, 0, 10))
+    }
+
+    @Test
+    fun readInsideTheGapWaitsUntilTheGapIsFilled() {
+        val store = SpoolStore(File(tempFolder.root, "s-gap"))
+        val track = twoRegionTrack(store)
+        val road = SpoolRoadState()
+        val reader = SpoolReader(track, road)
+        val outcome = AtomicReference<Result<Int>?>(null)
+        val worker = Thread {
+            val buffer = ByteArray(16)
+            outcome.set(runCatching { reader.readAt(150, buffer, 0, 10) })
+        }
+        worker.isDaemon = true
+        worker.start()
+        Thread.sleep(400)
+        assertNull(outcome.get())
+        // The backfill lands: bytes plus the segment note, then
+        // the road's pulse wakes the reader.
+        track.write(120, ByteArray(100) { 0x62 })
+        track.noteSegment(SabrSegment(2, 10001, 10001, 120, 100))
+        road.pulse()
+        worker.join(3000)
+        assertEquals(10, outcome.get()?.getOrThrow())
+    }
+
+    @Test
+    fun completedRoadEndsReadsInsideAGap() {
+        // A completed track's gap is a terminal fact, not a wait.
+        val store = SpoolStore(File(tempFolder.root, "s-done"))
+        val road = SpoolRoadState()
+        val reader = SpoolReader(twoRegionTrack(store), road)
+        road.markComplete(251)
+        val buffer = ByteArray(16)
+        assertEquals(-1, reader.readAt(150, buffer, 0, 10))
+        assertEquals(-1, reader.readAt(400, buffer, 0, 10))
+        // The second region itself still serves.
+        assertEquals(10, reader.readAt(250, buffer, 0, 10))
+    }
+
 }

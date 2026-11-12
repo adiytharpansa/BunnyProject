@@ -11,7 +11,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -175,6 +178,33 @@ class SabrPlayback internal constructor(
     @Volatile
     private var job: Job? = null
 
+    /**
+     * Mechanism 23, full form: a seek target the spool does not
+     * cover yet, posted by [onSeekObserved] from the player's
+     * listener thread. The drive loop consumes it as a jump pass
+     * (a fresh session seeded at the target). Latest wins; -1 is
+     * no pending jump. Volatile hand-off only — the drive thread
+     * re-reads it between passes and after a cut pump.
+     */
+    @Volatile
+    private var pendingJumpMs: Long = -1
+
+    /**
+     * The pump run currently in flight, so a seek can cut JUST
+     * the pump (the drive coroutine itself survives to start the
+     * jump pass). Set and cleared by the drive thread.
+     */
+    @Volatile
+    private var pumpChild: Job? = null
+
+    /**
+     * Jumps spent this open, mirrored here so [onSeekObserved]
+     * can enforce the budget before posting another one; the
+     * drive thread is the counter's owner and writer.
+     */
+    @Volatile
+    private var jumpsSpent: Int = 0
+
     fun start() {
         if (job != null) return
         job = scope.launch { drive() }
@@ -192,10 +222,54 @@ class SabrPlayback internal constructor(
     fun close() {
         job?.cancel()
         job = null
+        pumpChild?.cancel()
         roadState.kill("pemutaran diganti")
         spool.close()
     }
 
+    /**
+     * Mechanism 23, full form — the seek hook the player calls
+     * (main thread, from its position-discontinuity listener)
+     * when the playhead lands somewhere new. A covered target
+     * needs nothing: the reader already serves it. An uncovered
+     * target becomes a JUMP: it is stored (latest wins) and the
+     * in-flight pump is cut, so the drive loop wakes and starts a
+     * fresh session seeded at the target instead of rolling
+     * sequentially from zero and losing to the stall rescue —
+     * the device evidence of 2026-11-13 (playhead at ~60 s,
+     * spool at 38 s, rescue fired ~7 s before the roll arrived).
+     * At most [MAX_JUMPS] jumps per open; past that the
+     * sequential roll and the rescue keep their old behaviour.
+     */
+    fun onSeekObserved(targetMs: Long) {
+        val session = activeSession ?: return
+        if (session.coversPosition(targetMs)) return
+        if (jumpsSpent >= MAX_JUMPS) return
+        pendingJumpMs = targetMs
+        pumpChild?.cancel()
+    }
+
+    /**
+     * Mechanism 23, full form: the drive is a loop of PASSES over
+     * one spool. A pass is one fresh session (one /player offer)
+     * feeding one pump run. Pass kinds:
+     * - initial: seed 0, the classic from-the-top roll;
+     * - reload: mechanism 18's refresh, seeded at the playhead;
+     * - jump: a seek landed somewhere the spool does not cover —
+     *   the session is seeded AT the target (proven enterable by
+     *   the jilid-2 cold-seek probe, 2026-11-12);
+     * - gap-backfill: a pass ended with the tail on disk but a
+     *   hole behind it — the next pass seeds at the earliest
+     *   hole's start and rolls forward over it.
+     * All passes share one budget, [MAX_DRIVE_PASSES]; reloads
+     * keep their own [MAX_RELOADS] cap and jumps their own
+     * [MAX_JUMPS] cap inside it. A pass ends when its pump
+     * returns; pump deaths keep their old meaning (the road dies,
+     * classic takes over) EXCEPT a stall or request exhaustion
+     * arriving with the tail complete and gaps remaining — that
+     * converts into a backfill pass, because the road is nearly
+     * whole and only the hole is left to fill.
+     */
     private suspend fun drive() {
         var session = openData.newSession()
         activeSession = session
@@ -240,12 +314,50 @@ class SabrPlayback internal constructor(
             }
         }
         var reloads = 0
+        var passes = 0
+        var jumps = 0
+        var jumpBudgetLogged = false
         var lastLoggedSpoolSecond = 0L
         // Mechanism 21: the honest preroll wait is named at most
         // once per open (see the pump's onSleepDecision below).
         var prerollWaitLogged = false
         try {
             while (true) {
+                // Mechanism 23: a seek posted while the previous
+                // pass ran (or between passes) becomes the next
+                // pass — a fresh session seeded at the target
+                // over the SAME spool.
+                val pendingJump = pendingJumpMs
+                if (pendingJump >= 0) {
+                    pendingJumpMs = -1
+                    if (jumps >= MAX_JUMPS) {
+                        if (!jumpBudgetLogged) {
+                            jumpBudgetLogged = true
+                            onEvent?.invoke(
+                                "SABR: anggaran lompatan habis — " +
+                                    "gulungan berurutan diteruskan",
+                            )
+                        }
+                    } else {
+                        jumps++
+                        jumpsSpent = jumps
+                        onEvent?.invoke(
+                            "SABR: melompat ke ${pendingJump / 1000} dtk " +
+                                "(gulungan belum menjangkau)",
+                        )
+                        val jumped = refreshedSession(pendingJump)
+                        if (jumped == null) {
+                            die("penyegaran /player gagal")
+                            return
+                        }
+                        session = jumped
+                    }
+                }
+                if (passes >= MAX_DRIVE_PASSES) {
+                    die("batas lintasan pompa tercapai")
+                    return
+                }
+                passes++
                 val pump = SabrPump(
                     session = session,
                     spool = spool,
@@ -347,13 +459,65 @@ class SabrPlayback internal constructor(
                     // saving (no decode, no display) stands.
                     maxLeadMs = leadCapMs,
                 )
-                when (val outcome = pump.run(MAX_PUMP_REQUESTS)) {
+                // The pump runs as a child job so a seek can cut
+                // JUST the pump (mechanism 23) without cancelling
+                // the drive coroutine that must start the jump
+                // pass in its place.
+                val run = scope.async { pump.run(MAX_PUMP_REQUESTS) }
+                pumpChild = run
+                val outcome = try {
+                    run.await()
+                } catch (e: CancellationException) {
+                    // Two cancellers reach here: the owner closing
+                    // the handle cancels the drive coroutine
+                    // itself (rethrow — the close path owns the
+                    // ending), and a seek cuts just the pump child
+                    // (loop around: the pending jump at the top
+                    // becomes the next pass).
+                    if (pendingJumpMs >= 0 &&
+                        currentCoroutineContext().isActive
+                    ) {
+                        continue
+                    }
+                    throw e
+                } finally {
+                    if (pumpChild === run) pumpChild = null
+                }
+                when (outcome) {
                     is SabrOutcome.Completed -> {
-                        roadState.markComplete(session.audioFormat.itag)
-                        roadState.markComplete(session.videoFormat.itag)
-                        if (!readySignal.isCompleted) readySignal.complete(true)
-                        onEvent?.invoke("SABR: gulungan lengkap terisi")
-                        return
+                        val gap = session.earliestGapStartMs()
+                        when {
+                            gap == null -> {
+                                roadState.markComplete(session.audioFormat.itag)
+                                roadState.markComplete(session.videoFormat.itag)
+                                if (!readySignal.isCompleted) {
+                                    readySignal.complete(true)
+                                }
+                                onEvent?.invoke("SABR: gulungan lengkap terisi")
+                                return
+                            }
+                            passes < MAX_DRIVE_PASSES -> {
+                                onEvent?.invoke(
+                                    "SABR: menambal celah dari ${gap / 1000} dtk",
+                                )
+                                val filled = refreshedSession(gap)
+                                if (filled == null) {
+                                    die("penyegaran /player gagal")
+                                    return
+                                }
+                                session = filled
+                            }
+                            else -> {
+                                // Out of passes with a hole left:
+                                // killing the road lets classic
+                                // resume at the playhead — strictly
+                                // better than marking the road
+                                // complete, whose gap read would
+                                // end playback at the hole.
+                                die("celah gulungan tersisa")
+                                return
+                            }
+                        }
                     }
                     is SabrOutcome.ReloadRequested -> {
                         reloads++
@@ -361,21 +525,15 @@ class SabrPlayback internal constructor(
                             die("RELOAD_PLAYER_RESPONSE berulang")
                             return
                         }
-                        // The refreshed offer keeps this open's
-                        // cap and viewport (mechanisms 6 + 15).
-                        val fresh = engine.openSabrSession(
-                            videoId,
-                            openData.capHeightPx,
-                            openData.viewportWidth to openData.viewportHeight,
-                        )
+                        // Mechanisms 18 + 23: the refreshed offer
+                        // is seeded at the CURRENT playhead, so a
+                        // reload no longer re-enters at zero.
+                        val fresh = refreshedSession(playerPositionMs)
                         if (fresh == null) {
                             die("penyegaran /player gagal")
                             return
                         }
-                        session = fresh.newSession()
-                        activeSession = session
-                        session.restoreFrom(spool)
-                        adoptClassicRanges(session)
+                        session = fresh
                     }
                     is SabrOutcome.TokenDemanded -> {
                         engine.noteSabrFailure(
@@ -400,18 +558,56 @@ class SabrPlayback internal constructor(
                         return
                     }
                     is SabrOutcome.Stalled -> {
-                        // Cancellation-shaped stalls are lifecycle
-                        // noise (the handle was closed on purpose);
-                        // keep them off the failure evidence surface.
-                        if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
-                            engine.noteSabrFailure("macet", outcome.reason)
+                        // Mechanism 23: a stall with the tail
+                        // already on disk and only a hole left is
+                        // not a death — the backfill pass owns the
+                        // hole. (A mid-seeded pass whose answers
+                        // run dry at the tail must not kill a
+                        // nearly-whole road.)
+                        val gap = session.earliestGapStartMs()
+                        if (session.isTailComplete() && gap != null &&
+                            passes < MAX_DRIVE_PASSES
+                        ) {
+                            onEvent?.invoke(
+                                "SABR: menambal celah dari ${gap / 1000} dtk",
+                            )
+                            val filled = refreshedSession(gap)
+                            if (filled == null) {
+                                die("penyegaran /player gagal")
+                                return
+                            }
+                            session = filled
+                        } else {
+                            // Cancellation-shaped stalls are lifecycle
+                            // noise (the handle was closed on purpose);
+                            // keep them off the failure evidence surface.
+                            if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
+                                engine.noteSabrFailure("macet", outcome.reason)
+                            }
+                            die(outcome.reason)
+                            return
                         }
-                        die(outcome.reason)
-                        return
                     }
                     is SabrOutcome.RequestsExhausted -> {
-                        die("permintaan habis")
-                        return
+                        // Mechanism 23: same conversion as a stall
+                        // — tail whole, hole left, budget left.
+                        val gap = session.earliestGapStartMs()
+                        if (session.isTailComplete() && gap != null &&
+                            passes < MAX_DRIVE_PASSES
+                        ) {
+                            onEvent?.invoke(
+                                "SABR: menambal celah dari ${gap / 1000} dtk",
+                            )
+                            val filled = refreshedSession(gap)
+                            if (filled == null) {
+                                die("penyegaran /player gagal")
+                                return
+                            }
+                            session = filled
+                        } else {
+                            die("permintaan habis")
+                            return
+                        }
                     }
                 }
             }
@@ -427,8 +623,31 @@ class SabrPlayback internal constructor(
             )
             die("penggerak pompa gagal: ${e.javaClass.simpleName}")
         } finally {
+            pumpChild?.cancel()
             if (!readySignal.isCompleted) readySignal.complete(false)
         }
+    }
+
+    /**
+     * Mechanisms 18 + 23: a fresh /player offer's session over
+     * the SAME spool — cap and viewport preserved from this open
+     * (mechanisms 6 + 15) — seeded at [seedMs]: the playhead for
+     * a reload, the seek target for a jump, the earliest gap's
+     * start for a backfill. Hydrated from the spool and offered
+     * the classic road's ranges exactly like the initial session.
+     * Null when the refresh itself fails.
+     */
+    private suspend fun refreshedSession(seedMs: Long): SabrSession? {
+        val fresh = engine.openSabrSession(
+            videoId,
+            openData.capHeightPx,
+            openData.viewportWidth to openData.viewportHeight,
+        ) ?: return null
+        val seeded = fresh.newSession(startTimeMs = seedMs)
+        seeded.restoreFrom(spool)
+        adoptClassicRanges(seeded)
+        activeSession = seeded
+        return seeded
     }
 
     /**
@@ -554,6 +773,19 @@ class SabrPlayback internal constructor(
     companion object {
         const val MAX_PUMP_REQUESTS = 5000
         const val MAX_RELOADS = 3
+
+        /**
+         * Mechanism 23: the total drive passes (initial + reloads
+         * + jumps + backfills) one open may spend — a hard stop
+         * against pass ping-pong on a pathological spool.
+         */
+        const val MAX_DRIVE_PASSES = 10
+
+        /**
+         * Mechanism 23: jumps one open may answer; past this the
+         * sequential roll and the stall rescue behave as before.
+         */
+        const val MAX_JUMPS = 5
         const val READY_TIMEOUT_MS = 15_000L
 
         /** Mechanism 21: a pre-ready pump sleep at least this long

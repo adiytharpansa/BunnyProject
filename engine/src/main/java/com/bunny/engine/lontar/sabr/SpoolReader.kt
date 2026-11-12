@@ -65,6 +65,15 @@ class SpoolRoadState {
  * - A read on a completed track past its end is end-of-input (-1).
  * - A dead road turns every pending and future read into an
  *   [IOException] — never a silent stall, never fabricated bytes.
+ *
+ * Service is RANGE-based (mechanism 23, full form): a position
+ * inside ANY interval [TrackSpool.writtenRanges] vouches for is
+ * served up to that interval's end — a spool whose middle was
+ * seeded by a jump pass serves its second region while the first
+ * gap is still being backfilled. A position in a gap, or past
+ * every range, waits while the road lives; on a completed track
+ * it is end-of-input instead — a finished spool's gap is a
+ * terminal fact, not a wait.
  */
 class SpoolReader(
     private val track: TrackSpool,
@@ -104,26 +113,41 @@ class SpoolReader(
 
     /**
      * Reads up to [length] bytes at [position] into [buffer] at
-     * [offset]; returns the count actually read (never more than what
-     * has arrived), or -1 when [position] is at/past the end of a
-     * completed track. Blocks while the needed bytes are in flight.
+     * [offset]; returns the count actually read (never more than
+     * the vouched range holding [position] offers), or -1 when
+     * [position] is at/past the end of a completed track or inside
+     * a completed track's gap. Blocks while the needed bytes are
+     * in flight.
      */
     fun readAt(position: Long, buffer: ByteArray, offset: Int, length: Int): Int {
         if (length == 0) return 0
         while (true) {
             if (closed) throw IOException("Pembaca gulungan ditutup")
             road.checkAlive()
-            val frontier = track.frontier()
-            if (position < frontier) {
+            val ranges = track.writtenRanges()
+            val range = ranges.firstOrNull {
+                position >= it.first && position <= it.last
+            }
+            if (range != null) {
                 // Fed: any wait episode in progress is over.
                 waitStartedNanos = -1
                 longWaitReported = false
-                val count = minOf(length.toLong(), frontier - position).toInt()
+                val count = minOf(length.toLong(), range.last + 1 - position).toInt()
                 val data = track.read(position, count)
                 data.copyInto(buffer, offset)
                 return data.size
             }
             if (road.isComplete(track.itag)) return -1
+            // The frontier a wait at [position] is reported
+            // against: the greatest vouched end at or before it.
+            // In the sequential case (one range from zero) that
+            // IS the old frontier, so the diagnostics lines keep
+            // their proven meaning; behind a jump-seeded second
+            // region it names the end of the region the position
+            // actually follows.
+            val frontier = ranges
+                .filter { it.last + 1 <= position }
+                .maxOfOrNull { it.last + 1 } ?: 0L
             if (waitStartedNanos < 0) waitStartedNanos = System.nanoTime()
             if (!waitReported) {
                 // The first wait of this reader, reported once: the

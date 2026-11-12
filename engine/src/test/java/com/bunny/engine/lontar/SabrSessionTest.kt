@@ -891,4 +891,56 @@ class SabrSessionTest {
         assertEquals(300L, track.initBytes)
         reopened.close()
     }
+
+    // ------------------------------------------------ mechanism 23
+
+    private fun feedTimedSegment(
+        s: SabrSession, id: Int, itag: Int, seq: Int,
+        startMs: Long, durationMs: Long, startRange: Long,
+    ) {
+        s.consume(
+            listOf(
+                header(
+                    id, itag, seq, startRange, 100,
+                    timeRange = SabrTimeRange(startMs, durationMs, 1000),
+                ),
+                SabrPart.MediaPart(id, ByteArray(100)),
+            ),
+        )
+    }
+
+    @Test
+    fun gapBetweenSegmentsStartsWhereCoverageEnds() {
+        // Mechanism 23: [0–10 s] then [60–70 s] — the hole is
+        // (10 s, 60 s) and a backfill pass seeds at its start.
+        val s = session()
+        feedTimedSegment(s, 0, 251, 1, 0, 10_000, 0)
+        feedTimedSegment(s, 1, 251, 2, 60_000, 10_000, 100)
+        assertEquals(10_000L, s.earliestGapStartMs())
+        assertTrue(s.coversPosition(5_000))
+        assertTrue(!s.coversPosition(30_000))
+        assertTrue(s.coversPosition(65_000))
+        assertTrue(!s.coversPosition(80_000))
+    }
+
+    @Test
+    fun contiguousSegmentsLeaveNoGap() {
+        val s = session()
+        feedTimedSegment(s, 0, 251, 1, 0, 10_000, 0)
+        feedTimedSegment(s, 1, 251, 2, 10_000, 10_000, 100)
+        assertNull(s.earliestGapStartMs())
+        assertTrue(s.coversPosition(15_000))
+    }
+
+    @Test
+    fun headGapStartsAtZero() {
+        // A jump-seeded track: nothing before 30 s, so the hole
+        // is [0, 30 s) and the backfill seed is the top itself.
+        val s = session()
+        feedTimedSegment(s, 0, 251, 1, 30_000, 10_000, 0)
+        assertEquals(0L, s.earliestGapStartMs())
+        assertTrue(!s.coversPosition(10_000))
+        assertTrue(s.coversPosition(35_000))
+    }
+
 }

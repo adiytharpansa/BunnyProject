@@ -38,7 +38,20 @@ data class SabrOpenData(
      */
     val ceiling: DeviceCodecCeiling = DeviceCodecCeiling.UNKNOWN,
 ) {
-    fun newSession(cpn: String = SabrSession.generateCpn()): SabrSession =
+    /**
+     * Mints a session over this offer. [startTimeMs] seeds the
+     * session's opening playhead claim (mechanism 23, full form):
+     * the pump's first request carries it as player_time_ms, and
+     * the server enters the stream there — proven by the jilid-2
+     * cold-seek probe (2026-11-12: a session seeded at 50% landed
+     * its first real segment at 190,001 ms). Zero, the default,
+     * is the classic from-the-top session every existing caller
+     * gets, byte-identical to before.
+     */
+    fun newSession(
+        cpn: String = SabrSession.generateCpn(),
+        startTimeMs: Long = 0,
+    ): SabrSession =
         SabrSession(
             videoId = videoId,
             initialUrl = sabrUrl,
@@ -48,6 +61,7 @@ data class SabrOpenData(
             formats = formats,
             audioItag = audioPin.itag,
             videoItag = videoPin.itag,
+            startTimeMs = startTimeMs,
             cpn = cpn,
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight,

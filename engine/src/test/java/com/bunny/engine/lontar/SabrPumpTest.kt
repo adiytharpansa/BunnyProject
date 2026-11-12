@@ -1,6 +1,7 @@
 package com.bunny.engine.lontar
 
 import com.bunny.engine.lontar.sabr.BandwidthMeter
+import com.bunny.engine.lontar.sabr.ProtoReader
 import com.bunny.engine.lontar.sabr.ProtoWriter
 import com.bunny.engine.lontar.sabr.SabrClientInfo
 import com.bunny.engine.lontar.sabr.SabrFormat
@@ -607,4 +608,75 @@ class SabrPumpTest {
             sleeps,
         )
     }
+
+    /**
+     * Mechanism 23: a session seeded mid-stream claims the seed
+     * in its FIRST request, lands the arriving tail segments at
+     * their addressed spool offsets, and the run ends Completed
+     * on tail completion even though the head was never rolled —
+     * backfilling the hole is the drive's job, not the pump's.
+     */
+    @Test
+    fun seededSessionClaimsTheSeedAndCompletesOnTheTail() = runBlocking {
+        val bodies = ArrayList<ByteArray>()
+        val audioTail = ByteArray(100) { 0x61 }
+        val videoTail = ByteArray(100) { 0x62 }
+        val resp = response(
+            initMetadataPart(251, 3),
+            initMetadataPart(136, 3),
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, ByteArray(20)),
+            headerPart(1, 136, null, 0, 20, init = true),
+            mediaPart(1, ByteArray(20)),
+            // Only the TAIL segments (3 of 3) arrive, addressed at
+            // the offsets segments 1–2 would have occupied.
+            headerPart(2, 251, 3, 220, 100, init = false),
+            mediaPart(2, audioTail),
+            headerPart(3, 136, 3, 220, 100, init = false),
+            mediaPart(3, videoTail),
+        )
+        val transport = object : SabrTransport {
+            override suspend fun post(url: String, body: ByteArray): ByteArray {
+                bodies.add(body)
+                return resp
+            }
+        }
+        val s = SabrSession(
+            videoId = "vid",
+            initialUrl = "https://x.invalid/s",
+            ustreamerConfig = byteArrayOf(9, 9),
+            clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+            durationSeconds = 100,
+            formats = listOf(
+                SabrFormat(251, "audio/webm", 160_000, 111L, "x"),
+                SabrFormat(136, "video/mp4", 2_000_000, 222L, null),
+            ),
+            audioItag = 251,
+            videoItag = 136,
+            startTimeMs = 50_000,
+            cpn = "CPN",
+        )
+        val sp = spool()
+        val outcome = pump(s, sp, transport, ArrayList()).run(5)
+        assertEquals(SabrOutcome.Completed, outcome)
+        assertEquals(1, bodies.size)
+        // (a) The first request carries the seed as player_time_ms
+        // (AbrRequest field 4).
+        val request = ProtoReader.parseOrNull(bodies[0])!!
+        assertEquals(
+            50_000L,
+            request.firstOrNull { it.number == 4 }?.varintValue,
+        )
+        // (b) The tail segments sit at their addressed offsets.
+        assertArrayEquals(audioTail, sp.track(251).read(220, 100))
+        assertArrayEquals(videoTail, sp.track(136).read(220, 100))
+        // (c) Tail complete with the head unrolled: isComplete
+        // stays false, the seeded segment's start IS the seed, and
+        // the hole reaches back to the top of the timeline.
+        assertTrue(s.isTailComplete())
+        assertTrue(!s.isComplete())
+        assertEquals(50_000L, s.trackFor(251).segments[3]!!.startMs)
+        assertEquals(0L, s.earliestGapStartMs())
+    }
+
 }

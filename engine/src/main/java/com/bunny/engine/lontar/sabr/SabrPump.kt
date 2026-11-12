@@ -54,7 +54,9 @@ data class SabrExchange(
 
 /** How a pump run ended — the road's report to its caller. */
 sealed interface SabrOutcome {
-    /** Both pinned tracks hold every segment. */
+    /** Both pinned tracks hold every segment — or, on a pass
+     *  seeded mid-stream (mechanism 23), the stream's tail is on
+     *  disk and only earlier gaps remain for the drive to backfill. */
     object Completed : SabrOutcome
 
     /** STREAM_PROTECTION_STATUS 3: this road is closed without a token. */
@@ -376,7 +378,13 @@ class SabrPump(
                 pin = true
             }
             playerTimeMs = maxOf(playerTimeMs, session.bufferedEndMs())
-            if (session.isComplete()) return SabrOutcome.Completed
+            // Mechanism 23: a pass seeded mid-stream also ends
+            // when the TAIL is on disk — it can never satisfy
+            // isComplete() while an earlier gap is unfilled, and
+            // the drive, not the pump, owns backfilling it.
+            if (session.isComplete() || session.isTailComplete()) {
+                return SabrOutcome.Completed
+            }
 
             val backoff = result.backoffTimeMs
             val leadMs = session.bufferedEndMs() - positionHintMs()

@@ -374,6 +374,91 @@ class SabrSession(
     }
 
     /**
+     * Mechanism 23, full form: the TAIL of the stream is on disk —
+     * every pinned track exists and, where the wire named its end
+     * segment, holds that final segment. Weaker than [isComplete]
+     * (earlier gaps may remain) but the fact a pass seeded
+     * mid-stream can actually reach: such a session can never
+     * satisfy [isComplete] while a gap behind it is unfilled, yet
+     * its pump has nothing left to ask for at the playhead's end
+     * of the timeline. A pinned track that never materialised
+     * (no headers, no restore) blocks the verdict — an untouched
+     * slot proves nothing about the tail.
+     */
+    fun isTailComplete(): Boolean {
+        var anyKnownEnd = false
+        for (format in listOf(audioFormat, videoFormat)) {
+            val track = _tracks[format.itag] ?: return false
+            val end = track.endSegmentNumber ?: continue
+            anyKnownEnd = true
+            if (!track.segments.containsKey(end)) return false
+        }
+        return anyKnownEnd
+    }
+
+    /**
+     * The timeline holes of one track, as [start, end) millisecond
+     * intervals: a head hole when the first segment starts past
+     * [GAP_EPSILON_MS], and a hole between consecutive segments
+     * (in startMs order) whose joint leaves more than the epsilon
+     * uncovered. A track with no segments has no holes — it is
+     * untouched, not gapped (the initial pass owns it).
+     */
+    private fun gapsOf(track: SabrTrack): List<LongRange> {
+        val segs = track.segments.values.sortedBy { it.startMs }
+        if (segs.isEmpty()) return emptyList()
+        val gaps = ArrayList<LongRange>()
+        val first = segs.first()
+        if (first.startMs > GAP_EPSILON_MS) {
+            gaps.add(0L until first.startMs)
+        }
+        for (i in 1 until segs.size) {
+            val prevEnd = segs[i - 1].startMs + segs[i - 1].durationMs
+            if (segs[i].startMs > prevEnd + GAP_EPSILON_MS) {
+                gaps.add(prevEnd until segs[i].startMs)
+            }
+        }
+        return gaps
+    }
+
+    /**
+     * Mechanism 23: where the earliest timeline hole across the
+     * pinned tracks begins (a backfill pass seeds there), or null
+     * when the spooled timeline is unbroken. Only tracks holding
+     * segments vote — an untouched track is the initial pass's
+     * job, not a hole.
+     */
+    fun earliestGapStartMs(): Long? {
+        var earliest: Long? = null
+        for (format in listOf(audioFormat, videoFormat)) {
+            val track = _tracks[format.itag] ?: continue
+            val gap = gapsOf(track).firstOrNull() ?: continue
+            earliest = earliest?.let { minOf(it, gap.first) } ?: gap.first
+        }
+        return earliest
+    }
+
+    /**
+     * Mechanism 23: does the spool already serve [positionMs] —
+     * the playhead may sit there without waiting for the roll?
+     * The brief's rule: at or under the buffered end (the minimum
+     * across the tracks that hold segments) AND inside no track's
+     * hole. Position zero is trivially covered. With nothing
+     * rolled yet, nothing past zero is covered.
+     */
+    fun coversPosition(positionMs: Long): Boolean {
+        if (positionMs <= 0) return true
+        val voters = listOf(audioFormat, videoFormat)
+            .mapNotNull { _tracks[it.itag] }
+            .filter { it.segments.isNotEmpty() }
+        if (voters.isEmpty()) return false
+        if (positionMs > bufferedEndMs()) return false
+        return voters.none { track ->
+            gapsOf(track).any { positionMs in it }
+        }
+    }
+
+    /**
      * The format the WIRE has proven for one slot: its init segment
      * actually arrived in this session. Among proven formats, one
      * already carrying media segments wins, then the highest bitrate.
@@ -837,6 +922,14 @@ class SabrSession(
     }
 
     companion object {
+        /**
+         * Mechanism 23: segment joints within this slack count as
+         * continuous — time_range arithmetic and per-format
+         * rounding leave sub-frame seams a backfill pass would
+         * only chase as noise.
+         */
+        const val GAP_EPSILON_MS: Long = 250L
+
         fun generateCpn(): String {
             val alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
             return (1..16).map { alphabet[Random.nextInt(alphabet.length)] }.joinToString("")
