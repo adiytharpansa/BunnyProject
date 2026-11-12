@@ -199,6 +199,17 @@ class SabrPlayback internal constructor(
     private suspend fun drive() {
         var session = openData.newSession()
         activeSession = session
+        // What this road ASKS for, and what the device can decode
+        // in hardware — one line per open, so a screenshot can
+        // separate "we asked for AV1" from "the server overrode
+        // the pin" (the two need different repairs).
+        onEvent?.invoke(
+            "SABR pin: video ${openData.videoPin.itag} " +
+                "(${codecFamilyOf(openData.videoPin.mimeType)}), " +
+                "audio ${openData.audioPin.itag}; codec perangkat: " +
+                "AV1 keras ${openData.ceiling.av1Hardware}, " +
+                "VP9 keras ${openData.ceiling.vp9Hardware}",
+        )
         // Fase 8 mechanism 12 — cold spool: whatever a previous
         // session rolled for this video is still on disk. Hydrate
         // the fresh session from it BEFORE the first request; when
@@ -445,10 +456,35 @@ class SabrPlayback internal constructor(
         val files = spool.trackItags().sorted().joinToString(", ") { itag ->
             "$itag.bin ${spool.track(itag).fileLength() / 1000} KB"
         }
-        return "berkas gulungan: $files; dibaca pemutar: video " +
+        var line = "berkas gulungan: $files; dibaca pemutar: video " +
             "${spool.track(servedVideoItag).servedBytes / 1000} KB, audio " +
             "${spool.track(servedAudioItag).servedBytes / 1000} KB; " +
             "tergulung ${s.bufferedEndMs() / 1000} dtk"
+        // Autopsi gulungan (anti-buffering detector): a track whose
+        // FILE is much longer than its vouched FRONTIER has bytes
+        // the ledger does not vouch for — the hole shape. Dump that
+        // track's segment map so one screenshot shows exactly which
+        // sequence is short or missing.
+        for (itag in spool.trackItags()) {
+            val track = spool.track(itag)
+            val frontier = track.frontier()
+            if (track.fileLength() - frontier <= 4096) continue
+            val map = track.segments.values
+                .sortedBy { it.sequence }
+                .take(14)
+                .joinToString(" ") { seg ->
+                    val expected = if (seg.expectedLength > seg.length) {
+                        "/${seg.expectedLength}"
+                    } else {
+                        ""
+                    }
+                    val mark = if (seg.isComplete) "" else "!"
+                    "${seg.sequence}[${seg.length}$expected$mark]"
+                }
+            line += "; autopsi $itag: frontier $frontier dari berkas " +
+                "${track.fileLength()}; segmen $map"
+        }
+        return line
     }
 
     private fun die(reason: String) {

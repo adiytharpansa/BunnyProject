@@ -833,6 +833,14 @@ class PlaybackManager @Inject constructor(
                                             "diduga decode tertinggal " +
                                                 "(${droppedFramesTotal - episodeDroppedStart} " +
                                                 "frame dibuang selama episode)"
+                                        wait != null &&
+                                            wait.atUptimeMs >= since &&
+                                            wait.fileLength - wait.frontier > 65_536L ->
+                                            "lubang gulungan di itag ${wait.itag} " +
+                                                "(frontier ${wait.frontier}, berkas " +
+                                                "${wait.fileLength} — byte ada di " +
+                                                "berkas tapi buku catatan belum " +
+                                                "menjaminnya)"
                                         wait != null && wait.atUptimeMs >= since ->
                                             "pasokan gulungan tipis di posisi putar " +
                                                 "(itag ${wait.itag} menunggu tepat " +

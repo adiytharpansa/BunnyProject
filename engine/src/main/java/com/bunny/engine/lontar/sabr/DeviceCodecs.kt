@@ -101,10 +101,17 @@ object DeviceCodecProbe {
     }
 
     private fun isHardware(info: android.media.MediaCodecInfo): Boolean {
-        // The platform flag exists only from API 29; reading it on
-        // an older device would throw, so the name heuristic below
-        // is the only path there.
-        if (Build.VERSION.SDK_INT >= 29) return info.isHardwareAccelerated
+        // The platform flags exist only from API 29; reading them
+        // on an older device would throw, so the name heuristic
+        // below is the only path there. A codec must be BOTH
+        // hardware-accelerated AND not software-only: the dav1d
+        // AV1 decoder bundled as c2.android.av1-dav1d is software
+        // wearing a platform name, and the 2026-11-12 device log
+        // shows the player itself choosing it for AV1 — a ceiling
+        // that calls that "hardware" would be lying.
+        if (Build.VERSION.SDK_INT >= 29) {
+            return info.isHardwareAccelerated && !info.isSoftwareOnly
+        }
         val n = info.name.lowercase()
         return !n.contains("google") && !n.contains("ffmpeg") &&
             !n.endsWith(".sw")
