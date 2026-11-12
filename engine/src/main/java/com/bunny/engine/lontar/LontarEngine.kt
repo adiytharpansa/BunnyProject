@@ -447,6 +447,13 @@ class LontarEngine(
         )
 
     /**
+     * Anti-buffering M13: whether the link is unmetered for
+     * speculative media work — the same network-class signal the
+     * SABR settings already steer by (cellular is the metered one).
+     */
+    fun isUnmetered(): Boolean = networkClass.current() != "SELULER"
+
+    /**
      * Fase 8 (Anyam), Langkah 3: offers the SABR road for [videoId],
      * or null when the road is not there. Rides the SAME cached
      * player response the classic chain uses — when the ladder's

@@ -3,6 +3,8 @@ package com.bunny.app.playback
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -22,12 +24,15 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.mkv.MatroskaExtractor
 import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
@@ -176,8 +181,43 @@ class PlaybackManager @Inject constructor(
     /** The SABR playback currently feeding the player, if any. */
     private var currentSabr: SabrPlayback? = null
 
+    // ------------------------------------------------- anti-buffering M2
+
+    /** Buffering episodes of the CURRENT SABR session (M2). */
+    private var sabrBufferingEpisodes = 0
+
+    /** Uptime the current SABR buffering episode began; -1 = none. */
+    private var sabrBufferingSinceMs: Long = -1
+
+    /** True once the current SABR session has reached READY. */
+    private var sabrHasBeenReady = false
+
+    /** Dropped frames since the current SABR handle opened. */
+    private var droppedFramesTotal = 0
+
+    // ------------------------------------------------ anti-buffering M15
+
+    /** Catch-up speed (1,05x) is currently engaged. */
+    private var catchUpActive = false
+
+    /** A SABR buffering episode ended since the last reset. */
+    private var catchUpEpisodeSeen = false
+
+    /** M15: every new road starts at honest speed, flags cleared. */
+    private fun resetCatchUp() {
+        if (catchUpActive && playerBuilt) player.setPlaybackSpeed(1.0f)
+        catchUpActive = false
+        catchUpEpisodeSeen = false
+    }
+
+    /** True while the player's current item is the SABR source. */
+    private fun playerOnSabrSource(): Boolean =
+        player.currentMediaItem?.localConfiguration?.uri?.scheme == "bunny-sabr"
+
     private fun closeSabr() {
         cancelSabrPositionReporter()
+        cancelSabrStallRescue()
+        resetCatchUp()
         currentSabr?.close()
         currentSabr = null
     }
@@ -190,6 +230,16 @@ class PlaybackManager @Inject constructor(
     private fun cancelSabrWatchdog() {
         sabrWatchdog?.let { mainHandler.removeCallbacks(it) }
         sabrWatchdog = null
+        // The chain just moved (playChain calls this): the mid-play
+        // rescue belongs to the road the chain is leaving.
+        cancelSabrStallRescue()
+    }
+
+    private var sabrStallRescue: Runnable? = null
+
+    private fun cancelSabrStallRescue() {
+        sabrStallRescue?.let { mainHandler.removeCallbacks(it) }
+        sabrStallRescue = null
     }
 
     private var sabrPositionReporter: Runnable? = null
@@ -212,11 +262,101 @@ class PlaybackManager @Inject constructor(
             override fun run() {
                 if (currentSabr !== sabr) return
                 sabr.playerPositionMs = player.currentPosition
+                // M15's check rides this tick: main thread, every
+                // two seconds, only while a SABR handle is current.
+                updateCatchUpSpeed()
                 mainHandler.postDelayed(this, 2_000)
             }
         }
         sabrPositionReporter = reporter
         mainHandler.post(reporter)
+    }
+
+    /**
+     * Anti-buffering M15 — catch-up recovery: after a SABR
+     * buffering episode has ENDED (M2's flag), play at 1,05x
+     * until the player's own buffer lead is healthy again
+     * ([CATCH_UP_TARGET_MS]), then return to honest 1,0x. A speed
+     * the user chose is never overridden: engagement requires the
+     * current speed to be exactly 1,0x, and the restore only
+     * touches a speed that is still our 1,05x.
+     */
+    private fun updateCatchUpSpeed() {
+        if (!playerOnSabrSource()) return
+        val leadMs = player.bufferedPosition - player.currentPosition
+        if (catchUpActive) {
+            if (leadMs >= CATCH_UP_TARGET_MS) {
+                if (player.playbackParameters.speed == CATCH_UP_SPEED) {
+                    player.setPlaybackSpeed(1.0f)
+                    PlaybackDiagnostics.log("Pemulihan selesai: kembali 1,0x")
+                }
+                catchUpActive = false
+                catchUpEpisodeSeen = false
+            }
+        } else if (catchUpEpisodeSeen &&
+            player.playbackParameters.speed == 1.0f &&
+            leadMs < CATCH_UP_TARGET_MS
+        ) {
+            player.setPlaybackSpeed(CATCH_UP_SPEED)
+            catchUpActive = true
+            PlaybackDiagnostics.log("Pemulihan: putar 1,05x sampai penyangga pulih")
+        }
+    }
+
+    /**
+     * Anti-buffering M12 — the mid-play guarantee. The start
+     * watchdog owns the road only until first READY; this one
+     * owns it afterwards: a CONTINUOUS buffering stretch past
+     * [SABR_STALL_RESCUE_MS] on a handle that has already played
+     * hands the video to the classic road at the same position,
+     * through the chain's own fallthrough — the viewer never
+     * stares at the spinner longer than the threshold, whatever
+     * the cause. Fires at most once per handle: firing closes
+     * the handle, and a closed handle fails every guard here.
+     */
+    private fun armSabrStallRescue(sabr: SabrPlayback) {
+        cancelSabrStallRescue()
+        var hasBeenReady = false
+        var bufferingSinceMs = -1L
+        val rescue = object : Runnable {
+            override fun run() {
+                if (currentSabr !== sabr) return
+                // The chain already fell through (a source error
+                // beat us to it): this road is no longer ours. A
+                // missing item is only the prepare window — keep
+                // watching; a foreign item ends the watch.
+                val itemScheme = player.currentMediaItem
+                    ?.localConfiguration?.uri?.scheme
+                if (itemScheme != null && itemScheme != "bunny-sabr") return
+                when (player.playbackState) {
+                    Player.STATE_READY -> {
+                        hasBeenReady = true
+                        bufferingSinceMs = -1
+                    }
+                    Player.STATE_BUFFERING -> {
+                        if (hasBeenReady && player.playWhenReady) {
+                            val now = SystemClock.uptimeMillis()
+                            if (bufferingSinceMs < 0) bufferingSinceMs = now
+                            if (now - bufferingSinceMs >= SABR_STALL_RESCUE_MS) {
+                                PlaybackDiagnostics.log(
+                                    "SABR macet di tengah putar (BUFFERING > " +
+                                        "${SABR_STALL_RESCUE_MS / 1000} dtk) — " +
+                                        "pindah ke jalan klasik di posisi yang " +
+                                        "sama (${sabr.statusLine()})",
+                                )
+                                closeSabr()
+                                fallback?.invoke()
+                                return
+                            }
+                        }
+                    }
+                    else -> bufferingSinceMs = -1
+                }
+                mainHandler.postDelayed(this, SABR_WATCHDOG_TICK_MS)
+            }
+        }
+        sabrStallRescue = rescue
+        mainHandler.postDelayed(rescue, SABR_WATCHDOG_TICK_MS)
     }
 
     /**
@@ -281,6 +421,11 @@ class PlaybackManager @Inject constructor(
     ) {
         closeSabr()
         currentSabr = sabr
+        // M2: a new handle starts with clean evidence counters.
+        sabrBufferingEpisodes = 0
+        sabrBufferingSinceMs = -1
+        sabrHasBeenReady = false
+        droppedFramesTotal = 0
         currentPersonaName = streams.personaName
         currentSourceIsLocal = false
         clearQualityOverride()
@@ -298,6 +443,7 @@ class PlaybackManager @Inject constructor(
         playChain(chain, title, resumeOnFirstFallthrough = true)
         armSabrWatchdog(sabr)
         armSabrPositionReporter(sabr)
+        armSabrStallRescue(sabr)
         val tracking = sabr.openData.tracking ?: streams.tracking
         if (tracking != null) {
             watchReporter.start(
@@ -317,13 +463,27 @@ class PlaybackManager @Inject constructor(
         sabr: SabrPlayback,
         metadata: MediaMetadata,
     ): MediaSource {
+        // Anti-buffering M4/M5: on a GROWING spool, an extractor
+        // that hunts tail metadata parks a loader thread — and
+        // with it the whole merged player (readiness is the
+        // minimum of the two tracks). WebM's Cues sit near
+        // end-of-file in YouTube's files; the fMP4 sidx/mfra
+        // mergers read the same neighbourhood. The SABR source
+        // therefore disables the Matroska cues seek outright and
+        // pins the fragmented-MP4 flags to none: the spool is
+        // read strictly front-to-back, which is all playback does.
+        val extractorsFactory = DefaultExtractorsFactory()
+            .setMatroskaExtractorFlags(MatroskaExtractor.FLAG_DISABLE_SEEK_FOR_CUES)
+            .setFragmentedMp4ExtractorFlags(0)
         fun source(itag: Int): MediaSource {
             val item = MediaItem.Builder()
                 .setUri(Uri.parse("bunny-sabr://${sabr.videoId}/$itag"))
                 .setMediaMetadata(metadata)
                 .build()
-            return ProgressiveMediaSource.Factory(sabr.dataSourceFactory)
-                .createMediaSource(item)
+            return ProgressiveMediaSource.Factory(
+                sabr.dataSourceFactory,
+                extractorsFactory,
+            ).createMediaSource(item)
         }
         return MergingMediaSource(
             true,
@@ -375,6 +535,21 @@ class PlaybackManager @Inject constructor(
             }
         }
         playChain(listOf("unduhan lokal" to merged), title)
+    }
+
+    /**
+     * Whether the current default network is metered, for the
+     * LoadControl sizing (M16). Unknown reads as unmetered — the
+     * shallower buffer is the safer wrong answer.
+     */
+    private fun isMeteredNetwork(): Boolean = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+            as? ConnectivityManager
+        val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+        caps != null &&
+            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    } catch (e: Exception) {
+        false
     }
 
     private fun clearQualityOverride() {
@@ -487,12 +662,30 @@ class PlaybackManager @Inject constructor(
     // -------------------------------------------------------------- internals
 
     private fun buildPlayer(): ExoPlayer {
+        // Anti-buffering M6/M7/M16: on both roads this player is a
+        // file-like consumer (the SABR road literally reads a
+        // growing local spool), so TIME — not bytes — is the
+        // binding limit (M6), and the durations follow the SABR
+        // cadence instead of the inherited ExoPlayer 2 shape
+        // (15/40 s, 2,5/5 s, 24 MB — under Media3's own 144 MB
+        // target the byte cap bound first at HD bitrates and the
+        // extractor could never hold what the spool had rolled).
+        // Deeper on a metered link (M16): rebuffer insurance is
+        // worth its bytes there. One player serves both roads, so
+        // this sizing is deliberately global.
+        val metered = isMeteredNetwork()
+        val minBufferMs = if (metered) 90_000 else 60_000
+        val maxBufferMs = if (metered) 180_000 else 120_000
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            // The buffer contract that kept CLEAR's player stable: generous
-            // floor and ceiling, playback resumes quickly after a stall.
-            .setBufferDurationsMs(15_000, 40_000, 2_500, 5_000)
-            .setTargetBufferBytes(24 * 1024 * 1024)
+            .setBufferDurationsMs(minBufferMs, maxBufferMs, 1_000, 2_000)
+            .setTargetBufferBytes(128 * 1024 * 1024)
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
+        PlaybackDiagnostics.log(
+            "Penyangga pemutar: min ${minBufferMs / 1000} dtk, " +
+                "maks ${maxBufferMs / 1000} dtk, waktu-diutamakan" +
+                (if (metered) " (jaringan terukur)" else ""),
+        )
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             // Lompat 10 detik ke dua arah, seperti YouTube (bawaan Media3
@@ -559,6 +752,68 @@ class PlaybackManager @Inject constructor(
                                         "${exo.currentPosition}ms (persona $persona)",
                                 )
                                 onSuspectedGvs?.invoke(persona)
+                            }
+                        }
+                    }
+                })
+                // Anti-buffering M2: the player's own evidence —
+                // which decoder really runs (a name settles the
+                // hardware/software question the web sources argue
+                // about), how many frames it drops, and how the
+                // SABR road's buffering episodes count and last.
+                // Without these, "buffering" stays a feeling; with
+                // them it is a measurement.
+                exo.addAnalyticsListener(object : AnalyticsListener {
+                    override fun onVideoDecoderInitialized(
+                        eventTime: AnalyticsListener.EventTime,
+                        decoderName: String,
+                        initializedTimestampMs: Long,
+                        initializationDurationMs: Long,
+                    ) {
+                        PlaybackDiagnostics.log("Decoder video: $decoderName")
+                    }
+
+                    override fun onDroppedVideoFrames(
+                        eventTime: AnalyticsListener.EventTime,
+                        droppedFrames: Int,
+                        elapsedMs: Long,
+                    ) {
+                        val before = droppedFramesTotal
+                        droppedFramesTotal += droppedFrames
+                        if (droppedFramesTotal / 60 > before / 60) {
+                            PlaybackDiagnostics.log(
+                                "Frame dibuang kumulatif: $droppedFramesTotal " +
+                                    "(decode tertinggal?)",
+                            )
+                        }
+                    }
+
+                    override fun onPlaybackStateChanged(
+                        eventTime: AnalyticsListener.EventTime,
+                        state: Int,
+                    ) {
+                        if (currentSabr == null) return
+                        val now = SystemClock.uptimeMillis()
+                        when (state) {
+                            Player.STATE_READY -> {
+                                sabrHasBeenReady = true
+                                val since = sabrBufferingSinceMs
+                                if (since >= 0) {
+                                    sabrBufferingSinceMs = -1
+                                    sabrBufferingEpisodes++
+                                    PlaybackDiagnostics.log(
+                                        "Buffering ke-$sabrBufferingEpisodes: " +
+                                            "${(now - since) / 1000} dtk",
+                                    )
+                                    // M15: an episode ENDED — the
+                                    // catch-up speed may engage.
+                                    catchUpEpisodeSeen = true
+                                }
+                            }
+                            Player.STATE_BUFFERING -> {
+                                if (sabrHasBeenReady && sabrBufferingSinceMs < 0) {
+                                    sabrBufferingSinceMs = now
+                                }
                             }
                         }
                     }
@@ -723,6 +978,21 @@ class PlaybackManager @Inject constructor(
 
         /** How often the hedged-start watchdog re-reads the spool. */
         private const val SABR_WATCHDOG_TICK_MS = 2_000L
+
+        /**
+         * Anti-buffering M12: a continuous mid-play BUFFERING on
+         * the SABR road longer than this hands the video to the
+         * classic road at the same position — the hard ceiling on
+         * how long a viewer may stare at the spinner.
+         */
+        private const val SABR_STALL_RESCUE_MS = 12_000L
+
+        /** Anti-buffering M15: the healthy player-buffer lead the
+         *  catch-up speed plays toward, in milliseconds. */
+        private const val CATCH_UP_TARGET_MS = 30_000L
+
+        /** Anti-buffering M15: the catch-up playback speed. */
+        private const val CATCH_UP_SPEED = 1.05f
 
         /**
          * Past this position, an HTTP 403 is no longer a cold-start

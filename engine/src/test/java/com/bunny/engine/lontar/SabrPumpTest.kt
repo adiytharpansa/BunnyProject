@@ -508,6 +508,78 @@ class SabrPumpTest {
     }
 
     @Test
+    fun leadBoundedSleepBandEdges() {
+        // M8's pure decision, at its edges. Thin lead: the
+        // server's backoff is ignored outright.
+        assertEquals(200L, SabrPump.leadBoundedSleep(60_000, 0, 100))
+        assertEquals(200L, SabrPump.leadBoundedSleep(60_000, 29_999, 100))
+        // Middle: the backoff under a 5 s ceiling; none stated → 5 s.
+        assertEquals(5_000L, SabrPump.leadBoundedSleep(60_000, 30_000, 100))
+        assertEquals(3_000L, SabrPump.leadBoundedSleep(3_000, 60_000, 100))
+        assertEquals(5_000L, SabrPump.leadBoundedSleep(null, 60_000, 100))
+        // Fat: the backoff under a 30 s ceiling; none stated → 30 s.
+        assertEquals(30_000L, SabrPump.leadBoundedSleep(60_000, 120_000, 100))
+        assertEquals(30_000L, SabrPump.leadBoundedSleep(null, 300_000, 100))
+        // A media-less answer with no backoff keeps the legacy
+        // 200 ms cadence in every band.
+        assertEquals(200L, SabrPump.leadBoundedSleep(null, 0, 0))
+        assertEquals(200L, SabrPump.leadBoundedSleep(null, 300_000, 0))
+    }
+
+    @Test
+    fun leadAwareSleepWalksTheBandsAsTheLeadGrows() = runBlocking {
+        // M8 end to end: the transport adds 10 s of timeline per
+        // request against a 60 s server backoff while the
+        // playhead sits at 0, so the lead walks thin (two floor
+        // sleeps), middle (nine 5 s sleeps), then fat (30 s).
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = segmentTransport(),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            positionHintMs = { 0L },
+            leadAware = true,
+        )
+        val outcome = p.run(13)
+        assertEquals(SabrOutcome.RequestsExhausted(13), outcome)
+        assertEquals(
+            listOf(200L, 200L) + List(9) { 5_000L } + List(2) { 30_000L },
+            sleeps,
+        )
+    }
+
+    @Test
+    fun leadAwareOffKeepsTheLegacyPoliteSleep() = runBlocking {
+        // The probe/replay contract, stated explicitly: with
+        // leadAware off a media-bearing answer under a 60 s
+        // backoff still sleeps the polite 20 s — the recordings'
+        // cadence is untouched by M8's existence.
+        val initBytes = ByteArray(20).also {
+            it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()
+            it[6] = 'y'.code.toByte(); it[7] = 'p'.code.toByte()
+        }
+        val resp = response(
+            headerPart(0, 251, null, 0, 20, init = true),
+            mediaPart(0, initBytes),
+            nrpPart(60_000),
+        )
+        val sleeps = ArrayList<Long>()
+        val p = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = QueueTransport(listOf(resp)),
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            leadAware = false,
+        )
+        val outcome = p.run(1)
+        assertEquals(SabrOutcome.RequestsExhausted(1), outcome)
+        assertEquals(listOf(20_000L), sleeps)
+    }
+
+    @Test
     fun playbackTemperamentKeepsTwoMinutesOfLead() = runBlocking {
         // The live drive's cadence (device evidence 2026-11-12
         // 22:50): hungry 1 s sleeps while the spool's lead over

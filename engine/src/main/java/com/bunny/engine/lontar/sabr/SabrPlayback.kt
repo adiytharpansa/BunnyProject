@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -91,12 +92,27 @@ class SabrPlayback internal constructor(
 
     val dataSourceFactory: DataSource.Factory =
         DataSource.Factory {
-            SabrDataSource(spool, roadState) { itag, position, frontier ->
-                onEvent?.invoke(
-                    "SABR baca: itag $itag menunggu data di posisi " +
-                        "$position (gulungan baru sampai $frontier)",
-                )
-            }
+            SabrDataSource(
+                spool = spool,
+                road = roadState,
+                onWait = { itag, position, frontier ->
+                    onEvent?.invoke(
+                        "SABR baca: itag $itag menunggu data di posisi " +
+                            "$position (gulungan baru sampai $frontier)",
+                    )
+                },
+                // Anti-buffering M1: a wait that stops being a
+                // hiccup gets its own line — the waited position
+                // against the frontier AND the whole file separates
+                // a far-ahead extractor probe (Cues/index hunting)
+                // from plain sequential starvation.
+                onLongWait = { itag, position, frontier, fileLength ->
+                    onEvent?.invoke(
+                        "SABR baca lama: itag $itag menunggu >2 dtk di posisi " +
+                            "$position (frontier $frontier, berkas $fileLength)",
+                    )
+                },
+            )
         }
 
     /**
@@ -112,6 +128,17 @@ class SabrPlayback internal constructor(
     /** The session currently being driven; read by [statusLine]. */
     @Volatile
     private var activeSession: SabrSession? = null
+
+    /**
+     * Anti-buffering M3: the live pump's latest sleep decision —
+     * the backoff the server last stated and the sleep the pump
+     * actually took — quoted by the spool heartbeat below.
+     */
+    @Volatile
+    private var lastBackoffMs: Long? = null
+
+    @Volatile
+    private var lastSleepMs: Long = -1
 
     @Volatile
     private var job: Job? = null
@@ -212,22 +239,26 @@ class SabrPlayback internal constructor(
                             onEvent?.invoke(
                                 "SABR: tergulung $spooledSecond dtk media, " +
                                     "total $totalMb MB" +
-                                    projectionText(session),
+                                    projectionText(session) +
+                                    sleepDecisionText(session),
                             )
                         }
                     },
                     onTrackComplete = { roadState.markComplete(it) },
-                    hungryUntilMs = HUNGRY_UNTIL_MS,
-                    // Playback temperament (device evidence
-                    // 2026-11-12 22:50): stay hungry until the
-                    // spool leads the playhead by two minutes,
-                    // and beyond that sleep at most 5 s between
-                    // requests — the probe's 45 s / 20 s cadence
-                    // let the supply rate sag to the consumption
-                    // rate, so every slow exchange rebuffered
-                    // the player for 20–42 s.
-                    hungryLeadMs = HUNGRY_LEAD_MS,
-                    politeCapMs = POLITE_CAP_MS,
+                    onSleepDecision = { backoff, sleep ->
+                        lastBackoffMs = backoff
+                        lastSleepMs = sleep
+                    },
+                    // Anti-buffering M8 (supersedes the fixed
+                    // temperament of 2026-11-12 23:05): the sleep
+                    // between requests is bounded by the spool's
+                    // lead over the playhead — thin lead, no sleep
+                    // worth the name; fat lead, the server's
+                    // backoff is honoured under a 30 s ceiling.
+                    // The cold-start hunger is the thin band by
+                    // another name: at position zero the lead IS
+                    // the spooled timeline.
+                    leadAware = true,
                     positionHintMs = { playerPositionMs },
                     // Mechanism 13: on device, disk and network
                     // work at the same time.
@@ -313,6 +344,13 @@ class SabrPlayback internal constructor(
         spool.trackItags().sumOf { spool.track(it).fileLength() }
 
     /**
+     * Anti-buffering M13 (media prewarm): how much timeline the
+     * live session has rolled, min across the pinned tracks — the
+     * prewarm loop's stopwatch. Zero before the first session runs.
+     */
+    fun bufferedEndMs(): Long = activeSession?.bufferedEndMs() ?: 0
+
+    /**
      * Mechanism 16 — the exact cost projection: each served
      * track's MEASURED byte rate (bytes actually rolled over the
      * timeline they cover) stretched over the whole duration.
@@ -335,6 +373,25 @@ class SabrPlayback internal constructor(
         } else {
             ""
         }
+    }
+
+    /**
+     * Anti-buffering M3 — the heartbeat's pump-decision suffix:
+     * the sleep the pump last took against the backoff the server
+     * last asked for, and each served track's lead over the
+     * playhead. Silent until the pump has decided anything.
+     */
+    private fun sleepDecisionText(session: SabrSession): String {
+        val sleep = lastSleepMs
+        if (sleep < 0) return ""
+        fun leadSeconds(format: SabrFormat): Long {
+            val track = session.trackFor(format.itag)
+            return maxOf(0L, track.timelineEndMs - playerPositionMs) / 1000
+        }
+        val backoffText = lastBackoffMs?.let { "${it / 1000}" } ?: "-"
+        return "; tidur terakhir ${sleep / 1000} dtk (backoff server " +
+            "$backoffText), lead audio ${leadSeconds(session.audioFormat)} dtk, " +
+            "video ${leadSeconds(session.videoFormat)} dtk"
     }
 
     /**
@@ -367,16 +424,9 @@ class SabrPlayback internal constructor(
         const val MAX_PUMP_REQUESTS = 5000
         const val MAX_RELOADS = 3
         const val READY_TIMEOUT_MS = 15_000L
-
-        /** The pump stays hungry until this much timeline is spooled. */
-        const val HUNGRY_UNTIL_MS = 60_000L
-
-        /** Playback hunger: the spool's lead over the playhead
-         *  that keeps the pump at full pace (see the drive). */
-        const val HUNGRY_LEAD_MS = 120_000L
-
-        /** Beyond the hunger lead, the live drive's polite cap. */
-        const val POLITE_CAP_MS = 5_000L
+        // The pre-M8 hunger constants (cold window 60 s, hunger
+        // lead 120 s, polite cap 5 s) are gone: leadBoundedSleep's
+        // bands carry the same shape as the pump's own rule now.
     }
 }
 
@@ -458,10 +508,63 @@ class SabrPlaybackCoordinator(
         scope.launch { engine.warmPlayerResponse(videoId) }
     }
 
+    /** When each video's media was last prewarmed (M13). */
+    private val prewarmedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * Anti-buffering M13 — media prewarm: on an unmetered link,
+     * the queue head's spool itself starts filling while the
+     * current video plays, so the switch opens with stock instead
+     * of from zero. Speculative exactly like [warm] (deduplicated
+     * inside the window, silent on failure) and self-limiting:
+     * the handle closes once the spool leads by
+     * [PREWARM_TARGET_MS], or once the roll stops growing —
+     * completed, refused, or stalled, prewarm has then done what
+     * it can.
+     */
+    fun prewarmMedia(videoId: String) {
+        if (!engine.isUnmetered()) return
+        val now = System.currentTimeMillis()
+        val last = prewarmedAt[videoId]
+        if (last != null && now - last < WARM_WINDOW_MS) return
+        if (prewarmedAt.size >= MAX_WARM_ENTRIES) prewarmedAt.clear()
+        prewarmedAt[videoId] = now
+        scope.launch {
+            try {
+                val handle = tryOpen(videoId, null) { } ?: return@launch
+                try {
+                    var lastEnd = -1L
+                    var stillPolls = 0
+                    while (handle.bufferedEndMs() < PREWARM_TARGET_MS &&
+                        stillPolls < PREWARM_STILL_POLLS
+                    ) {
+                        delay(PREWARM_POLL_MS)
+                        val end = handle.bufferedEndMs()
+                        stillPolls = if (end == lastEnd) stillPolls + 1 else 0
+                        lastEnd = end
+                    }
+                } finally {
+                    handle.close()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Speculative work stays silent.
+            }
+        }
+    }
+
     companion object {
         /** A warmed response stays warm in the player cache anyway;
          *  this window only stops duplicate speculative fetches. */
         const val WARM_WINDOW_MS: Long = 600_000L
         const val MAX_WARM_ENTRIES: Int = 200
+
+        /** M13: prewarm fills this much timeline, then lets go. */
+        const val PREWARM_TARGET_MS: Long = 180_000L
+        const val PREWARM_POLL_MS: Long = 5_000L
+
+        /** M13: polls without growth before prewarm gives up. */
+        const val PREWARM_STILL_POLLS: Int = 6
     }
 }

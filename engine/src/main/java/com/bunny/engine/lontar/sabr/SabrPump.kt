@@ -153,11 +153,62 @@ class SabrPump(
      * drive passes a much shorter cap.
      */
     private val politeCapMs: Long = 20_000,
+    /**
+     * Anti-buffering M3: each exchange's sleep decision, reported
+     * as (the server's backoff, the sleep actually taken) right
+     * before the pump sleeps — so a later verdict reads numbers,
+     * not impressions. (A sibling of [onExchange], which reports
+     * the exchange itself before its sleep exists.)
+     */
+    private val onSleepDecision: ((backoffMs: Long?, sleepMs: Long) -> Unit)? = null,
+    /**
+     * Anti-buffering M8: lead-aware pacing. When true, the
+     * polite/hungry sleep computation is REPLACED by
+     * [leadBoundedSleep]: the server's backoff is honoured only
+     * as far as the spool's lead over the playhead allows —
+     * health first, politeness second. The lead is
+     * [SabrSession.bufferedEndMs] minus the playhead — already
+     * the MINIMUM across tracks, so the lagging track (the one
+     * the merged player's readiness waits for) drives the pace:
+     * that is design M9 by construction. When false, nothing
+     * changes: probe and replay runs keep the recorded cadence.
+     */
+    private val leadAware: Boolean = false,
 ) {
 
     companion object {
         /** How long a lead-capped pump waits between lead checks. */
         const val LEAD_PAUSE_MS: Long = 1_000L
+
+        /** M8: under this lead the pump asks again at once. */
+        const val LEAD_THIN_MS: Long = 30_000L
+
+        /** M8: past this lead the server's backoff is (capped) law. */
+        const val LEAD_FAT_MS: Long = 120_000L
+
+        /** The immediate-cadence floor of the thin band. */
+        const val LEAD_FLOOR_MS: Long = 200L
+
+        /**
+         * M8's pure decision: how long to sleep after an exchange,
+         * given the server's [backoffMs] (null = none stated), the
+         * spool's [leadMs] over the playhead (minimum across
+         * tracks), and whether the exchange carried media. A
+         * media-less answer with no backoff keeps the legacy 200 ms
+         * cadence in every band; the bands themselves are:
+         * thin (< 30 s) → the floor, backoff ignored; middle
+         * (< 120 s) → the backoff capped at 5 s; fat → the backoff
+         * capped at 30 s (the PipePipe precedent the research
+         * found in the wild).
+         */
+        fun leadBoundedSleep(backoffMs: Long?, leadMs: Long, mediaBytes: Long): Long {
+            if (mediaBytes == 0L && backoffMs == null) return LEAD_FLOOR_MS
+            return when {
+                leadMs < LEAD_THIN_MS -> LEAD_FLOOR_MS
+                leadMs < LEAD_FAT_MS -> minOf(backoffMs ?: 5_000L, 5_000L)
+                else -> minOf(backoffMs ?: 30_000L, 30_000L)
+            }
+        }
     }
 
     /** The pipelining writer; null in synchronous mode. */
@@ -323,19 +374,26 @@ class SabrPump(
             if (session.isComplete()) return SabrOutcome.Completed
 
             val backoff = result.backoffTimeMs
-            val polite = if (backoff != null && backoff > 0) {
-                minOf(backoff, if (result.mediaBytes == 0L) 15_000 else politeCapMs)
-            } else {
-                200L
-            }
             val leadMs = session.bufferedEndMs() - positionHintMs()
-            val hungry = hungryUntilMs > 0 &&
-                (session.bufferedEndMs() < hungryUntilMs || leadMs < hungryLeadMs)
-            val sleep = if (hungry) {
-                minOf(polite, hungrySleepCapMs)
+            val sleep = if (leadAware) {
+                // M8: the lead decides, the backoff advises.
+                leadBoundedSleep(backoff, leadMs, result.mediaBytes)
             } else {
-                polite
+                val polite = if (backoff != null && backoff > 0) {
+                    minOf(backoff, if (result.mediaBytes == 0L) 15_000 else politeCapMs)
+                } else {
+                    200L
+                }
+                val hungry = hungryUntilMs > 0 &&
+                    (session.bufferedEndMs() < hungryUntilMs || leadMs < hungryLeadMs)
+                if (hungry) {
+                    minOf(polite, hungrySleepCapMs)
+                } else {
+                    polite
+                }
             }
+            // M3: the decision is on record before it is taken.
+            onSleepDecision?.invoke(backoff, sleep)
             sleeper(sleep)
         }
         return SabrOutcome.RequestsExhausted(requests)

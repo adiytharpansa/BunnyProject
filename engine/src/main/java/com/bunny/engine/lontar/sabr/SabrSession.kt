@@ -139,6 +139,14 @@ class SabrSession(
      * refuse a proven format the server actually serves.
      */
     val videoCapHeightPx: Int? = null,
+    /**
+     * Anti-buffering design M11: the device's hardware codec
+     * ceiling (mechanism 15's probe), applied at adoption: among
+     * wire-proven video formats, hardware-decodable families
+     * outrank richer software-only ones. [DeviceCodecCeiling.UNKNOWN]
+     * filters nothing.
+     */
+    val codecCeiling: DeviceCodecCeiling = DeviceCodecCeiling.UNKNOWN,
 ) {
     private val registry: Map<Int, SabrFormat> = formats.associateBy { it.itag }
 
@@ -300,11 +308,26 @@ class SabrSession(
         // stands (the server served what it served; playback
         // first, and the request already stated the cap).
         val cap = videoCapHeightPx
-        val pool = if (!audio && cap != null) {
+        val capPool = if (!audio && cap != null) {
             val fitting = proven.filter { it.height <= 0 || it.height <= cap }
             fitting.ifEmpty { proven }
         } else {
             proven
+        }
+        // Anti-buffering M11: inside the pool, a proven format the
+        // device decodes in HARDWARE outranks a richer one it can
+        // only decode in software — software decode spends frames
+        // (M2's dropped-frame count is the evidence that convicts
+        // that road). A preference only, like the cap: when nothing
+        // proven is hardware-decodable, the pool stands — the wire
+        // served what it served.
+        val pool = if (!audio) {
+            val hardware = capPool.filter {
+                codecCeiling.hardwareOk(codecFamilyOf(it.mimeType))
+            }
+            hardware.ifEmpty { capPool }
+        } else {
+            capPool
         }
         return pool.maxWithOrNull(
             compareBy<SabrFormat> { trackFor(it.itag).segments.isNotEmpty() }

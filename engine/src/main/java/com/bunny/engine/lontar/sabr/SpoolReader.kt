@@ -70,11 +70,27 @@ class SpoolReader(
     private val track: TrackSpool,
     private val road: SpoolRoadState,
     private val onWait: ((itag: Int, position: Long, frontier: Long) -> Unit)? = null,
+    /**
+     * Anti-buffering design M1: fired ONCE per wait episode when a
+     * single continuous wait passes [LONG_WAIT_MS] — with the spool
+     * file's length alongside the frontier, so a diagnostics line can
+     * tell a far-ahead probe (position far beyond both = an extractor
+     * hunting tail metadata, e.g. WebM Cues) from plain sequential
+     * starvation (position == frontier). Resets when data lands.
+     */
+    private val onLongWait: (
+        (itag: Int, position: Long, frontier: Long, fileLength: Long) -> Unit
+    )? = null,
 ) {
     @Volatile
     private var closed = false
 
     private var waitReported = false
+
+    /** NanoTime the current continuous wait began; -1 while fed. */
+    private var waitStartedNanos: Long = -1
+
+    private var longWaitReported = false
 
     fun close() {
         closed = true
@@ -99,12 +115,16 @@ class SpoolReader(
             road.checkAlive()
             val frontier = track.frontier()
             if (position < frontier) {
+                // Fed: any wait episode in progress is over.
+                waitStartedNanos = -1
+                longWaitReported = false
                 val count = minOf(length.toLong(), frontier - position).toInt()
                 val data = track.read(position, count)
                 data.copyInto(buffer, offset)
                 return data.size
             }
             if (road.isComplete(track.itag)) return -1
+            if (waitStartedNanos < 0) waitStartedNanos = System.nanoTime()
             if (!waitReported) {
                 // The first wait of this reader, reported once: the
                 // position it waits at, against the frontier at that
@@ -114,11 +134,25 @@ class SpoolReader(
                 waitReported = true
                 onWait?.invoke(track.itag, position, frontier)
             }
+            if (!longWaitReported && onLongWait != null &&
+                System.nanoTime() - waitStartedNanos >= LONG_WAIT_NANOS
+            ) {
+                // M1: this wait stopped being a hiccup — name it,
+                // once per episode, with the file's length so the
+                // gap between the waited position and everything
+                // the disk holds is visible at a glance.
+                longWaitReported = true
+                onLongWait.invoke(track.itag, position, frontier, track.fileLength())
+            }
             road.awaitPulse(POLL_INTERVAL_MS)
         }
     }
 
     companion object {
         const val POLL_INTERVAL_MS = 50L
+
+        /** M1: a single wait longer than this is a named event. */
+        const val LONG_WAIT_MS = 2_000L
+        const val LONG_WAIT_NANOS = LONG_WAIT_MS * 1_000_000L
     }
 }

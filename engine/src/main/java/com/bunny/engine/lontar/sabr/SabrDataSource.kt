@@ -24,6 +24,10 @@ class SabrDataSource(
     private val spool: VideoSpool,
     private val road: SpoolRoadState,
     private val onWait: ((itag: Int, position: Long, frontier: Long) -> Unit)? = null,
+    /** Anti-buffering M1: a single wait past SpoolReader.LONG_WAIT_MS. */
+    private val onLongWait: (
+        (itag: Int, position: Long, frontier: Long, fileLength: Long) -> Unit
+    )? = null,
 ) : BaseDataSource(/* isNetwork = */ false) {
 
     private var reader: SpoolReader? = null
@@ -38,7 +42,12 @@ class SabrDataSource(
         val itag = specUri.lastPathSegment?.toIntOrNull()
             ?: throw IOException("URI gulungan tidak dikenal: $specUri")
         road.checkAlive()
-        val trackReader = SpoolReader(spool.track(itag), road, onWait)
+        val trackReader = SpoolReader(
+            track = spool.track(itag),
+            road = road,
+            onWait = onWait,
+            onLongWait = onLongWait,
+        )
         reader = trackReader
         uri = specUri
         position = dataSpec.position

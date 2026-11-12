@@ -805,6 +805,8 @@ object InnertubeParser {
             userAgent = persona.userAgent,
             tracking = parsePlaybackTracking(player),
             capHeightPx = capHeightPx,
+            // M11: the session adopts pins under this same ceiling.
+            ceiling = ceiling,
         )
     }
 

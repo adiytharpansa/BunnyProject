@@ -1,5 +1,6 @@
 package com.bunny.engine.lontar
 
+import com.bunny.engine.lontar.sabr.DeviceCodecCeiling
 import com.bunny.engine.lontar.sabr.FormatInit
 import com.bunny.engine.lontar.sabr.MediaHeader
 import com.bunny.engine.lontar.sabr.NextRequestPolicy
@@ -446,6 +447,71 @@ class SabrSessionTest {
         proveBothVideos(s)
         s.adoptServerPins()
         assertEquals(137, s.videoFormat.itag)
+    }
+
+    private fun codecSession(ceiling: DeviceCodecCeiling): SabrSession = SabrSession(
+        videoId = "vid",
+        initialUrl = "https://x.invalid/s",
+        ustreamerConfig = byteArrayOf(9, 9),
+        clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+        durationSeconds = 100,
+        formats = listOf(
+            SabrFormat(251, "audio/webm; codecs=\"opus\"", 160_000, 111L, "x"),
+            SabrFormat(
+                398, "video/mp4; codecs=\"av01.0.08M.08\"",
+                4_000_000, 222L, null, height = 720,
+            ),
+            SabrFormat(
+                136, "video/mp4; codecs=\"avc1.640028\"",
+                2_000_000, 222L, null, height = 720,
+            ),
+        ),
+        audioItag = 251,
+        videoItag = 398,
+        cpn = "CPN",
+        codecCeiling = ceiling,
+    )
+
+    private fun proveItag(s: SabrSession, headerId: Int, itag: Int) {
+        s.consume(
+            listOf(
+                header(headerId, itag, null, 0, 10, init = true),
+                SabrPart.MediaPart(headerId, ByteArray(10)),
+                header(
+                    headerId + 10, itag, 1, 10, 100,
+                    timeRange = SabrTimeRange(0, 5000, 1000),
+                ),
+                SabrPart.MediaPart(headerId + 10, ByteArray(100)),
+            )
+        )
+    }
+
+    @Test
+    fun adoptionWithoutAv1HardwarePrefersTheProvenAvcFormat() {
+        // M11: 398 (AV1) is richer and equally wire-proven, but
+        // this device has no AV1 hardware decoder — the proven
+        // AVC format is adopted instead of the software road.
+        val s = codecSession(
+            DeviceCodecCeiling(av1Hardware = false, vp9Hardware = true),
+        )
+        proveItag(s, 0, 251)
+        proveItag(s, 1, 398)
+        proveItag(s, 2, 136)
+        s.adoptServerPins()
+        assertEquals(136, s.videoFormat.itag)
+    }
+
+    @Test
+    fun adoptionKeepsAv1WhenItIsTheOnlyProvenFormat() {
+        // M11 is a preference, never a refusal: when the wire
+        // proves nothing but AV1, AV1 is what plays.
+        val s = codecSession(
+            DeviceCodecCeiling(av1Hardware = false, vp9Hardware = true),
+        )
+        proveItag(s, 0, 251)
+        proveItag(s, 1, 398)
+        s.adoptServerPins()
+        assertEquals(398, s.videoFormat.itag)
     }
 
     @Test

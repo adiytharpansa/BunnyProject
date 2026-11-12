@@ -30,6 +30,13 @@ data class SabrOpenData(
     /** Mechanism 15: the real panel size, when the app provided it. */
     val viewportWidth: Int = 1920,
     val viewportHeight: Int = 1080,
+    /**
+     * Anti-buffering M11: the device codec ceiling this open was
+     * parsed under, carried so every session minted from it (the
+     * first drive, and each RELOAD refresh) adopts pins under the
+     * same ceiling.
+     */
+    val ceiling: DeviceCodecCeiling = DeviceCodecCeiling.UNKNOWN,
 ) {
     fun newSession(cpn: String = SabrSession.generateCpn()): SabrSession =
         SabrSession(
@@ -45,6 +52,7 @@ data class SabrOpenData(
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight,
             videoCapHeightPx = capHeightPx,
+            codecCeiling = ceiling,
         )
 }
 

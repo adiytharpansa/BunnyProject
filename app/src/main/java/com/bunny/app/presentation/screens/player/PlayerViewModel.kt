@@ -571,7 +571,14 @@ class PlayerViewModel @Inject constructor(
             // switch starts warm instead of cold.
             _related.value.all
                 .firstOrNull { it.id !in playedIds && !it.isLive }
-                ?.let { sabrCoordinator.warm(it.id) }
+                ?.let {
+                    sabrCoordinator.warm(it.id)
+                    // Anti-buffering M13: on an unmetered link the
+                    // head's spool itself starts filling too, so
+                    // the switch opens with media, not metadata
+                    // alone (gating + dedupe live in the coordinator).
+                    sabrCoordinator.prewarmMedia(it.id)
+                }
         }
     }
 

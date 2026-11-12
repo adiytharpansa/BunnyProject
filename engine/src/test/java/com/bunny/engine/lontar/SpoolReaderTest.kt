@@ -10,6 +10,7 @@ import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -134,6 +135,46 @@ class SpoolReaderTest {
         thread.join(1000)
         assertEquals(1, waits.size)
         assertEquals(Triple(251, 500L, 120L), waits[0])
+    }
+
+    @Test
+    fun longWaitIsReportedOnceWithPositionFrontierAndFileLength() {
+        // M1: a read parked past the frontier for over two seconds
+        // stops being a hiccup and becomes a named event — fired
+        // ONCE for the episode, carrying the waited position, the
+        // frontier, and the spool file's whole length, so a
+        // far-ahead probe (position beyond everything on disk) is
+        // tellable from plain sequential starvation.
+        val track = filledTrack(SpoolStore(File(tempFolder.root, "g")))
+        val road = SpoolRoadState()
+        val longWaits = ArrayList<LongArray>()
+        val reader = SpoolReader(
+            track, road,
+            onLongWait = { itag, pos, front, len ->
+                synchronized(longWaits) {
+                    longWaits.add(longArrayOf(itag.toLong(), pos, front, len))
+                }
+            },
+        )
+        val done = CountDownLatch(1)
+        val thread = Thread {
+            try {
+                reader.readAt(500, ByteArray(10), 0, 10)
+            } catch (e: IOException) {
+                // The road is killed below; the wait ends as designed.
+            } finally {
+                done.countDown()
+            }
+        }
+        thread.start()
+        // The reader polls every 50 ms, so by 2.8 s the 2 s
+        // threshold has been crossed on some poll — and only once.
+        Thread.sleep(2_800)
+        road.kill("uji")
+        assertTrue(done.await(5, TimeUnit.SECONDS))
+        thread.join(1000)
+        assertEquals(1, longWaits.size)
+        assertArrayEquals(longArrayOf(251, 500, 120, 120), longWaits[0])
     }
 
     @Test
