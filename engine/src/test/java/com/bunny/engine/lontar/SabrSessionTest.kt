@@ -79,6 +79,55 @@ class SabrSessionTest {
     )
 
     @Test
+    fun adoptionFollowsTheWireNotTheMetadata() {
+        val s = SabrSession(
+            videoId = "vid",
+            initialUrl = "https://x.invalid/s",
+            ustreamerConfig = byteArrayOf(9, 9),
+            clientInfo = SabrClientInfo(101, "1.04", "visionOS", "2.0"),
+            durationSeconds = 100,
+            formats = listOf(
+                SabrFormat(251, "audio/webm", 160_000, 111L, "x"),
+                SabrFormat(136, "video/mp4", 2_000_000, 222L, null),
+                SabrFormat(137, "video/mp4", 4_500_000, 333L, null),
+            ),
+            audioItag = 251,
+            videoItag = 137,
+            cpn = "CPN",
+        )
+        // The init metadata lists BOTH video formats — paper only.
+        s.consume(
+            listOf(
+                SabrPart.InitMetadataPart(
+                    mapOf(
+                        136 to FormatInit(40, 1000, emptyMap()),
+                        137 to FormatInit(40, 1000, emptyMap()),
+                    )
+                )
+            )
+        )
+        // Nothing has flowed yet, so nothing is proven.
+        assertNull(s.wireProvenFormat(audio = false))
+        // The wire proves 136 only: its init segment and one media
+        // segment actually arrive. 137 never leaves the paper.
+        s.consume(
+            listOf(
+                header(0, 136, null, 0, 100, init = true),
+                SabrPart.MediaPart(0, ByteArray(100)),
+                header(1, 136, 1, 100, 500),
+                SabrPart.MediaPart(1, ByteArray(500)),
+            )
+        )
+        assertEquals(136, s.wireProvenFormat(audio = false)?.itag)
+        s.adoptServerPins()
+        // Adoption follows the wire (136), not the metadata's
+        // higher-bitrate paper format (137) — the player addresses
+        // what flows, or waits forever on an empty spool track
+        // (device evidence 2026-11-12: video spool file 0 KB).
+        assertEquals(136, s.videoFormat.itag)
+    }
+
+    @Test
     fun coldRequestCarriesNoSelectionRangesPinsOrCookie() {
         val request = session().buildRequest(0, 5_000_000, pinFormats = false)
         val f = fields(request)

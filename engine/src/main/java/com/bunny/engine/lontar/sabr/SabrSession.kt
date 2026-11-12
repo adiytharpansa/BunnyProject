@@ -245,16 +245,41 @@ class SabrSession(
     }
 
     /**
-     * Adopts, per slot, the highest-bitrate format the server itself
-     * initialized in this session. Runs once init has arrived (the
-     * pump calls it after every response, as the probe did).
+     * The format the WIRE has proven for one slot: its init segment
+     * actually arrived in this session. Among proven formats, one
+     * already carrying media segments wins, then the highest bitrate.
+     * Null while nothing has flowed — paper (the player response, the
+     * init metadata) is never proof: the metadata may list formats
+     * the server then declines to stream, and addressing one of those
+     * leaves the player waiting on a spool track that stays empty
+     * forever (device evidence 2026-11-12: the player addressed itag
+     * 137 while its spool file held 0 bytes and the media flowed
+     * under another itag).
+     */
+    fun wireProvenFormat(audio: Boolean): SabrFormat? {
+        val proven = initializedInSession
+            .mapNotNull { registry[it] }
+            .filter { it.isAudio == audio }
+        if (proven.isEmpty()) return null
+        return proven.maxWithOrNull(
+            compareBy<SabrFormat> { trackFor(it.itag).segments.isNotEmpty() }
+                .thenBy { it.bitrate },
+        )
+    }
+
+    /**
+     * Adopts, per slot, the format the wire has proven — never a
+     * format that exists only in the init metadata. Runs once init
+     * has arrived (the pump calls it after every response, as the
+     * probe did).
      */
     fun adoptServerPins() {
-        fun best(kind: Boolean): SabrFormat? = serverInitialized.values
-            .filter { it.isAudio == kind }
-            .maxByOrNull { it.bitrate }
-        best(true)?.let { if (it.itag != audioFormat.itag) audioFormat = it }
-        best(false)?.let { if (it.itag != videoFormat.itag) videoFormat = it }
+        wireProvenFormat(audio = true)?.let {
+            if (it.itag != audioFormat.itag) audioFormat = it
+        }
+        wireProvenFormat(audio = false)?.let {
+            if (it.itag != videoFormat.itag) videoFormat = it
+        }
     }
 
     /**

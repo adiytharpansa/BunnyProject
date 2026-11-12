@@ -140,14 +140,24 @@ class SabrPlayback internal constructor(
                     onProgress = {
                         roadState.pulse()
                         if (!readySignal.isCompleted && session.initReceived) {
-                            servedAudioItag = session.audioFormat.itag
-                            servedVideoItag = session.videoFormat.itag
-                            readySignal.complete(true)
-                            onEvent?.invoke(
-                                "SABR: data pertama tiba, pompa berjalan " +
-                                    "(video itag ${session.videoFormat.itag}, " +
-                                    "audio itag ${session.audioFormat.itag})",
-                            )
+                            // Ready freezes the itags the player will
+                            // address — so they are taken from the
+                            // WIRE (init segments actually received),
+                            // never from paper pins: a paper-only
+                            // format's spool track stays empty and the
+                            // player would wait on it forever.
+                            val provenAudio = session.wireProvenFormat(audio = true)
+                            val provenVideo = session.wireProvenFormat(audio = false)
+                            if (provenAudio != null && provenVideo != null) {
+                                servedAudioItag = provenAudio.itag
+                                servedVideoItag = provenVideo.itag
+                                readySignal.complete(true)
+                                onEvent?.invoke(
+                                    "SABR: data pertama tiba, pompa berjalan " +
+                                        "(video itag ${provenVideo.itag}, " +
+                                        "audio itag ${provenAudio.itag})",
+                                )
+                            }
                         }
                         // Spool heartbeat for the diagnostics ring: one
                         // line per fresh 30 seconds of rolled media,
@@ -244,14 +254,16 @@ class SabrPlayback internal constructor(
      */
     fun statusLine(): String {
         val s = activeSession ?: return "sesi belum mulai"
-        fun trackLine(label: String, itag: Int): String {
-            val track = spool.track(itag)
-            return "$label $itag: berkas ${track.fileLength() / 1000} KB, " +
-                "dibaca pemutar ${track.servedBytes / 1000} KB"
+        // EVERY spool file is listed, not just the two the player
+        // addresses: media stranded under an unexpected itag (the
+        // 2026-11-12 failure shape) must be visible at a glance.
+        val files = spool.trackItags().sorted().joinToString(", ") { itag ->
+            "$itag.bin ${spool.track(itag).fileLength() / 1000} KB"
         }
-        return trackLine("video", servedVideoItag) + "; " +
-            trackLine("audio", servedAudioItag) +
-            "; tergulung ${s.bufferedEndMs() / 1000} dtk"
+        return "berkas gulungan: $files; dibaca pemutar: video " +
+            "${spool.track(servedVideoItag).servedBytes / 1000} KB, audio " +
+            "${spool.track(servedAudioItag).servedBytes / 1000} KB; " +
+            "tergulung ${s.bufferedEndMs() / 1000} dtk"
     }
 
     private fun die(reason: String) {
