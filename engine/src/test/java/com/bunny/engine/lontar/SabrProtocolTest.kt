@@ -345,6 +345,7 @@ class SabrProtocolTest {
         assertEquals(10001L, audioFirst.timeRange!!.durationTicks)
         assertEquals(1000L, audioFirst.timeRange!!.timescale)
         val videoFirst = headers.first { it.itag == 398 && !it.isInitSegment }
+        assertEquals(0L, videoFirst.timeRange!!.startTicks)
         assertEquals(92160L, videoFirst.timeRange!!.durationTicks)
         assertEquals(15360L, videoFirst.timeRange!!.timescale)
     }

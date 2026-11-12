@@ -229,8 +229,16 @@ class MediaHeader(
          * the extracted lite schema (bedah jilid 2, 2026-11-12) and
          * confirmed on the recorded wire: every non-init header in
          * the fixtures carries {1 start, 2 duration, 3 timescale}
-         * there, init headers carry none. The same sanity rules as
-         * the shape scan apply; a malformed f15 falls through to it.
+         * there, init headers carry none. At the official field the
+         * check is structural (positive timescale, bounded
+         * duration): the timescale whitelist guards only the shape
+         * scan below, and the wire proved it incomplete — the
+         * recording's video track runs at timescale 15360, which
+         * neither the probe's nor this list contains, so whitelisting
+         * f15 silently dropped the server's own segment times for
+         * every video header (caught by the pinning test's first CI
+         * run, 2026-11-12). A malformed f15 falls through to the
+         * shape scan.
          */
         private fun decodeTimeRange(raw: ByteArray?): SabrTimeRange? {
             raw ?: return null
@@ -238,7 +246,7 @@ class MediaHeader(
             val start = sub.firstVarint(1) ?: return null
             val dur = sub.firstVarint(2) ?: return null
             val scale = sub.firstVarint(3) ?: return null
-            if (scale !in KNOWN_TIMESCALES || dur >= 10 * scale * 60) return null
+            if (scale <= 0 || dur >= 10 * scale * 60) return null
             return SabrTimeRange(start, dur, scale)
         }
 
