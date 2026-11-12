@@ -15,6 +15,7 @@ import com.bunny.engine.lontar.sabr.SabrTimeRange
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Session ledger units the replay does not cover on its own. */
