@@ -188,6 +188,13 @@ interface WatchChargeDao {
     /** Every video ever opened (one charge per open) — Mesin Selera's "watched" set. */
     @Query("SELECT DISTINCT videoId FROM watch_charges")
     fun observeOpenedVideoIds(): Flow<List<String>>
+
+    /** Most recently opened videos first — Fase 7-B's chain seeds. */
+    @Query(
+        "SELECT videoId FROM watch_charges GROUP BY videoId " +
+            "ORDER BY MAX(chargedAtEpochMs) DESC LIMIT :limit",
+    )
+    suspend fun recentOpenedVideoIds(limit: Int): List<String>
 }
 
 @Dao

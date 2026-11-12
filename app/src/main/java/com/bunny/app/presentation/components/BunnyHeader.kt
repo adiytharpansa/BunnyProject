@@ -59,6 +59,7 @@ fun BunnyHeader(
     onNotificationsClick: () -> Unit,
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier,
+    notificationsUnread: Boolean = false,
 ) {
     Column(
         modifier = modifier.background(MaterialTheme.colorScheme.background),
@@ -66,6 +67,7 @@ fun BunnyHeader(
         BunnyTopBar(
             onNotificationsClick = onNotificationsClick,
             onSearchClick = onSearchClick,
+            notificationsUnread = notificationsUnread,
         )
         if (topics.size > 1) {
             BunnyTopicTabs(
@@ -84,6 +86,7 @@ fun BunnyTopBar(
     onNotificationsClick: () -> Unit,
     onSearchClick: () -> Unit,
     modifier: Modifier = Modifier,
+    notificationsUnread: Boolean = false,
 ) {
     TopAppBar(
         modifier = modifier,
@@ -113,11 +116,25 @@ fun BunnyTopBar(
         },
         actions = {
             IconButton(onClick = onNotificationsClick) {
-                Icon(
-                    Icons.Outlined.Notifications,
-                    contentDescription = stringResource(R.string.notif_title),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Box {
+                    Icon(
+                        Icons.Outlined.Notifications,
+                        contentDescription = stringResource(R.string.notif_title),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // Fase 7-C: the unread dot — shown only when the
+                    // badge's local check found a newest upload the
+                    // user has not seen; no dot is ever faked.
+                    if (notificationsUnread) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .size(9.dp)
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.primary),
+                        )
+                    }
+                }
             }
             IconButton(onClick = onSearchClick) {
                 Icon(

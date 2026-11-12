@@ -3,6 +3,7 @@ package com.bunny.app.presentation.screens.notifications
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.LibraryRepository
+import com.bunny.app.data.NotificationsBadge
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +34,7 @@ data class NotificationsUiState(
 class NotificationsViewModel @Inject constructor(
     private val backend: ExtractionBackend,
     private val library: LibraryRepository,
+    private val badge: NotificationsBadge,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NotificationsUiState())
@@ -71,6 +73,9 @@ class NotificationsViewModel @Inject constructor(
                 items = latest.sortedBy { ageMinutes(it.uploadedText) },
                 subscriptionCount = subscriptions.size,
             )
+            // Fase 7-C: opening this page is what "read" means —
+            // everything it just showed counts as seen.
+            badge.noteOpened(latest.map { it.id })
         }
     }
 

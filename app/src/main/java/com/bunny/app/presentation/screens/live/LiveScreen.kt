@@ -43,6 +43,8 @@ fun LiveScreen(
     onNotificationsClick: () -> Unit = {},
     /** Daftar topik dari feed Beranda (dipakai sebagai tab). */
     topics: List<String> = emptyList(),
+    /** Fase 7-C: whether the bell wears its unread dot. */
+    notificationsUnread: Boolean = false,
     viewModel: LiveViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -69,6 +71,7 @@ fun LiveScreen(
             onTopicSelect = { topicFilter = it },
             onNotificationsClick = onNotificationsClick,
             onSearchClick = onSearchClick,
+            notificationsUnread = notificationsUnread,
         )
         Box(
             modifier = Modifier

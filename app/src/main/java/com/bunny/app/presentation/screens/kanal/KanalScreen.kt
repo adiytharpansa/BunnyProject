@@ -67,6 +67,8 @@ fun KanalScreen(
     topics: List<String> = emptyList(),
     /** Isi feed Beranda yang sudah dimuat; disaring ke kanal langganan saat tab topik dipilih. */
     feedItems: List<VideoItem> = emptyList(),
+    /** Fase 7-C: whether the bell wears its unread dot. */
+    notificationsUnread: Boolean = false,
     viewModel: KanalViewModel = hiltViewModel(),
 ) {
     val subs by viewModel.subscriptions.collectAsState()
@@ -118,6 +120,7 @@ fun KanalScreen(
             onTopicSelect = { topicFilter = it },
             onNotificationsClick = onNotificationsClick,
             onSearchClick = onSearchClick,
+            notificationsUnread = notificationsUnread,
         )
         if (filter == null && !list.isNullOrEmpty()) {
             LazyRow(

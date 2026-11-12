@@ -297,7 +297,15 @@ fun VideoCard(
                         )
                     }
                     val meta = listOfNotNull(
-                        item.viewCount?.let { "${formatCount(it)} x ditonton" },
+                        // Fase 7-C: a live card's count is who is
+                        // watching NOW, not how often it was watched.
+                        item.viewCount?.let {
+                            if (item.isLive) {
+                                "${formatCount(it)} sedang menonton"
+                            } else {
+                                "${formatCount(it)} x ditonton"
+                            }
+                        },
                         item.uploadedText,
                     ).joinToString(" • ")
                     if (meta.isNotEmpty()) {

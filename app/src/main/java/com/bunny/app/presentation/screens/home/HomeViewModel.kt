@@ -14,11 +14,15 @@ import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.app.playback.PreviewStatus
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.VideoItem
 import com.bunny.core.rank.FeedRanker
 import com.bunny.core.rank.TasteProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
@@ -197,6 +201,55 @@ class HomeViewModel @Inject constructor(
                         // pool enrichment only; the mixture stands
                     }
                 }
+                // Fase 7-B (Selera Tamu langkah 4): the watch-next
+                // chain. YouTube's own list adapts to what was just
+                // watched — Bunny walks that list from the most
+                // recent local watches, one-two steps out, and the
+                // newcomers join the pool carrying an honest chip.
+                // Applies to guest and signed-in alike; enrichment
+                // only — a failed walk never fails Home.
+                try {
+                    val seeds = library.recentOpenedVideoIds(CHAIN_SEED_COUNT)
+                    if (seeds.isNotEmpty()) {
+                        val known = candidates.map { it.id }.toMutableSet()
+                        known += seeds
+                        val chain = mutableListOf<VideoItem>()
+                        var frontier = seeds
+                        var step = 0
+                        while (step < CHAIN_STEPS && frontier.isNotEmpty()) {
+                            val level = coroutineScope {
+                                frontier.map { seed ->
+                                    async {
+                                        try {
+                                            backend.getRelatedVideos(seed)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            emptyList()
+                                        }
+                                    }
+                                }.awaitAll()
+                            }
+                            val nextFrontier = mutableListOf<String>()
+                            for (related in level) {
+                                for (item in related) {
+                                    if (item.isLive || item.id in known) continue
+                                    if (chain.size >= CHAIN_MAX_ITEMS) break
+                                    known += item.id
+                                    chain += item.copy(reason = CHAIN_REASON)
+                                    nextFrontier += item.id
+                                }
+                            }
+                            frontier = nextFrontier.take(CHAIN_SEED_COUNT)
+                            step++
+                        }
+                        candidates = candidates + chain
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // pool enrichment only; the mixture stands
+                }
                 // Mesin Selera: the mixture is candidate generation;
                 // this ranking pass is Bunny's local second stage,
                 // fed by a one-shot snapshot of the on-device taste
@@ -232,7 +285,9 @@ class HomeViewModel @Inject constructor(
                     val byWeight = accountTaste.terms.entries
                         .sortedByDescending { it.value }
                     ranked.map { item ->
-                        if (item.reason == "Dari langganan Anda") {
+                        if (item.reason == "Dari langganan Anda" ||
+                            item.reason == CHAIN_REASON
+                        ) {
                             item
                         } else {
                             val hit = byWeight.firstOrNull {
@@ -268,5 +323,19 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false, error = e.message ?: "Unknown error") }
             }
         }
+    }
+
+    companion object {
+        /** Fase 7-B: how many recent watches seed the chain walk. */
+        private const val CHAIN_SEED_COUNT = 3
+
+        /** Fase 7-B: how many watch-next hops out the walk goes. */
+        private const val CHAIN_STEPS = 2
+
+        /** Fase 7-B: the chain's pool budget for one Home load. */
+        private const val CHAIN_MAX_ITEMS = 24
+
+        /** Fase 7-B: the honest chip chain items carry. */
+        private const val CHAIN_REASON = "Dari tontonan terakhir"
     }
 }

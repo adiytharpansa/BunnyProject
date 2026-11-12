@@ -107,6 +107,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var desktopAuth: com.bunny.app.data.DesktopAuth
 
+    @Inject
+    lateinit var notificationsBadge: com.bunny.app.data.NotificationsBadge
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -182,6 +185,10 @@ class MainActivity : ComponentActivity() {
                 var crashReport by remember {
                     mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
+                // Fase 7-C: the bell's unread dot — one local check
+                // when the app starts; opening the page clears it.
+                val notifUnread by notificationsBadge.hasUnread.collectAsState()
+                LaunchedEffect(Unit) { notificationsBadge.refresh() }
                 // 0 = bottom bar fully shown, 1 = fully hidden. Written by
                 // HomeScreen while its header collapses; read only inside
                 // graphicsLayer, so it redraws without recomposing.
@@ -284,6 +291,7 @@ class MainActivity : ComponentActivity() {
                                     onVideoClick = { openVideoId = it },
                                     onSearchClick = { openSearch = true },
                                     onNotificationsClick = { openNotifications = true },
+                                    notificationsUnread = notifUnread,
                                     onFeedChanged = { feedItems = it },
                                     onBarsFraction = {
                                         barsFraction.floatValue = it
@@ -314,6 +322,7 @@ class MainActivity : ComponentActivity() {
                                         onSearchClick = { openSearch = true },
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,
+                                        notificationsUnread = notifUnread,
                                     )
                                 }
                             } else if (selectedTab == 2) {
@@ -331,6 +340,7 @@ class MainActivity : ComponentActivity() {
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,
                                         feedItems = feedItems,
+                                        notificationsUnread = notifUnread,
                                     )
                                 }
                             } else {

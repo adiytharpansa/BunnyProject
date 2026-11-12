@@ -528,7 +528,15 @@ fun PlayerScreen(
                         } else {
                             null
                         },
-                        current.details.viewCount?.let { formatCount(it) + " x ditonton" },
+                        // Fase 7-C: for a live video the count is
+                        // current watchers, and it says so.
+                        current.details.viewCount?.let {
+                            if (current.details.isLive) {
+                                formatCount(it) + " sedang menonton"
+                            } else {
+                                formatCount(it) + " x ditonton"
+                            }
+                        },
                         current.details.uploadedText,
                     ).joinToString(" • ")
                     Surface(

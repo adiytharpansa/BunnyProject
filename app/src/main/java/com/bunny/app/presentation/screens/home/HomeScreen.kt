@@ -123,6 +123,8 @@ fun HomeScreen(
     onBarsFraction: (Float) -> Unit = {},
     /** Height of the host's bottom bar, so the last card is not covered by it. */
     bottomPadding: Dp = 0.dp,
+    /** Fase 7-C: whether the bell wears its unread dot. */
+    notificationsUnread: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -413,6 +415,7 @@ fun HomeScreen(
                 onTopicSelect = { topicFilter = it },
                 onNotificationsClick = onNotificationsClick,
                 onSearchClick = onSearchClick,
+                notificationsUnread = notificationsUnread,
             )
         }
     }

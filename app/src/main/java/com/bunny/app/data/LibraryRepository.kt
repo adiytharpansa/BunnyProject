@@ -176,6 +176,10 @@ class LibraryRepository @Inject constructor(
     /** Videos the viewer has actually opened (Jatah's charge ledger). */
     val openedVideoIds: Flow<List<String>> = watchChargeDao.observeOpenedVideoIds()
 
+    /** The most recent opens, newest first — Fase 7-B's chain seeds. */
+    suspend fun recentOpenedVideoIds(limit: Int): List<String> =
+        watchChargeDao.recentOpenedVideoIds(limit)
+
     // -------------------------------------------------- tayangan beranda
 
     /**
