@@ -262,7 +262,17 @@ class MediaHeader(
     }
 }
 
-/** NEXT_REQUEST_POLICY { 1: playback_cookie, 2: backoff_time_ms }. */
+/**
+ * NEXT_REQUEST_POLICY — layout identified from the live recordings
+ * (two independent responses, identical shape): f1 varint 15000,
+ * f2 varint 15000 (both unidentified; a delay pair by value), f3 =
+ * backoff_time_ms (60000 — the value the probe honoured on its way to
+ * a complete stream), f7 = the playback_cookie bytes (82 B). An
+ * earlier draft of this decoder assumed the cookie at f1 and the
+ * backoff at f2 from a third-party schema listing; the recordings
+ * refuted it and one CI test caught exactly that (2026-11-12).
+ * Fallbacks mirror the probe's effective behaviour under drift.
+ */
 class NextRequestPolicy(
     val playbackCookie: ByteArray?,
     val backoffTimeMs: Long?,
@@ -270,15 +280,14 @@ class NextRequestPolicy(
     companion object {
         fun decode(payload: ByteArray): NextRequestPolicy {
             val fields = ProtoReader.parseOrNull(payload) ?: return NextRequestPolicy(null, null)
-            // Schema first; the probe's shape fallback (longest bytes
-            // field is the cookie) covers schema drift without guessing.
-            val cookie = fields.firstBytes(1)
+            val cookie = fields.firstBytes(7)
                 ?: fields.filter { it.wireType == ProtoField.WIRE_BYTES }
                     .mapNotNull { it.bytesValue }
                     .filter { it.size > 4 }
                     .maxByOrNull { it.size }
-            val backoff = fields.firstVarint(2)
-                ?: fields.firstOrNull { it.wireType == ProtoField.WIRE_VARINT }?.varintValue
+            val backoff = fields.firstVarint(3)
+                ?: fields.filter { it.wireType == ProtoField.WIRE_VARINT }
+                    .maxByOrNull { it.number }?.varintValue
             return NextRequestPolicy(cookie, backoff)
         }
     }
