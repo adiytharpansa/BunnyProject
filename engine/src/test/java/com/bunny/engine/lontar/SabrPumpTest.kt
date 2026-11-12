@@ -280,7 +280,6 @@ class SabrPumpTest {
     }
 
     @Test
-    @Test
     fun spoolWriteFailureBecomesAStalledOutcomeNotADeath() = runBlocking {
         val initBytes = ByteArray(20).also {
             it[4] = 'f'.code.toByte(); it[5] = 't'.code.toByte()
