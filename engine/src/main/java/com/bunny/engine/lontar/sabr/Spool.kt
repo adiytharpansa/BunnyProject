@@ -11,11 +11,14 @@ import org.json.JSONObject
  *
  * A spool is plain files on disk: per video, one data file per track
  * (itag) in which every segment lives at the ABSOLUTE byte offset its
- * SABR header announced (start_range). That addressing is the whole
- * point: it is the same addressing the classic road's DASH segments
- * use, so a video whose SABR road dies mid-stream continues on the
- * classic road into the SAME files, at the same offsets, keeping both
- * the viewer's position and every byte already fetched. And because
+ * SABR header announced (start_range) — shifted by the segment's
+ * rendition anchor ([SabrSegment.spoolDelta]) when the server
+ * switched the rendition backing the track mid-stream, so the file
+ * stays one unbroken whole. That addressing is the whole point: it
+ * is the same addressing the classic road's DASH segments use, so a
+ * video whose SABR road dies mid-stream continues on the classic
+ * road into the SAME files, at the same offsets, keeping both the
+ * viewer's position and every byte already fetched. And because
  * watching fills the spool, a later Download adopts it instead of
  * re-fetching (mechanism 2).
  *
@@ -152,6 +155,18 @@ class TrackSpool internal constructor(
         private set
     var initLength: Long = 0
         private set
+
+    /**
+     * Rendition state mirrored from the session (the pump syncs
+     * it with every persist): the lastModified of the rendition
+     * being appended, and its spool anchor. Persisted so a spool
+     * reopened later resumes the same byte space; both zero in
+     * manifests written before rendition anchoring existed.
+     */
+    var wireRendition: Long = 0
+        private set
+    var currentDelta: Long = 0
+        private set
     private val _segments = LinkedHashMap<Int, SabrSegment>()
     val segments: Map<Int, SabrSegment> get() = _segments
 
@@ -252,6 +267,12 @@ class TrackSpool internal constructor(
         _segments[segment.sequence] = segment
     }
 
+    /** Mirrors the session track's rendition state (see above). */
+    fun noteWireState(wireRendition: Long, currentDelta: Long) {
+        this.wireRendition = wireRendition
+        this.currentDelta = currentDelta
+    }
+
     @Synchronized
     fun flushManifest() {
         val root = JSONObject()
@@ -262,6 +283,8 @@ class TrackSpool internal constructor(
         }
         root.put("endSegmentNumber", endSegmentNumber ?: -1)
         root.put("initLength", initLength)
+        root.put("wr", wireRendition)
+        root.put("cd", currentDelta)
         val arr = JSONArray()
         for (seg in _segments.values.sortedBy { it.sequence }) {
             val o = JSONObject()
@@ -270,6 +293,7 @@ class TrackSpool internal constructor(
             o.put("length", seg.length)
             o.put("startMs", seg.startMs)
             o.put("durMs", seg.durationMs)
+            o.put("d", seg.spoolDelta)
             arr.put(o)
         }
         root.put("segments", arr)
@@ -314,6 +338,8 @@ class TrackSpool internal constructor(
             if (!ok) init = 0
         }
         initLength = init
+        wireRendition = root.optLong("wr", 0)
+        currentDelta = root.optLong("cd", 0)
         val arr = root.optJSONArray("segments") ?: return
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
@@ -323,6 +349,7 @@ class TrackSpool internal constructor(
                 durationMs = o.getLong("durMs"),
                 startRange = o.getLong("startRange"),
                 length = o.getLong("length"),
+                spoolDelta = o.optLong("d", 0),
             )
             // Sanity: never vouch for bytes past the real file end.
             if (seg.startRange + seg.length <= fileLen) {

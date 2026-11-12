@@ -549,4 +549,159 @@ class SabrSessionTest {
         // The timeline counts the segment once, not once per group.
         assertEquals(5_000L, s.trackFor(136).timelineEndMs)
     }
+
+    /** An audio header whose FormatId names an explicit rendition. */
+    private fun renditionHeader(
+        id: Int,
+        seq: Int?,
+        startRange: Long,
+        contentLength: Long,
+        lastModified: Long,
+        init: Boolean = false,
+        timeRange: SabrTimeRange? = null,
+    ): SabrPart.MediaHeaderPart = SabrPart.MediaHeaderPart(
+        MediaHeader(
+            headerId = id,
+            videoId = "vid",
+            itag = 251,
+            lastModified = lastModified,
+            xtags = "x",
+            startRange = startRange,
+            isInitSegment = init,
+            sequenceNumber = seq,
+            bytesPerSecond = null,
+            formatId = SabrFormatId(251, lastModified, "x"),
+            contentLength = contentLength,
+            timeRange = timeRange,
+        )
+    )
+
+    @Test
+    fun renditionSwitchMidTrackAnchorsTheNewSegmentAtTheFrontier() {
+        // Wire evidence 2026-11-13 (video PrLTETO4blo, audio itag
+        // 251): mid-track the server switches the RENDITION
+        // backing a track — segment 2 arrives from a different
+        // rendition (a different FormatId lastModified) and its
+        // start_range is an offset in THAT file's space, 118
+        // bytes past where segment 1 ended in ours. Written at
+        // its declared offset it tears a hole the reader can
+        // never cross (the on-device stall ~10 s into playback).
+        // Anchored at the spool frontier instead, the spool
+        // stays one unbroken file.
+        val s = session()
+        val chunks = ArrayList<SabrEvent.MediaChunk>()
+        fun feed(vararg parts: SabrPart) {
+            chunks += s.consume(parts.toList()).events
+                .filterIsInstance<SabrEvent.MediaChunk>()
+        }
+        // Rendition A (lastModified 111): init 902 B + segment 1.
+        feed(
+            renditionHeader(0, null, 0, 902, 111L, init = true),
+            SabrPart.MediaPart(0, ByteArray(902)),
+            renditionHeader(
+                1, 1, 902, 1000, 111L,
+                timeRange = SabrTimeRange(0, 10_000, 1000),
+            ),
+            SabrPart.MediaPart(1, ByteArray(1000)),
+        )
+        // Rendition B (lastModified 999): segment 2 declares
+        // 2020 — 118 past segment 1's wire end (1902).
+        feed(
+            renditionHeader(
+                2, 2, 2020, 1000, 999L,
+                timeRange = SabrTimeRange(10_000, 10_000, 1000),
+            ),
+            SabrPart.MediaPart(2, ByteArray(1000)),
+        )
+        // Segment 3 stays in rendition B and continues its space.
+        feed(
+            renditionHeader(
+                3, 3, 3020, 1000, 999L,
+                timeRange = SabrTimeRange(20_000, 10_000, 1000),
+            ),
+            SabrPart.MediaPart(3, ByteArray(1000)),
+        )
+        val track = s.trackFor(251)
+        val seg2 = track.segments.getValue(2)
+        val seg3 = track.segments.getValue(3)
+        // The session ledger keeps speaking wire space...
+        assertEquals(2020L, seg2.startRange)
+        // ...but segment 2 is anchored 118 bytes back, exactly
+        // onto segment 1's spool end, and segment 3 inherits the
+        // anchor — same rendition, same shift.
+        assertEquals(-118L, seg2.spoolDelta)
+        assertEquals(-118L, seg3.spoolDelta)
+        assertEquals(999L, track.wireRendition)
+        assertEquals(-118L, track.currentDelta)
+        // The chunks the pump writes land at 902, 1902, 2902:
+        // the spool grows unbroken from the init onward.
+        val mediaOffsets = chunks.filter { !it.header.isInitSegment }
+            .map { it.offsetInTrack }
+        assertEquals(listOf(902L, 1902L, 2902L), mediaOffsets)
+        // Init + segments tile [0, 3902) with no gap.
+        val intervals = ArrayList<LongRange>()
+        intervals.add(0L until track.initBytes)
+        for (seg in track.segments.values.sortedBy { it.sequence }) {
+            intervals.add(
+                seg.spoolStartRange until seg.spoolStartRange + seg.length
+            )
+        }
+        var frontier = 0L
+        for (range in intervals) {
+            assertEquals(frontier, range.first)
+            frontier = range.last + 1
+        }
+        assertEquals(3902L, frontier)
+    }
+
+    @Test
+    fun renditionAnchorSurvivesTheSpoolRoundTrip() {
+        // A spool persisted with a rendition anchor (segment 2
+        // anchored −118 onto the frontier) must reopen with the
+        // anchor and the wire rendition intact and a gapless
+        // frontier, and a session restored from it must hold its
+        // segments back in wire space.
+        val store = SpoolStore(File(tempFolder.root, "spool"))
+        val spool = store.open("vid")
+        val audio = spool.track(251)
+        val bytes = ByteArray(2902)
+        byteArrayOf(0x1A.toByte(), 0x45.toByte(), 0xDF.toByte(), 0xA3.toByte())
+            .copyInto(bytes, 0)
+        audio.write(0, bytes)
+        audio.noteFormat(SabrFormatId(251, 111L, "x"))
+        audio.noteEndSegmentNumber(40)
+        audio.noteInit(902)
+        // Spool space, exactly as the pump's persist copies hand
+        // them over: segment 2 sits at 1902 in the spool but was
+        // announced at 2020 on the wire; spoolDelta carries the
+        // difference, and the wire state rides at the root.
+        audio.noteSegment(SabrSegment(1, 0L, 10_000L, 902L, 1000L))
+        audio.noteSegment(
+            SabrSegment(2, 10_000L, 10_000L, 1902L, 1000L, spoolDelta = -118L)
+        )
+        audio.noteWireState(999L, -118L)
+        audio.flushManifest()
+        spool.close()
+
+        val reopened = store.open("vid")
+        val trackSpool = reopened.track(251)
+        assertEquals(-118L, trackSpool.segments.getValue(2).spoolDelta)
+        assertEquals(999L, trackSpool.wireRendition)
+        assertEquals(-118L, trackSpool.currentDelta)
+        // Gapless: init + both segments merge into one range.
+        assertEquals(listOf(0L..2901L), trackSpool.writtenRanges())
+        assertEquals(2902L, trackSpool.frontier())
+
+        val s = session()
+        s.restoreFrom(reopened)
+        val track = s.trackFor(251)
+        // Back in wire space: 1902 − (−118) = 2020, the offset
+        // the wire announced; the anchor and the rendition ride
+        // along for the next switch decision.
+        assertEquals(2020L, track.segments.getValue(2).startRange)
+        assertEquals(-118L, track.segments.getValue(2).spoolDelta)
+        assertEquals(999L, track.wireRendition)
+        assertEquals(-118L, track.currentDelta)
+        reopened.close()
+    }
 }

@@ -24,7 +24,12 @@ data class SabrSegment(
     val sequence: Int,
     val startMs: Long,
     val durationMs: Long,
-    /** Absolute byte offset of this segment inside its track's spool file. */
+    /**
+     * The byte offset the wire announced for this segment
+     * (start_range) — an offset inside the file space of the
+     * RENDITION that served it, which is not necessarily the
+     * space of the segments before it (see [spoolDelta]).
+     */
     val startRange: Long,
     /** Total media bytes received for this segment (it may arrive as
      * many MEDIA chunks; the length grows as they land). */
@@ -38,7 +43,26 @@ data class SabrSegment(
      * segment then counts as complete on any bytes, as before).
      */
     var expectedLength: Long = 0,
+    /**
+     * The rendition anchor: this segment's offset inside the
+     * track's SPOOL file is [startRange] + [spoolDelta]. Zero
+     * while a track is served by a single rendition (the wire
+     * offsets ARE the spool offsets). The server can switch the
+     * rendition backing a track mid-stream — the new rendition's
+     * segments are byte offsets in a different file's space
+     * (same itag, same timeline grid, different lastModified) —
+     * so a switched segment is anchored at the spool frontier
+     * instead of written at its declared offset, which would
+     * tear a permanent hole into the spool (wire evidence
+     * 2026-11-13: audio itag 251 of video PrLTETO4blo switched
+     * rendition at segment 2; at its declared offset it left a
+     * 118-byte hole the reader could never cross).
+     */
+    val spoolDelta: Long = 0,
 ) {
+    /** This segment's offset inside the track's spool file. */
+    val spoolStartRange: Long get() = startRange + spoolDelta
+
     /** True when every announced byte of this segment has landed. */
     val isComplete: Boolean
         get() = expectedLength <= 0 || length >= expectedLength
@@ -53,6 +77,38 @@ class SabrTrack(val format: SabrFormat) {
     var mediaBytes: Long = 0
     val segments: MutableMap<Int, SabrSegment> = sortedMapOf()
     var timelineEndMs: Long = 0
+
+    /**
+     * The rendition currently being appended, identified by the
+     * lastModified its headers' FormatIds carry; 0 = not yet
+     * established (no init or media header has named one). A
+     * header naming a DIFFERENT rendition is a rendition switch:
+     * its segments live in another file's byte space and must be
+     * re-anchored (see [SabrSegment.spoolDelta]).
+     */
+    var wireRendition: Long = 0
+
+    /**
+     * The spool shift of the rendition currently being appended:
+     * spool offset = wire start_range + [currentDelta]. Zero for
+     * a track's first rendition; fixed at a switch by anchoring
+     * the new rendition at [spoolFrontier].
+     */
+    var currentDelta: Long = 0
+
+    /**
+     * The spool-space frontier: the furthest spool-space end of
+     * everything this track already holds — the init segment's
+     * bytes, or a segment's spool end when further. The anchor a
+     * rendition switch is measured from.
+     */
+    val spoolFrontier: Long
+        get() = maxOf(
+            initBytes,
+            segments.values.maxOfOrNull {
+                it.startRange + it.spoolDelta + it.length
+            } ?: 0L,
+        )
 
     val isComplete: Boolean
         get() {
@@ -70,7 +126,9 @@ sealed interface SabrEvent {
         val data: ByteArray,
         /** Absolute offset inside the track's spool file for [data]:
          * the header's start_range plus what earlier chunks of the
-         * same header already carried. */
+         * same header already carried, plus the attributed
+         * segment's rendition anchor ([SabrSegment.spoolDelta]) —
+         * init chunks carry no segment and keep the plain offset. */
         val offsetInTrack: Long,
     ) : SabrEvent
 
@@ -115,7 +173,8 @@ class SabrConsumeResult(
  *
  * Media bytes are NOT stored here: [consume] emits them as
  * [SabrEvent.MediaChunk] and the caller (the pump) writes them into
- * the spool at the header's absolute start_range. A session is
+ * the spool at the chunk's spool offset — the header's start_range
+ * shifted by its segment's rendition anchor. A session is
  * per-/player-response; spool state outlives it by design and is
  * rehydrated one layer up.
  */
@@ -230,6 +289,36 @@ class SabrSession(
         if (announced > segment.expectedLength) {
             segment.expectedLength = announced
         }
+    }
+
+    /**
+     * The spool anchor for a segment being born from [header] on
+     * [track]. The header's embedded FormatId names the rendition
+     * serving it: while the track has none, that rendition is
+     * adopted and the track's current delta stands (zero for a
+     * fresh track; the restored delta for a resumed one). A
+     * header naming the SAME rendition keeps the current delta.
+     * A header naming a DIFFERENT one is a rendition switch: the
+     * new segment anchors at the track's spool frontier, so the
+     * spool stays one unbroken file even though the wire offsets
+     * jumped into another file's space (wire evidence
+     * 2026-11-13, video PrLTETO4blo: the switch declared a
+     * start_range 118 bytes past the previous segment's end).
+     * Headers naming no rendition (no FormatId, or a zero
+     * lastModified) decide nothing.
+     */
+    private fun anchorDelta(track: SabrTrack, header: MediaHeader): Long {
+        val lm = header.formatId?.lastModified ?: 0L
+        if (lm == 0L) return track.currentDelta
+        if (track.wireRendition == 0L) {
+            track.wireRendition = lm
+            return track.currentDelta
+        }
+        if (lm == track.wireRendition) return track.currentDelta
+        val delta = track.spoolFrontier - (header.startRange ?: 0)
+        track.wireRendition = lm
+        track.currentDelta = delta
+        return delta
     }
 
     fun bufferedRanges(): List<SabrBufferedRange> {
@@ -371,12 +460,38 @@ class SabrSession(
                 track.gotInit = true
                 track.initBytes = trackSpool.initLength
             }
+            // The track's wire state rides along: the rendition
+            // being appended and its spool anchor, so a session
+            // resumed over this spool keeps appending in the same
+            // space, and a later rendition switch is measured from
+            // the restored frontier. A manifest written before
+            // rendition anchoring carries neither; the format's
+            // own lastModified is the only rendition identity
+            // known then, with a zero delta context — the old
+            // behaviour, exact for the single-rendition spools
+            // those manifests describe.
+            track.wireRendition = if (trackSpool.wireRendition != 0L) {
+                trackSpool.wireRendition
+            } else {
+                track.format.lastModified ?: 0L
+            }
+            track.currentDelta = trackSpool.currentDelta
             for ((seq, segment) in trackSpool.segments) {
-                track.segments[seq] = segment
+                // The manifest stores SPOOL space; this ledger
+                // speaks WIRE space. Convert back — the segment
+                // keeps its spoolDelta, so the pump re-derives
+                // the spool placement exactly.
+                val restored = segment.copy(
+                    startRange = segment.startRange - segment.spoolDelta,
+                )
+                track.segments[seq] = restored
                 countedSegments.add(itag to seq)
                 track.timelineEndMs =
-                    maxOf(track.timelineEndMs, segment.startMs + segment.durationMs)
-                track.mediaBytes += segment.length
+                    maxOf(
+                        track.timelineEndMs,
+                        restored.startMs + restored.durationMs,
+                    )
+                track.mediaBytes += restored.length
             }
             initializedInSession.add(itag)
             registry[itag]?.let { serverInitialized[itag] = it }
@@ -446,6 +561,17 @@ class SabrSession(
                         pending.duplicate = track.gotInit
                         initializedInSession.add(header.itag)
                         registry[header.itag]?.let { serverInitialized[header.itag] = it }
+                        // The init segment also names the track's
+                        // first rendition — its header carries a
+                        // FormatId like any other, and the spool
+                        // frontier starts at the init's length.
+                        // An init arriving after a rendition is
+                        // established decides nothing (its
+                        // duplicate suppression above governs it).
+                        val lm = header.formatId?.lastModified ?: 0L
+                        if (track.wireRendition == 0L && lm != 0L) {
+                            track.wireRendition = lm
+                        }
                     } else {
                         // A segment's media may arrive in SEVERAL
                         // header groups (large segments do): a
@@ -497,6 +623,7 @@ class SabrSession(
                                 durationMs = durMs,
                                 startRange = header.startRange ?: 0,
                                 length = 0,
+                                spoolDelta = anchorDelta(track, header),
                             )
                             track.segments[seq] = segment
                             pending.segment = segment
@@ -533,7 +660,9 @@ class SabrSession(
                         SabrEvent.MediaChunk(
                             header = header,
                             data = part.data,
-                            offsetInTrack = (header.startRange ?: 0) + pending.emittedBytes,
+                            offsetInTrack = (header.startRange ?: 0) +
+                                pending.emittedBytes +
+                                (pending.segment?.spoolDelta ?: 0),
                         )
                     )
                     pending.emittedBytes += part.data.size

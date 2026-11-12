@@ -412,6 +412,9 @@ class SabrPump(
         val gotInit: Boolean,
         val initBytes: Long,
         val segments: List<SabrSegment>,
+        /** The rendition being appended + its spool anchor. */
+        val wireRendition: Long,
+        val currentDelta: Long,
     )
 
     /** Everything one persist needs, snapshotted on the pump thread. */
@@ -425,7 +428,11 @@ class SabrPump(
      * objects are copied too: a length that grows with the next
      * response must not retro-edit a queued job (each job re-notes
      * every segment anyway, so the last job's copy is the exact
-     * final state).
+     * final state). The copies are SPOOL-space — their startRange
+     * is shifted by the segment's rendition anchor, because the
+     * manifest and the data file both speak spool space; each
+     * copy keeps its spoolDelta, so the pair round-trips and a
+     * later session converts back to wire space exactly.
      */
     private fun snapshotOf(result: SabrConsumeResult): PersistJob {
         val chunks = result.events.filterIsInstance<SabrEvent.MediaChunk>()
@@ -436,7 +443,11 @@ class SabrPump(
                 endSegmentNumber = track.endSegmentNumber,
                 gotInit = track.gotInit,
                 initBytes = track.initBytes,
-                segments = track.segments.values.map { it.copy() },
+                segments = track.segments.values.map {
+                    it.copy(startRange = it.spoolStartRange)
+                },
+                wireRendition = track.wireRendition,
+                currentDelta = track.currentDelta,
             )
         }
         return PersistJob(chunks, tracks)
@@ -474,6 +485,7 @@ class SabrPump(
             trackSpool.noteFormat(track.formatId)
             track.endSegmentNumber?.let { trackSpool.noteEndSegmentNumber(it) }
             if (track.gotInit) trackSpool.noteInit(track.initBytes)
+            trackSpool.noteWireState(track.wireRendition, track.currentDelta)
             for (segment in track.segments) trackSpool.noteSegment(segment)
             touched.add(track.itag)
         }
