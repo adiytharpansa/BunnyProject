@@ -26,7 +26,7 @@ class SabrDataSource(
     private var reader: SpoolReader? = null
     private var uri: Uri? = null
     private var position: Long = 0
-    private var remaining: Long = C.LENGTH_UNSET
+    private var remaining: Long = UNKNOWN_LENGTH
     private var opened = false
 
     override fun open(dataSpec: DataSpec): Long {
@@ -41,9 +41,9 @@ class SabrDataSource(
         position = dataSpec.position
         val known = trackReader.knownLength()
         val length = when {
-            dataSpec.length != C.LENGTH_UNSET -> dataSpec.length
+            dataSpec.length != UNKNOWN_LENGTH -> dataSpec.length
             known >= 0 -> maxOf(0L, known - position)
-            else -> C.LENGTH_UNSET
+            else -> UNKNOWN_LENGTH
         }
         remaining = length
         opened = true
@@ -55,7 +55,7 @@ class SabrDataSource(
         if (length == 0) return 0
         if (remaining == 0L) return C.RESULT_END_OF_INPUT
         val active = reader ?: throw IOException("SabrDataSource belum dibuka")
-        val wanted = if (remaining != C.LENGTH_UNSET) {
+        val wanted = if (remaining != UNKNOWN_LENGTH) {
             minOf(length.toLong(), remaining).toInt()
         } else {
             length
@@ -63,12 +63,22 @@ class SabrDataSource(
         val read = active.readAt(position, buffer, offset, wanted)
         if (read == -1) return C.RESULT_END_OF_INPUT
         position += read
-        if (remaining != C.LENGTH_UNSET) remaining -= read
+        if (remaining != UNKNOWN_LENGTH) remaining -= read
         bytesTransferred(read)
         return read
     }
 
     override fun getUri(): Uri? = uri
+
+    private companion object {
+        /**
+         * "Length not yet known" as a Long. Media3's C.LENGTH_UNSET is
+         * an Int constant in 1.11 while DataSpec lengths are Long —
+         * comparing them directly does not compile, so the accounting
+         * here carries its own sentinel (same value, -1).
+         */
+        const val UNKNOWN_LENGTH = -1L
+    }
 
     override fun close() {
         reader?.close()
