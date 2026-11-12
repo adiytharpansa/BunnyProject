@@ -321,6 +321,35 @@ class SabrProtocolTest {
     }
 
     @Test
+    fun timeRangeRidesAtField15OnTheRecordedWire() {
+        // Bedah jilid 2 (2026-11-12) extracted the official lite
+        // schema: MediaHeader field 15 is the TimeRange. The
+        // recording must agree — every non-init header carries one
+        // there, init headers carry none — and the decoder's new
+        // f15-first read must yield the segment timeline the probe
+        // recorded (audio 10001 ms ticks at timescale 1000; video
+        // 92160 ticks at 15360 = 6 s segments).
+        val headers = decodeResponse(1)
+            .filterIsInstance<SabrPart.MediaHeaderPart>()
+            .map { it.header }
+        assertTrue(headers.isNotEmpty())
+        for (h in headers) {
+            if (h.isInitSegment) {
+                assertNull("init header ${h.headerId} carries no range", h.timeRange)
+            } else {
+                assertNotNull("media header ${h.headerId} lost its range", h.timeRange)
+            }
+        }
+        val audioFirst = headers.first { it.itag == 251 && !it.isInitSegment }
+        assertEquals(0L, audioFirst.timeRange!!.startTicks)
+        assertEquals(10001L, audioFirst.timeRange!!.durationTicks)
+        assertEquals(1000L, audioFirst.timeRange!!.timescale)
+        val videoFirst = headers.first { it.itag == 398 && !it.isInitSegment }
+        assertEquals(92160L, videoFirst.timeRange!!.durationTicks)
+        assertEquals(15360L, videoFirst.timeRange!!.timescale)
+    }
+
+    @Test
     fun decoderSurvivesMalformedKnownParts() {
         // The tolerance law, hostile edition: parts whose TYPE is
         // known but whose payload is garbage must degrade, never

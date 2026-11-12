@@ -175,9 +175,13 @@ data class SabrTimeRange(
  * its track's file, the fact the one-spool design is built on —
  * f8 is_init_segment (1 only on the init header), f9 sequence_number
  * (media headers only), f10 bytes-per-second (content_length/duration),
- * f13 the embedded FormatId, f14 content_length. The TimeRange rides in
- * a submessage with no fixed home; [decode] finds it the way the probe
- * did, by shape and a known timescale.
+ * f13 the embedded FormatId, f14 content_length, f15 the TimeRange
+ * submessage — its official home, pinned by the extracted lite schema
+ * (bedah jilid 2, 2026-11-12) and confirmed on the recorded wire;
+ * [decode] reads f15 first and keeps the probe's shape scan as the
+ * tolerance fallback. The official schema also declares f16 (uint64)
+ * and f17 (int64); neither is populated on the VISIONOS VOD wire the
+ * fixtures recorded, so both stay unmodelled until they appear.
  */
 class MediaHeader(
     val headerId: Int,
@@ -215,8 +219,27 @@ class MediaHeader(
                 bytesPerSecond = fields.firstVarint(10),
                 formatId = formatId,
                 contentLength = fields.firstVarint(14),
-                timeRange = findTimeRange(fields, formatId),
+                timeRange = decodeTimeRange(fields.firstBytes(15))
+                    ?: findTimeRange(fields, formatId),
             )
+        }
+
+        /**
+         * The TimeRange at its official home, field 15 — pinned by
+         * the extracted lite schema (bedah jilid 2, 2026-11-12) and
+         * confirmed on the recorded wire: every non-init header in
+         * the fixtures carries {1 start, 2 duration, 3 timescale}
+         * there, init headers carry none. The same sanity rules as
+         * the shape scan apply; a malformed f15 falls through to it.
+         */
+        private fun decodeTimeRange(raw: ByteArray?): SabrTimeRange? {
+            raw ?: return null
+            val sub = ProtoReader.parseOrNull(raw) ?: return null
+            val start = sub.firstVarint(1) ?: return null
+            val dur = sub.firstVarint(2) ?: return null
+            val scale = sub.firstVarint(3) ?: return null
+            if (scale !in KNOWN_TIMESCALES || dur >= 10 * scale * 60) return null
+            return SabrTimeRange(start, dur, scale)
         }
 
         /**
