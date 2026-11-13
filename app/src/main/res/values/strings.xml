@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Bunny</string>
-    <string name="home_title">Bunny</string>
+    <string name="app_name">Youready?</string>
+    <string name="home_title">Youready?</string>
     <string name="error_generic">Terjadi kesalahan. Coba lagi.</string>
     <string name="retry">Coba lagi</string>
-    <string name="playback_channel_name">Pemutaran Bunny</string>
+    <string name="playback_channel_name">Pemutaran Youready?</string>
     <string name="player_loading">Menyiapkan video…</string>
     <string name="player_diagnostics">Diagnostik pemutaran</string>
     <string name="player_drill_floor">Putar via Lantai Penyelamat (bor)</string>
@@ -78,10 +78,10 @@
     <string name="kanal_title">Kanal</string>
     <string name="kanal_empty">Belum ada kanal. Buka sebuah video, lalu ketuk Langganan — kanalnya akan muncul di sini.</string>
     <string name="profile_title">Profil</string>
-    <string name="profile_name">Pengguna Bunny</string>
+    <string name="profile_name">Pengguna Youready?</string>
     <string name="profile_hint">Akun lokal di perangkat ini</string>
     <string name="profile_login_button">Masuk dengan Google</string>
-    <string name="profile_login_hint">Satu tombol: halaman resmi Google terbuka, Anda memilih akun dan menyetujui — selesai. Tanpa kata sandi yang diketik di Bunny. Yang menyala: langganan asli, video terbaru dari langganan, dan video yang Anda sukai. Tetap opsional — tanpa masuk pun Bunny berjalan seperti biasa. Kunci masuk tersimpan terenkripsi di perangkat ini dan bisa dihapus kapan pun dengan tombol Keluar.</string>
+    <string name="profile_login_hint">Satu tombol: halaman resmi Google terbuka, Anda memilih akun dan menyetujui — selesai. Tanpa kata sandi yang diketik di aplikasi ini. Yang menyala: langganan asli, video terbaru dari langganan, dan video yang Anda sukai. Tetap opsional — tanpa masuk pun Youready? berjalan seperti biasa. Kunci masuk tersimpan terenkripsi di perangkat ini dan bisa dihapus kapan pun dengan tombol Keluar.</string>
     <string name="personal_subs_button">Langganan asli YouTube</string>
     <string name="personal_latest_button">Terbaru dari langganan</string>
     <string name="personal_liked_button">Video yang Anda sukai</string>
@@ -147,7 +147,7 @@
     <string name="health_sabr_active">Aktif di jaringan %1$s — %2$d percobaan terakhir tercatat, %3$d gagal.</string>
     <string name="health_sabr_governed">Dinonaktifkan sementara oleh tata kelola di jaringan %1$s — %3$d dari %2$d percobaan terakhir gagal, melewati ambang konfigurasi. Jalan klasik dipakai; SABR mencoba lagi setelah catatannya membaik.</string>
     <string name="guest_title">Pemanasan Tamu</string>
-    <string name="guest_hint">Bunny menyimpan satu identitas tamu yang awet dan melaporkan tontonan Anda atas nama identitas itu — persis cara peramban menghangatkan rekomendasinya. Panel ini membaca dua tanda apa adanya: apakah Beranda server mulai menjawab identitas ini, dan apakah riwayat tamu mencatat tontonannya.</string>
+    <string name="guest_hint">Youready? menyimpan satu identitas tamu yang awet dan melaporkan tontonan Anda atas nama identitas itu — persis cara peramban menghangatkan rekomendasinya. Panel ini membaca dua tanda apa adanya: apakah Beranda server mulai menjawab identitas ini, dan apakah riwayat tamu mencatat tontonannya.</string>
     <string name="guest_never">Belum pernah diperiksa.</string>
     <string name="guest_check">Periksa</string>
     <string name="guest_checking">Memeriksa…</string>
@@ -164,7 +164,7 @@
     <string name="mini_close">Tutup pemutar</string>
     <string name="login_title">Masuk ke YouTube</string>
     <string name="login_close">Tutup</string>
-    <string name="login_hint">Masuk dengan akun Google Anda di halaman resmi Google. Bunny tidak melihat kata sandi Anda. Setelah masuk selesai, halaman ini tertutup sendiri.</string>
+    <string name="login_hint">Masuk dengan akun Google Anda di halaman resmi Google. Youready? tidak melihat kata sandi Anda. Setelah masuk selesai, halaman ini tertutup sendiri.</string>
     <string name="player_back">Kembali</string>
     <string name="player_more">…selengkapnya</string>
     <string name="player_less">Lebih sedikit</string>

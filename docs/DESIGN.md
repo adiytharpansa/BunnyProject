@@ -1,6 +1,10 @@
-# Bunny — Dokumen Desain
+# Youready? — Dokumen Desain
 
-Bunny dirancang dari nol untuk proyek ini. Tidak ada kode, pola, atau mesin
+> Nama aplikasi kini **Youready?** (sebelumnya "Bunny"). Pengenal teknis lama —
+> repo `BunnyProject`, package `com.bunny.*`, kelas `Bunny*`, dan catatan sejarah
+> di bawah — sengaja dibiarkan apa adanya.
+
+Youready? dirancang dari nol untuk proyek ini. Tidak ada kode, pola, atau mesin
 dari proyek klien YouTube lain yang dipakai — bukan fork, bukan pembungkus
 library ekstraktor mana pun. Dokumen ini adalah sumber kebenaran desainnya.
 
@@ -14,12 +18,12 @@ kandidat, 10 November 2026 —
    `:engine` ("Lontar"). Ketergantungan hanya pada library platform umum
    (OkHttp, coroutines, Media3, Compose) — tidak ada kode YouTube pihak ketiga.
 2. **UI buta mesin.** Layar hanya mengenal kontrak `ExtractionBackend` dan
-   model domain Bunny di `:core`. JSON InnerTube mentah tidak pernah keluar
+   model domain Youready? di `:core`. JSON InnerTube mentah tidak pernah keluar
    dari `:engine`.
 3. **Jujur soal batas.** Yang belum bisa, dikatakan belum bisa — di kode, di
    dokumen, dan di dalam aplikasi (status mesin tampil di layar Beranda).
 4. **Lokal dulu.** Langganan, riwayat, dan rekomendasi hidup di perangkat.
-   Tidak ada server Bunny, tidak ada akun Bunny.
+   Tidak ada server Youready?, tidak ada akun Youready?.
 
 ## Lontar — mesin InnerTube orisinal
 
@@ -36,7 +40,7 @@ aplikasi resmi YouTube, dari Kotlin murni:
   sebagai video. Token kelanjutan (continuation) diperlakukan buram.
 - **Beranda "Campuran Lontar"**: beranda anonim InnerTube terbukti kosong
   untuk pengunjung baru (terverifikasi langsung 2026-11-09), jadi Beranda
-  Bunny *by design* adalah campuran: trending lebih dulu, dan bila kosong,
+  Youready? *by design* adalah campuran: trending lebih dulu, dan bila kosong,
   campuran round-robin pencarian topik (berita, musik, gaming, film,
   podcast) dengan duplikat dan siaran langsung disisihkan.
 - **Player**: endpoint `player` dipanggil lewat rantai persona khusus
@@ -66,9 +70,9 @@ aplikasi resmi YouTube, dari Kotlin murni:
   HTTP 429/5xx dan kegagalan I/O (jadwal 0,6 dtk/1,8 dtk), dan cache
   respons player dibatasi 100 entri.
 
-## Fitur khas Bunny
+## Fitur khas Youready?
 
-Tiga fitur ini dirancang untuk Bunny dan — per riset 10 kandidat — tidak ada
+Tiga fitur ini dirancang untuk Youready? dan — per riset 10 kandidat — tidak ada
 di NewPipe, LibreTube, PipePipe, FreeTube, Grayjay, atau klien sejenis:
 
 1. **Timbangan — lencana biaya data.** Setiap kartu video menampilkan
