@@ -89,16 +89,20 @@ class ShortsVerticalTest {
         // tanpa kartu apa pun, jadi ia tidak membuktikan apa-apa
         // pada tahap ini. Keadaan kosong adalah vonis gagal jujur.
         fun tallCardPresent(): Boolean {
-            val tallClickable = device.findObjects(By.clickable(true)).any { obj ->
-                val b = obj.visibleBounds
-                b.width() > 0 && b.height() > b.width() * 3 / 2 && b.height() > 800
-            }
-            if (tallClickable) return true
-            return device.findObjects(By.clazz("android.view.SurfaceView"))
-                .any { obj ->
+            // Simpul bisa basi di tengah baca bila UI bergerak
+            // (umpan sedang tersusun): anggap belum ada pada
+            // putaran ini, putaran berikutnya yang memvonis.
+            fun isTall(obj: androidx.test.uiautomator.UiObject2): Boolean =
+                try {
                     val b = obj.visibleBounds
                     b.width() > 0 && b.height() > b.width() * 3 / 2 && b.height() > 800
+                } catch (e: androidx.test.uiautomator.StaleObjectException) {
+                    false
                 }
+            val tallClickable = device.findObjects(By.clickable(true)).any(::isTall)
+            if (tallClickable) return true
+            return device.findObjects(By.clazz("android.view.SurfaceView"))
+                .any(::isTall)
         }
 
         val deadline = System.currentTimeMillis() + 120_000
