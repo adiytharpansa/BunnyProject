@@ -50,11 +50,22 @@ jobs:
           else
             echo "No fixed debug keystore secret; using ephemeral CI debug key."
           fi
+      - name: Restore release keystore
+        env:
+          BUNNY_RELEASE_KEYSTORE_B64: ${{ secrets.BUNNY_RELEASE_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$BUNNY_RELEASE_KEYSTORE_B64" ]; then
+            echo "$BUNNY_RELEASE_KEYSTORE_B64" | base64 -d > bunny-release.keystore
+            echo "Release keystore restored."
+          else
+            echo "No release keystore secret; release builds stay unsigned."
+          fi
       - name: Lint, unit test, build
         env:
           BUNNY_DESKTOP_CLIENT_ID: ${{ secrets.BUNNY_DESKTOP_CLIENT_ID }}
           BUNNY_DESKTOP_CLIENT_SECRET: ${{ secrets.BUNNY_DESKTOP_CLIENT_SECRET }}
-        run: gradle lint testDebugUnitTest assembleDebug assembleDebugAndroidTest --stacktrace
+          BUNNY_RELEASE_PASSWORD: ${{ secrets.BUNNY_RELEASE_PASSWORD }}
+        run: gradle lint testDebugUnitTest assembleDebug assembleDebugAndroidTest assembleRelease --stacktrace
 
 
       - name: Upload reports and debug APK
@@ -67,3 +78,4 @@ jobs:
             **/build/reports/
             **/build/outputs/apk/debug/*.apk
             **/build/outputs/apk/androidTest/**/*.apk
+            **/build/outputs/apk/release/*.apk
