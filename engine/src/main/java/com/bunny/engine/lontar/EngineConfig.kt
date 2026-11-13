@@ -93,6 +93,10 @@ object EngineConfig {
          * update.
          */
         val floorEnabled: Boolean = true,
+        /** Pintu TVHTML5 (Satu Ketuk): versi klien, dapat diubah dari jauh. */
+        val bearerTvClientVersion: String = "7.20260707.07.00",
+        /** Pintu ANDROID (Satu Ketuk): versi klien, dapat diubah dari jauh. */
+        val bearerAndroidClientVersion: String = "21.26.364",
     )
 
     val DEFAULTS = Values(
@@ -204,6 +208,10 @@ object EngineConfig {
             } else {
                 DEFAULTS.floorEnabled
             },
+            bearerTvClientVersion = json.optString("bearerTvClientVersion")
+                .takeIf { it.isNotBlank() } ?: DEFAULTS.bearerTvClientVersion,
+            bearerAndroidClientVersion = json.optString("bearerAndroidClientVersion")
+                .takeIf { it.isNotBlank() } ?: DEFAULTS.bearerAndroidClientVersion,
         )
     }
 }
