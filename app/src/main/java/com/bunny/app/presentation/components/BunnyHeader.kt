@@ -30,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,25 @@ import androidx.compose.ui.unit.sp
 import com.bunny.app.R
 
 private val HeaderHorizontalPadding = 12.dp
+
+/** Kunci khusus chip "Siaran Langsung" di deretan tab (bukan topik feed). */
+private const val LIVE_CHIP_KEY = "__live__"
+
+/**
+ * Chip "Siaran Langsung" tepat di sebelah kanan "Beranda". Chip ini bukan
+ * topik feed: menekannya membuka halaman Live. Host (MainActivity)
+ * menyediakannya lewat [LocalLiveChip]; bila null, chip tidak tampil.
+ *
+ * [liveSelected] true saat tab Live yang sedang terbuka.
+ * [onOpenHome] dipakai chip "Beranda" ketika berada di halaman Live.
+ */
+class LiveChip(
+    val liveSelected: Boolean,
+    val onOpenLive: () -> Unit,
+    val onOpenHome: () -> Unit,
+)
+
+val LocalLiveChip = compositionLocalOf<LiveChip?> { null }
 
 /**
  * Header bersama untuk Beranda, Live, dan Kanal: logo + "Bunny",
@@ -69,7 +89,7 @@ fun BunnyHeader(
             onSearchClick = onSearchClick,
             notificationsUnread = notificationsUnread,
         )
-        if (topics.size > 1) {
+        if (topics.size > 1 || LocalLiveChip.current != null) {
             BunnyTopicTabs(
                 topics = topics,
                 selected = selectedTopic,
@@ -159,16 +179,28 @@ fun BunnyTopicTabs(
     onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val all = listOf<String?>(null) + topics
+    val liveChip = LocalLiveChip.current
+    val liveActive = liveChip?.liveSelected == true
+    val all = listOf<String?>(null) +
+        (if (liveChip != null) listOf<String?>(LIVE_CHIP_KEY) else emptyList()) +
+        topics
     LazyRow(
         modifier = modifier,
         contentPadding = PaddingValues(horizontal = HeaderHorizontalPadding, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(all, key = { it ?: "__all__" }) { topic ->
-            val isSelected = topic == selected
-            val label = topic?.removePrefix("Topik: ")
-                ?: stringResource(R.string.nav_home)
+            val isLive = topic == LIVE_CHIP_KEY
+            val isSelected = when {
+                topic == null -> selected == null && !liveActive
+                isLive -> liveActive && selected == null
+                else -> topic == selected
+            }
+            val label = when {
+                isLive -> stringResource(R.string.chip_live)
+                topic == null -> stringResource(R.string.nav_home)
+                else -> topic.removePrefix("Topik: ")
+            }
             val container by animateColorAsState(
                 targetValue = if (isSelected) {
                     MaterialTheme.colorScheme.primary
@@ -195,7 +227,17 @@ fun BunnyTopicTabs(
                     .selectable(
                         selected = isSelected,
                         role = Role.Tab,
-                        onClick = { onSelect(topic) },
+                        onClick = {
+                            when {
+                                isLive -> {
+                                    // Hapus filter topik halaman ini, lalu buka Live.
+                                    onSelect(null)
+                                    liveChip?.onOpenLive?.invoke()
+                                }
+                                topic == null && liveActive -> liveChip?.onOpenHome?.invoke()
+                                else -> onSelect(topic)
+                            }
+                        },
                     )
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.Center,

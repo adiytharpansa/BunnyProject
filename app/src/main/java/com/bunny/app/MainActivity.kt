@@ -54,6 +54,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.SideEffect
@@ -76,6 +77,8 @@ import androidx.core.content.ContextCompat
 import com.bunny.core.model.VideoItem
 import com.bunny.app.playback.PlaybackManager
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.bunny.app.presentation.components.LiveChip
+import com.bunny.app.presentation.components.LocalLiveChip
 import com.bunny.app.presentation.components.MiniPlayerBar
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
@@ -224,6 +227,15 @@ class MainActivity : ComponentActivity() {
                         else -> selectedTab = 0
                     }
                 }
+                // Chip "Siaran Langsung" di sebelah "Beranda" pada header
+                // bersama; menekannya membuka tab Live.
+                CompositionLocalProvider(
+                    LocalLiveChip provides LiveChip(
+                        liveSelected = selectedTab == 1,
+                        onOpenLive = { selectedTab = 1 },
+                        onOpenHome = { selectedTab = 0 },
+                    ),
+                ) {
                 Scaffold { scaffoldPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         // While the bottom bar is on screen it overlays the
@@ -421,6 +433,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     }
+                }
                 }
             }
         }
