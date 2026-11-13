@@ -15,6 +15,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import com.bunny.app.data.AppSettings
 import com.bunny.app.presentation.screens.settings.SettingsScreen
 import com.bunny.app.ui.motion.AppMotion
@@ -31,6 +35,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -84,7 +91,8 @@ import com.bunny.app.playback.PlaybackManager
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bunny.app.presentation.components.LiveChip
 import com.bunny.app.presentation.components.LocalLiveChip
-import com.bunny.app.presentation.components.MiniPlayerBar
+import com.bunny.app.presentation.components.FloatingMiniPlayer
+import com.bunny.app.presentation.components.MINI_CORNER_BOTTOM_RIGHT
 import com.bunny.app.presentation.components.ShortsIcons
 import com.bunny.app.presentation.screens.shorts.ShortsScreen
 import com.bunny.app.presentation.screens.channel.ChannelScreen
@@ -190,6 +198,9 @@ class MainActivity : ComponentActivity() {
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
                 var playerMinimized by rememberSaveable { mutableStateOf(false) }
+                // Pojok terakhir jendela mini (bit 0 = kanan, bit 1 = bawah); bertahan
+                // saat membesar lalu mengecil lagi dan saat layar diputar.
+                var miniCorner by rememberSaveable { mutableStateOf(MINI_CORNER_BOTTOM_RIGHT) }
 
                 // Membuka video selalu membesarkan pemutar — termasuk
                 // ketukan pada video yang sedang dilipat (nilainya
@@ -467,20 +478,23 @@ class MainActivity : ComponentActivity() {
                         var lastReady by remember { mutableStateOf<PlayerUiState.Ready?>(null) }
                         if (readyNow != null) lastReady = readyNow
 
+                        val navBarBottom = WindowInsets.navigationBars.asPaddingValues()
+                            .calculateBottomPadding()
                         AnimatedVisibility(
                             visible = videoId != null && playerMinimized && readyNow != null,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(bottom = if (barVisible) barHeightDp else 0.dp),
-                            enter = AppMotion.BarEnter,
-                            exit = AppMotion.BarExit,
+                            modifier = Modifier.fillMaxSize(),
+                            enter = fadeIn(tween(160)) +
+                                slideInVertically(tween(220)) { it / 10 },
+                            exit = fadeOut(tween(140)) +
+                                slideOutVertically(tween(160)) { it / 10 },
                         ) {
-                            lastReady?.let { ready ->
-                                MiniPlayerBar(
-                                    title = ready.details.title,
-                                    channelName = ready.details.channelName,
-                                    thumbnailUrl = ready.details.thumbnailUrl,
+                            lastReady?.let {
+                                FloatingMiniPlayer(
                                     player = playerController,
+                                    corner = miniCorner,
+                                    onCornerChange = { miniCorner = it },
+                                    // Jauhi bar tab; tanpa bar tab, jauhi bilah navigasi sistem.
+                                    bottomInset = if (barVisible) barHeightDp else navBarBottom,
                                     onExpand = { playerMinimized = false },
                                     onClose = {
                                         playerViewModel.stopPlayback()
