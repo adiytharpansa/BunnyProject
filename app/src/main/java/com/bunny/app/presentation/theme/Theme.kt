@@ -11,15 +11,15 @@ import androidx.compose.runtime.Composable
 // benturan yang pernah difoto pemilik pada 2026-11-10.
 private val LightScheme = lightColorScheme(
     primary = BunnyOrange,
-    onPrimary = BunnyBackgroundLight,
+    onPrimary = BunnyOnOrange,
     primaryContainer = BunnyOrangeContainerLight,
     onPrimaryContainer = BunnyOnOrangeContainerLight,
     secondary = BunnyOnNeutralContainerLight,
-    onSecondary = BunnyBackgroundLight,
+    onSecondary = BunnyOnOrange,
     secondaryContainer = BunnyNeutralContainerLight,
     onSecondaryContainer = BunnyOnNeutralContainerLight,
     tertiary = BunnyOrange,
-    onTertiary = BunnyBackgroundLight,
+    onTertiary = BunnyOnOrange,
     tertiaryContainer = BunnyOrangeContainerLight,
     onTertiaryContainer = BunnyOnOrangeContainerLight,
     background = BunnyBackgroundLight,
@@ -29,7 +29,7 @@ private val LightScheme = lightColorScheme(
     surfaceVariant = BunnySurfaceVariantLight,
     onSurfaceVariant = BunnyOnSurfaceVariantLight,
     outline = BunnyOutlineLight,
-    outlineVariant = BunnyNeutralContainerLight,
+    outlineVariant = BunnyOutlineLight,
 )
 
 @Composable

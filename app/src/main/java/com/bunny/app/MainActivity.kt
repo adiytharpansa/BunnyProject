@@ -23,7 +23,9 @@ import com.bunny.app.data.AppSettings
 import com.bunny.app.presentation.screens.settings.SettingsScreen
 import com.bunny.app.ui.motion.AppMotion
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
+import android.graphics.Color as AndroidColor
 import androidx.lifecycle.Lifecycle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -39,6 +41,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +62,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
@@ -155,7 +159,19 @@ class MainActivity : ComponentActivity() {
             intent?.data?.let { desktopAuth.handleRedirect(it) }
         }
         AppSettings.init(applicationContext)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            // Bar sistem transparan (keputusan pengguna 2026-11-13):
+            // ikon gelap di tema terang; keterbacaan saat menggulir
+            // dijaga selubung gradien di akar tata letak.
+            statusBarStyle = SystemBarStyle.auto(
+                AndroidColor.TRANSPARENT,
+                AndroidColor.TRANSPARENT,
+            ),
+            navigationBarStyle = SystemBarStyle.auto(
+                AndroidColor.TRANSPARENT,
+                AndroidColor.TRANSPARENT,
+            ),
+        )
         setContent {
             BunnyTheme {
                 BugReportHost()
@@ -531,6 +547,33 @@ class MainActivity : ComponentActivity() {
                                         translationY = f * size.height
                                         alpha = 1f - f
                                     },
+                            )
+                        }
+
+                        // Selubung bar status: bar sistem kini transparan,
+                        // jadi gradien krem tipis ini menjaga ikon
+                        // jam/baterai tetap terbaca saat isi menggulir di
+                        // bawahnya. Hanya di layar tab — bukan halaman
+                        // tonton, bukan PiP. Box polos tanpa clickable:
+                        // ketukan lolos ke unsur di bawahnya.
+                        if (!playerExpanded && !inPip) {
+                            val statusBarTop = WindowInsets.statusBars
+                                .asPaddingValues().calculateTopPadding()
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .height(statusBarTop)
+                                    .background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.background
+                                                    .copy(alpha = 0.92f),
+                                                MaterialTheme.colorScheme.background
+                                                    .copy(alpha = 0f),
+                                            ),
+                                        ),
+                                    ),
                             )
                         }
                     }
