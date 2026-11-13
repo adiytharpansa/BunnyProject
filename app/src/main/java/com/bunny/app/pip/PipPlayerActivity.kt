@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -33,6 +34,7 @@ import androidx.media3.ui.PlayerView
  * dan pindahkan inisialisasi player ke kode pemutaran yang sudah ada — PipController hanya
  * butuh akses ke `Player` dan `View` pemutar.
  */
+@UnstableApi
 class PipPlayerActivity : ComponentActivity() {
 
     private var player: ExoPlayer? = null
