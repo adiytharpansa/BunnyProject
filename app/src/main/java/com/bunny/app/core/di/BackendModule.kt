@@ -37,8 +37,19 @@ object BackendModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(20, TimeUnit.SECONDS)
+        // Gagal cepat di jaringan mati; percobaan ulang sudah diatur
+        // sendiri oleh LontarEngine.postJson.
+        .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // Bawaan OkHttp hanya 5 permintaan sekaligus per host. Beranda
+        // mengirim lima pencarian, sesi, dan jalan-jalan terkait ke
+        // www.youtube.com sekaligus, jadi sisanya antre.
+        .dispatcher(
+            okhttp3.Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = 16
+            },
+        )
         .build()
 
     @Provides

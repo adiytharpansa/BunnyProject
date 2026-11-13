@@ -21,6 +21,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -124,21 +125,22 @@ class LontarEngine(
         return seedMixture()
     }
 
-    override suspend fun search(query: String, page: String?): Page<VideoItem> {
-        if (page != null) {
-            val body = baseBody().put("continuation", page)
-            return InnertubeParser.parseFeedPage(post("search", body))
+    override suspend fun search(query: String, page: String?): Page<VideoItem> =
+        withContext(Dispatchers.Default) {
+            if (page != null) {
+                val body = baseBody().put("continuation", page)
+                return@withContext InnertubeParser.parseFeedPage(post("search", body))
+            }
+            // First pages repeat constantly (the home mixture re-asks its
+            // seed topics on every rebuild); continuations are one-time
+            // tokens and stay uncached.
+            metadataCache.get("search:$query") {
+                val body = baseBody()
+                    .put("query", query)
+                    .put("params", SEARCH_PARAMS_VIDEO_ONLY)
+                InnertubeParser.parseFeedPage(post("search", body))
+            }
         }
-        // First pages repeat constantly (the home mixture re-asks its
-        // seed topics on every rebuild); continuations are one-time
-        // tokens and stay uncached.
-        return metadataCache.get("search:$query") {
-            val body = baseBody()
-                .put("query", query)
-                .put("params", SEARCH_PARAMS_VIDEO_ONLY)
-            InnertubeParser.parseFeedPage(post("search", body))
-        }
-    }
 
     override suspend fun search(
         query: String,
@@ -149,11 +151,13 @@ class LontarEngine(
         // dalamnya); filter default = jalur lama beserta cache-nya.
         if (page != null || filter.isDefault) return search(query, page)
         val params = SearchParamsEncoder.encode(filter)
-        return metadataCache.get("search:$query:$params") {
-            val body = baseBody()
-                .put("query", query)
-                .put("params", params)
-            InnertubeParser.parseFeedPage(post("search", body))
+        return withContext(Dispatchers.Default) {
+            metadataCache.get("search:$query:$params") {
+                val body = baseBody()
+                    .put("query", query)
+                    .put("params", params)
+                InnertubeParser.parseFeedPage(post("search", body))
+            }
         }
     }
 
@@ -170,7 +174,7 @@ class LontarEngine(
         // the tab costs one round trip, not five in a row.
         val pages = coroutineScope {
             LIVE_SEED_QUERIES.map { (query, label) ->
-                async {
+                async(Dispatchers.Default) {
                     try {
                         searchLive(query).map { item ->
                             item.copy(reason = "Topik: $label")
@@ -204,8 +208,10 @@ class LontarEngine(
         if (!channelId.startsWith("UC") || channelId.length < 4) {
             throw LontarException("ID kanal tidak dikenal: $channelId")
         }
-        return metadataCache.get("channelVideos:$channelId") {
-            channelVideosUncached(channelId)
+        return withContext(Dispatchers.Default) {
+            metadataCache.get("channelVideos:$channelId") {
+                channelVideosUncached(channelId)
+            }
         }
     }
 
@@ -239,8 +245,10 @@ class LontarEngine(
      */
     override suspend fun getChannelInfo(channelId: String): ChannelInfo? {
         if (!channelId.startsWith("UC") || channelId.length < 4) return null
-        return metadataCache.get("channelInfo:$channelId") {
-            channelInfoUncached(channelId)
+        return withContext(Dispatchers.Default) {
+            metadataCache.get("channelInfo:$channelId") {
+                channelInfoUncached(channelId)
+            }
         }
     }
 
@@ -293,8 +301,10 @@ class LontarEngine(
         }
         // First pages repeat on every reopen of the same video;
         // continuation pages are one-time tokens and stay uncached.
-        return metadataCache.get("comments:$videoId") {
-            commentsFirstPage(videoId)
+        return withContext(Dispatchers.Default) {
+            metadataCache.get("comments:$videoId") {
+                commentsFirstPage(videoId)
+            }
         }
     }
 
@@ -359,8 +369,10 @@ class LontarEngine(
         // The next-watch chain walk re-asks this for the same videos
         // again and again; inside the window the stored real answer
         // is served instead (Paket Mesin B).
-        return metadataCache.get("related:$videoId") {
-            relatedUncached(videoId)
+        return withContext(Dispatchers.Default) {
+            metadataCache.get("related:$videoId") {
+                relatedUncached(videoId)
+            }
         }
     }
 
@@ -1099,7 +1111,7 @@ class LontarEngine(
         // the home feed costs one round trip, not five in a row.
         val pages = coroutineScope {
             config.seedQueries.map { (query, label) ->
-                async {
+                async(Dispatchers.Default) {
                     try {
                         search(query, null).items
                             .filter { !it.isLive }
@@ -1478,7 +1490,12 @@ class LontarEngine(
                 val configJob = async {
                     if (!configFetched) {
                         configFetched = true
-                        config = fetchRemoteConfig()
+                        // Batas 1,5 detik: jaringan lambat tidak boleh
+                        // menahan sesi hanya demi konfigurasi. Jika lewat,
+                        // bawaan dipakai (sama seperti saat fetch gagal).
+                        config = withTimeoutOrNull(CONFIG_FETCH_TIMEOUT_MS) {
+                            fetchRemoteConfig()
+                        } ?: EngineConfig.DEFAULTS
                     }
                 }
                 // Whatever config is already in hand (the defaults on a
@@ -1568,6 +1585,25 @@ class LontarEngine(
      */
     @Volatile private var visitorSuspect = false
 
+    /**
+     * Membaca beranda YouTube bertahap (64 KB, 128 KB, 256 KB, dst.)
+     * dan berhenti begitu kunci API, versi klien, dan visitorData sudah
+     * utuh. Ukuran penuh halaman bisa ratusan KB sampai lebih dari 1 MB.
+     */
+    private fun readHomepageHead(response: okhttp3.Response): String {
+        val source = response.body?.source() ?: return ""
+        var limit = 64L * 1024
+        while (true) {
+            val more = source.request(limit)
+            val html = source.buffer.clone().readUtf8()
+            val complete =
+                InnertubeSession.fromHomepageHtml(html, "") != null &&
+                    CLIENT_VERSION_COMPLETE.containsMatchIn(html)
+            if (complete || !more || limit >= MAX_HOMEPAGE_BYTES) return html
+            limit *= 2
+        }
+    }
+
     private suspend fun fetchSession(
         fallbackClientVersion: String,
     ): InnertubeSession = withContext(Dispatchers.IO) {
@@ -1577,9 +1613,13 @@ class LontarEngine(
             .header("Accept-Language", "id-ID,id;q=0.9,en;q=0.8")
             .build()
         httpClient.newCall(request).execute().use { response ->
-            val html = response.body?.string().orEmpty()
+            val head = readHomepageHead(response)
             val harvested = InnertubeSession.fromHomepageHtml(
-                html,
+                head,
+                fallbackClientVersion,
+            ) ?: InnertubeSession.fromHomepageHtml(
+                // Penanda belum utuh di bagian awal: baca semuanya.
+                response.body?.string().orEmpty(),
                 fallbackClientVersion,
             ) ?: throw LontarException(
                 "Gagal memperoleh sesi InnerTube dari beranda YouTube",
@@ -1602,6 +1642,16 @@ class LontarEngine(
     }
 
     companion object {
+        /** Batas tunggu konfigurasi jarak jauh saat sesi dibuka. */
+        private const val CONFIG_FETCH_TIMEOUT_MS = 1_500L
+
+        /** Batas atas bacaan beranda YouTube untuk mencari penanda sesi. */
+        private const val MAX_HOMEPAGE_BYTES = 2L * 1024 * 1024
+
+        /** Versi klien yang sudah utuh (nilai penuh, bukan terpotong). */
+        private val CLIENT_VERSION_COMPLETE =
+            Regex(""""INNERTUBE_CLIENT_VERSION":\s*"[^"]+"""")
+
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
         // Fase 7-A: metadata surface names + failure classes written

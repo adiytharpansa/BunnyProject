@@ -136,11 +136,15 @@ fun HomeScreen(
     // Topic chips: they filter the mixture already on screen — Bunny's
     // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
     var topicFilter by remember { mutableStateOf<String?>(null) }
-    val topics = state.items.mapNotNull { it.reason }.distinct()
-    val visibleItems = if (topicFilter == null) {
-        state.items
-    } else {
-        state.items.filter { it.reason == topicFilter }
+    val topics = remember(state.items) {
+        state.items.mapNotNull { it.reason }.distinct()
+    }
+    val visibleItems = remember(state.items, topicFilter) {
+        if (topicFilter == null) {
+            state.items
+        } else {
+            state.items.filter { it.reason == topicFilter }
+        }
     }
 
     LaunchedEffect(state.items) { onFeedChanged(state.items) }
