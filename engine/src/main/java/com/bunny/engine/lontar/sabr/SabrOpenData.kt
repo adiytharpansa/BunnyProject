@@ -85,6 +85,10 @@ data class SabrSettings(
     /** Langkah 7, mechanism 7: the self-disabling governance's
      *  threshold, carried with the rest of the SABR config slice. */
     val killThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
+    /** SABR Adaptif Baru F0: one exchange's hard deadline. */
+    val exchangeTimeoutMs: Long = 10_000L,
+    /** SABR Adaptif Baru F1: the frontier supervisor's switch. */
+    val adaptiveV2: Boolean = false,
 )
 
 /**

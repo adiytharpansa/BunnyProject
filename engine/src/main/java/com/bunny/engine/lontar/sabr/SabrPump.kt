@@ -2,6 +2,7 @@ package com.bunny.engine.lontar.sabr
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** HTTP failure at the transport seam; carries the status code. */
 class SabrHttpException(val status: Int) : Exception("SABR HTTP $status")
@@ -73,6 +74,13 @@ sealed interface SabrOutcome {
 
     data class RequestsExhausted(val requests: Int) : SabrOutcome
     data class HttpFailed(val status: Int) : SabrOutcome
+
+    /**
+     * SABR Adaptif Baru F0: the exchange outlived its hard deadline
+     * and was cancelled. Recoverable by design — the drive restarts
+     * the session at the frontier — unlike a stall of unknown cause.
+     */
+    data class ExchangeTimeout(val rn: Int, val timeoutMs: Long) : SabrOutcome
     data class Stalled(val reason: String) : SabrOutcome
 }
 
@@ -176,6 +184,20 @@ class SabrPump(
      * changes: probe and replay runs keep the recorded cadence.
      */
     private val leadAware: Boolean = false,
+    /**
+     * SABR Adaptif Baru F0: a hard deadline for one exchange.
+     * Zero (the default) disables it — probe and replay runs keep
+     * the historical behaviour of waiting the transport out.
+     */
+    private val exchangeTimeoutMs: Long = 0,
+    /**
+     * SABR Adaptif Baru F1: the frontier supervisor's nudge,
+     * consulted once per exchange right before the sleep is taken.
+     * Returning true spends the sleep (the next request goes out
+     * immediately); the callback consumes the nudge, so each raised
+     * flag buys exactly one immediate request.
+     */
+    private val nudgeRequested: () -> Boolean = { false },
 ) {
 
     companion object {
@@ -211,6 +233,22 @@ class SabrPump(
                 else -> minOf(backoffMs ?: 30_000L, 30_000L)
             }
         }
+
+        /** M8's band edge past which one track is chasing the other. */
+        const val SKEW_CHASE_MS: Long = 20_000L
+
+        /**
+         * SABR Adaptif Baru F2 — the lagging-track chase: when the
+         * two pinned tracks' frontiers differ by more than
+         * [SKEW_CHASE_MS], the sleep collapses to the floor cadence
+         * until the skew closes — the lagging track (the one the
+         * merged player's readiness waits for) is caught up first,
+         * and a track that raced ahead never sets the pace. Below
+         * the edge the M8 decision stands untouched.
+         */
+        fun skewBoundedSleep(sleepMs: Long, skewMs: Long): Long =
+            if (skewMs > SKEW_CHASE_MS) minOf(sleepMs, LEAD_FLOOR_MS)
+            else sleepMs
     }
 
     /** The pipelining writer; null in synchronous mode. */
@@ -291,10 +329,22 @@ class SabrPump(
             }
             val body = session.buildRequest(playerTimeMs, bandwidth.estimateBps(), pin)
             val sep = if (session.currentUrl.contains('?')) '&' else '?'
-            val url = "${session.currentUrl}${sep}rn=${session.rn}&cpn=${session.cpn}"
+            val sentRn = session.rn
+            val url = "${session.currentUrl}${sep}rn=$sentRn&cpn=${session.cpn}"
             val started = System.nanoTime()
             val payload = try {
-                transport.post(url, body)
+                if (exchangeTimeoutMs > 0) {
+                    // F0: a hung transport must end as a NAMED
+                    // outcome, never as an endless wait the reader
+                    // side experiences as a frozen frontier.
+                    withTimeoutOrNull(exchangeTimeoutMs) {
+                        transport.post(url, body)
+                    } ?: return SabrOutcome.ExchangeTimeout(
+                        sentRn, exchangeTimeoutMs,
+                    )
+                } else {
+                    transport.post(url, body)
+                }
             } catch (e: SabrHttpException) {
                 return SabrOutcome.HttpFailed(e.status)
             } catch (e: CancellationException) {
@@ -390,7 +440,19 @@ class SabrPump(
             val leadMs = session.bufferedEndMs() - positionHintMs()
             val sleep = if (leadAware) {
                 // M8: the lead decides, the backoff advises.
-                leadBoundedSleep(backoff, leadMs, result.mediaBytes)
+                // Adaptif Baru F2: the frontier skew between the
+                // pinned tracks bounds the decision further — a
+                // lagging track is chased at the floor cadence.
+                val ends = session.tracks.values.map { it.timelineEndMs }
+                val skewMs = if (ends.size >= 2) {
+                    (ends.maxOrNull() ?: 0L) - (ends.minOrNull() ?: 0L)
+                } else {
+                    0L
+                }
+                skewBoundedSleep(
+                    leadBoundedSleep(backoff, leadMs, result.mediaBytes),
+                    skewMs,
+                )
             } else {
                 val polite = if (backoff != null && backoff > 0) {
                     minOf(backoff, if (result.mediaBytes == 0L) 15_000 else politeCapMs)
@@ -405,9 +467,13 @@ class SabrPump(
                     polite
                 }
             }
+            // Adaptif Baru F1: a supervisor nudge spends the
+            // sleep — the frontier is frozen and the lead is thin,
+            // so the next request goes out now, not after a wait.
+            val taken = if (nudgeRequested()) 0L else sleep
             // M3: the decision is on record before it is taken.
-            onSleepDecision?.invoke(backoff, sleep)
-            sleeper(sleep)
+            onSleepDecision?.invoke(backoff, taken)
+            sleeper(taken)
         }
         return SabrOutcome.RequestsExhausted(requests)
     }

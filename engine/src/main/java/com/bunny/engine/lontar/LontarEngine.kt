@@ -512,6 +512,10 @@ class LontarEngine(
             // Langkah 7, mechanism 7: the governance threshold
             // rides the same config slice as the rest of the gate.
             killThreshold = config.sabrKillThreshold,
+            // SABR Adaptif Baru: the exchange deadline and the
+            // frontier supervisor ride the same config slice.
+            exchangeTimeoutMs = config.sabrExchangeTimeoutSec.toLong() * 1000L,
+            adaptiveV2 = config.sabrAdaptiveV2,
         )
 
     /**

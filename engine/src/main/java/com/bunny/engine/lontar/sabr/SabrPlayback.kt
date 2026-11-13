@@ -73,6 +73,10 @@ class SabrPlayback internal constructor(
     val raceBudgetBytes: Long = 4_194_304L,
     /** Mechanisms 3 + 22: the pump's lead cap over the playhead. */
     val leadCapMs: Long = Long.MAX_VALUE,
+    /** SABR Adaptif Baru F0: one exchange's hard deadline (0 = off). */
+    val exchangeTimeoutMs: Long = 0,
+    /** SABR Adaptif Baru F1: run the frontier supervisor. */
+    val adaptiveV2: Boolean = false,
 ) {
     val videoId: String get() = openData.videoId
 
@@ -236,9 +240,38 @@ class SabrPlayback internal constructor(
     @Volatile
     private var jumpsSpent: Int = 0
 
+    /** SABR Adaptif Baru F1: the frontier supervisor's brain. */
+    private val watch = FrontierWatch()
+
+    /** Set by the supervisor, consumed by the pump's sleep gate. */
+    private val nudgeFlag =
+        java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * A supervisor restart seed awaiting the drive loop — the
+     * frozen track's frontier. Latest wins; -1 is none pending.
+     * Volatile hand-off only, exactly like [pendingJumpMs].
+     */
+    @Volatile
+    private var pendingRestartMs: Long = -1
+
+    /**
+     * Restarts spent this open (supervisor T2 + exchange-timeout
+     * recoveries share the budget); the drive thread owns it,
+     * the supervisor only peeks before posting another.
+     */
+    @Volatile
+    private var restartsSpent: Int = 0
+
+    private var watchJob: Job? = null
+    private var restartBudgetLogged = false
+
     fun start() {
         if (job != null) return
         job = scope.launch { drive() }
+        if (adaptiveV2 && watchJob == null) {
+            watchJob = scope.launch { watchLoop() }
+        }
     }
 
     /**
@@ -253,6 +286,8 @@ class SabrPlayback internal constructor(
     fun close() {
         job?.cancel()
         job = null
+        watchJob?.cancel()
+        watchJob = null
         pumpChild?.cancel()
         roadState.kill("pemutaran diganti")
         spool.close()
@@ -279,6 +314,71 @@ class SabrPlayback internal constructor(
         pendingJumpMs = targetMs
         pumpChild?.cancel()
     }
+
+    /**
+     * SABR Adaptif Baru F1 — the frontier supervisor loop:
+     * half-second ticks over the live session's per-track
+     * frontiers. A [WatchAction.Nudge] raises the flag the pump's
+     * sleep gate consumes; a [WatchAction.Restart] posts the
+     * frozen track's frontier as a restart seed and cuts the
+     * in-flight pump, so the drive loop starts a fresh session
+     * over the SAME spool seeded there — the spool is never
+     * thrown away, and the classic road stays the last resort,
+     * not the first responder (the 18:07 shape: 12 s of player
+     * buffering while a frozen frontier went unwatched).
+     */
+    private suspend fun watchLoop() {
+        while (currentCoroutineContext().isActive) {
+            delay(WATCH_TICK_MS)
+            val session = activeSession ?: continue
+            val audioEnd =
+                session.trackFor(session.audioFormat.itag).timelineEndMs
+            val videoEnd =
+                session.trackFor(session.videoFormat.itag).timelineEndMs
+            val action = synchronized(watch) {
+                watch.tick(
+                    SystemClock.uptimeMillis(),
+                    audioEnd,
+                    videoEnd,
+                    playerPositionMs,
+                    readySignal.isCompleted,
+                )
+            }
+            when (action) {
+                is WatchAction.Nudge -> {
+                    nudgeFlag.set(true)
+                    onEvent?.invoke(
+                        "SABR pengawas: ujung ${trackName(action.track)} " +
+                            "diam ${action.frozenMs / 1000} dtk (jarak aman " +
+                            "${action.leadMs / 1000} dtk) — pompa didorong",
+                    )
+                }
+                is WatchAction.Restart -> {
+                    if (restartsSpent >= MAX_RESTARTS ||
+                        pendingRestartMs >= 0
+                    ) {
+                        continue
+                    }
+                    pendingRestartMs = if (action.track == WatchTrack.AUDIO) {
+                        audioEnd
+                    } else {
+                        videoEnd
+                    }
+                    onEvent?.invoke(
+                        "SABR pengawas: ujung ${trackName(action.track)} " +
+                            "diam ${action.frozenMs / 1000} dtk — sesi " +
+                            "dimulai ulang di ujung " +
+                            "${pendingRestartMs / 1000} dtk",
+                    )
+                    pumpChild?.cancel()
+                }
+                WatchAction.None -> Unit
+            }
+        }
+    }
+
+    private fun trackName(track: WatchTrack): String =
+        if (track == WatchTrack.AUDIO) "audio" else "video"
 
     /**
      * Mechanism 23, full form: the drive is a loop of PASSES over
@@ -352,8 +452,36 @@ class SabrPlayback internal constructor(
         // Mechanism 21: the honest preroll wait is named at most
         // once per open (see the pump's onSleepDecision below).
         var prerollWaitLogged = false
+        // Adaptif Baru F0: dry (media-less) answers this open —
+        // the journal names them sparingly (see onExchange below).
+        var dryAnswers = 0
         try {
             while (true) {
+                // SABR Adaptif Baru F1: a supervisor restart
+                // posted while the previous pass ran becomes the
+                // next pass — a fresh session seeded at the frozen
+                // track's frontier over the SAME spool.
+                val pendingRestart = pendingRestartMs
+                if (pendingRestart >= 0) {
+                    pendingRestartMs = -1
+                    if (restartsSpent >= MAX_RESTARTS) {
+                        if (!restartBudgetLogged) {
+                            restartBudgetLogged = true
+                            onEvent?.invoke(
+                                "SABR pengawas: anggaran mulai ulang " +
+                                    "habis — gulungan berurutan diteruskan",
+                            )
+                        }
+                    } else {
+                        restartsSpent++
+                        val restarted = refreshedSession(pendingRestart)
+                        if (restarted == null) {
+                            die("penyegaran /player gagal")
+                            return
+                        }
+                        session = restarted
+                    }
+                }
                 // Mechanism 23: a seek posted while the previous
                 // pass ran (or between passes) becomes the next
                 // pass — a fresh session seeded at the target
@@ -389,6 +517,11 @@ class SabrPlayback internal constructor(
                     return
                 }
                 passes++
+                // Adaptif Baru F1: every fresh pass earns the
+                // supervisor's grace window before any verdict.
+                synchronized(watch) {
+                    watch.reset(SystemClock.uptimeMillis())
+                }
                 val pump = SabrPump(
                     session = session,
                     spool = spool,
@@ -435,6 +568,28 @@ class SabrPlayback internal constructor(
                         }
                     },
                     onTrackComplete = { roadState.markComplete(it) },
+                    // Adaptif Baru F0 — the verdict journal: a
+                    // media-less answer is the earliest visible
+                    // shape of a dying pump, so the first few (and
+                    // every tenth after) are named with their rn
+                    // and the server's stated backoff. Media-bearing
+                    // answers stay silent — the 30 s spool heartbeat
+                    // already speaks for healthy flow.
+                    onExchange = { ex ->
+                        if (ex.mediaBytes == 0L) {
+                            dryAnswers++
+                            if (dryAnswers <= 3 || dryAnswers % 10 == 0) {
+                                onEvent?.invoke(
+                                    "SABR detak: rn=${ex.rn} tanpa media " +
+                                        "(kering ke-$dryAnswers" +
+                                        (ex.backoffTimeMs?.let {
+                                            ", backoff ${it / 1000} dtk"
+                                        } ?: "") +
+                                        ")",
+                                )
+                            }
+                        }
+                    },
                     onSleepDecision = { backoff, sleep ->
                         lastBackoffMs = backoff
                         lastSleepMs = sleep
@@ -489,6 +644,11 @@ class SabrPlayback internal constructor(
                     // capture proves the knob; the player-side
                     // saving (no decode, no display) stands.
                     maxLeadMs = leadCapMs,
+                    // Adaptif Baru F0: the exchange deadline.
+                    exchangeTimeoutMs = exchangeTimeoutMs,
+                    // Adaptif Baru F1: the supervisor's nudge,
+                    // consumed by the pump's sleep gate.
+                    nudgeRequested = { nudgeFlag.getAndSet(false) },
                 )
                 // The pump runs as a child job so a seek can cut
                 // JUST the pump (mechanism 23) without cancelling
@@ -505,7 +665,7 @@ class SabrPlayback internal constructor(
                     // ending), and a seek cuts just the pump child
                     // (loop around: the pending jump at the top
                     // becomes the next pass).
-                    if (pendingJumpMs >= 0 &&
+                    if ((pendingJumpMs >= 0 || pendingRestartMs >= 0) &&
                         currentCoroutineContext().isActive
                     ) {
                         continue
@@ -514,6 +674,19 @@ class SabrPlayback internal constructor(
                 } finally {
                     if (pumpChild === run) pumpChild = null
                 }
+                // Adaptif Baru F0: every pass ends with its
+                // outcome AND both frontiers on the journal — a
+                // death that used to be invisible (the frontier
+                // simply stopped) now names where it stopped.
+                onEvent?.invoke(
+                    "SABR lintasan ke-$passes berakhir: " +
+                        outcomeSummary(outcome) +
+                        " (ujung audio " +
+                        "${session.trackFor(session.audioFormat.itag)" +
+                            ".timelineEndMs / 1000} dtk, video " +
+                        "${session.trackFor(session.videoFormat.itag)" +
+                            ".timelineEndMs / 1000} dtk)",
+                )
                 when (outcome) {
                     is SabrOutcome.Completed -> {
                         val gap = session.earliestGapStartMs()
@@ -590,6 +763,46 @@ class SabrPlayback internal constructor(
                         recordGovernanceFailure()
                         die("HTTP ${outcome.status}")
                         return
+                    }
+                    is SabrOutcome.ExchangeTimeout -> {
+                        // Adaptif Baru F0/F1: a deadline death is
+                        // recoverable while restart budget remains —
+                        // a fresh session seeded at the lagging
+                        // frontier over the same spool. Only a
+                        // REPEATED deadline death is a road failure.
+                        if (restartsSpent < MAX_RESTARTS &&
+                            passes < MAX_DRIVE_PASSES
+                        ) {
+                            restartsSpent++
+                            val seed = minOf(
+                                session.trackFor(
+                                    session.audioFormat.itag,
+                                ).timelineEndMs,
+                                session.trackFor(
+                                    session.videoFormat.itag,
+                                ).timelineEndMs,
+                            )
+                            onEvent?.invoke(
+                                "SABR: pertukaran rn=${outcome.rn} lewat " +
+                                    "${outcome.timeoutMs / 1000} dtk — " +
+                                    "sesi dimulai ulang di ujung " +
+                                    "${seed / 1000} dtk",
+                            )
+                            val fresh = refreshedSession(seed)
+                            if (fresh == null) {
+                                die("penyegaran /player gagal")
+                                return
+                            }
+                            session = fresh
+                        } else {
+                            engine.noteSabrFailure(
+                                "macet",
+                                "pertukaran berulang lewat batas waktu",
+                            )
+                            recordGovernanceFailure()
+                            die("pertukaran berulang lewat batas waktu")
+                            return
+                        }
                     }
                     is SabrOutcome.Stalled -> {
                         // Mechanism 23: a stall with the tail
@@ -804,6 +1017,22 @@ class SabrPlayback internal constructor(
         return line
     }
 
+    /** Adaptif Baru F0: one short name per pump outcome, for
+     *  the pass-end journal line. */
+    private fun outcomeSummary(outcome: SabrOutcome): String =
+        when (outcome) {
+            is SabrOutcome.Completed -> "selesai"
+            is SabrOutcome.TokenDemanded -> "server menuntut token"
+            is SabrOutcome.SabrErrorReceived -> "SABR_ERROR"
+            is SabrOutcome.ReloadRequested -> "server meminta segarkan"
+            is SabrOutcome.RequestsExhausted ->
+                "permintaan habis (${outcome.requests})"
+            is SabrOutcome.HttpFailed -> "HTTP ${outcome.status}"
+            is SabrOutcome.Stalled -> "macet: ${outcome.reason}"
+            is SabrOutcome.ExchangeTimeout ->
+                "pertukaran rn=${outcome.rn} lewat batas waktu"
+        }
+
     private fun die(reason: String) {
         if (!readySignal.isCompleted) readySignal.complete(false)
         onEvent?.invoke("SABR berhenti: $reason — jalan klasik mengambil alih")
@@ -826,6 +1055,17 @@ class SabrPlayback internal constructor(
          * sequential roll and the stall rescue behave as before.
          */
         const val MAX_JUMPS = 5
+
+        /**
+         * SABR Adaptif Baru F1: session restarts one open may
+         * spend (supervisor T2 and exchange-timeout recoveries
+         * share this budget); past it the road behaves exactly
+         * as before — the sequential roll, then classic.
+         */
+        const val MAX_RESTARTS = 3
+
+        /** The frontier supervisor's tick cadence. */
+        const val WATCH_TICK_MS = 500L
         const val READY_TIMEOUT_MS = 15_000L
 
         /** Mechanism 21: a pre-ready pump sleep at least this long
@@ -880,6 +1120,8 @@ class SabrPlaybackCoordinator(
             scope = scope,
             raceBudgetBytes = settings.raceBudgetBytes,
             leadCapMs = settings.leadCapMs,
+            exchangeTimeoutMs = settings.exchangeTimeoutMs,
+            adaptiveV2 = settings.adaptiveV2,
         )
         // The listener is attached BEFORE the drive starts: the
         // first-init event fires inside awaitReady below, and a

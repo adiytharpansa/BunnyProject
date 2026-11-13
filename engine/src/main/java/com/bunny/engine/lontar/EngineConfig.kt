@@ -78,6 +78,23 @@ object EngineConfig {
          */
         val sabrKillThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
         /**
+         * SABR Adaptif Baru F0: the hard deadline for one SABR
+         * exchange, in seconds. A POST that outlives it is cancelled
+         * and named, instead of hanging the pump silently (the
+         * 2026-11-13 18:07 device photo: the frontier froze at the
+         * exact waited byte and no line ever said why). Zero
+         * disables the deadline (the pre-F0 behaviour).
+         */
+        val sabrExchangeTimeoutSec: Int = 10,
+        /**
+         * SABR Adaptif Baru: the frontier supervisor's remote
+         * switch. The code default is OFF; the shipped remote
+         * document turns it on deliberately, and the field exists
+         * so a misbehaving supervisor can be silenced without an
+         * app update.
+         */
+        val sabrAdaptiveV2: Boolean = false,
+        /**
          * Lantai Penyelamat (RANCANGAN-LANTAI-PENYELAMAT): the rescue
          * floor's remote switch. The shipped default is ON — the floor
          * only ever runs after every other road has failed, so it
@@ -187,6 +204,16 @@ object EngineConfig {
                 // threshold that silently means "never".
                 minAttempts = minOf(killMin, killWindow),
             ),
+            sabrExchangeTimeoutSec = if (json.has("sabrExchangeTimeoutSec")) {
+                json.optInt("sabrExchangeTimeoutSec").coerceAtLeast(0)
+            } else {
+                DEFAULTS.sabrExchangeTimeoutSec
+            },
+            sabrAdaptiveV2 = if (json.has("sabrAdaptiveV2")) {
+                json.optBoolean("sabrAdaptiveV2")
+            } else {
+                DEFAULTS.sabrAdaptiveV2
+            },
             floorEnabled = if (json.has("floorEnabled")) {
                 json.optBoolean("floorEnabled")
             } else {

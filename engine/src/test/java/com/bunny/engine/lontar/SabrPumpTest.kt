@@ -15,6 +15,7 @@ import com.bunny.engine.lontar.sabr.SpoolRoadState
 import com.bunny.engine.lontar.sabr.SpoolStore
 import com.bunny.engine.lontar.sabr.VideoSpool
 import java.io.File
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -677,6 +678,69 @@ class SabrPumpTest {
         assertTrue(!s.isComplete())
         assertEquals(50_000L, s.trackFor(251).segments[3]!!.startMs)
         assertEquals(0L, s.earliestGapStartMs())
+    }
+
+    // --------------------------------------- SABR Adaptif Baru (F0–F2)
+
+    @Test
+    fun hungExchangeEndsAsExchangeTimeout() = runBlocking {
+        // F0: a transport that never answers must end the run as a
+        // NAMED deadline outcome, not as an endless wait.
+        val hanging = object : SabrTransport {
+            override suspend fun post(url: String, body: ByteArray): ByteArray {
+                delay(60_000)
+                return ByteArray(0)
+            }
+        }
+        val timed = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = hanging,
+            bandwidth = FixedBandwidth,
+            sleeper = { },
+            exchangeTimeoutMs = 50,
+        )
+        val outcome = timed.run(3)
+        assertTrue(outcome is SabrOutcome.ExchangeTimeout)
+        assertEquals(0, (outcome as SabrOutcome.ExchangeTimeout).rn)
+        assertEquals(50L, outcome.timeoutMs)
+    }
+
+    @Test
+    fun supervisorNudgeSpendsTheSleep() = runBlocking {
+        // F1: one media-less answer carrying a long server backoff
+        // would normally sleep 15 s (the media-less cap); a raised
+        // nudge spends that sleep entirely.
+        val transport = QueueTransport(listOf(response(nrpPart(60_000))))
+        val sleeps = ArrayList<Long>()
+        val nudged = SabrPump(
+            session = session(),
+            spool = spool(),
+            transport = transport,
+            bandwidth = FixedBandwidth,
+            sleeper = { sleeps.add(it) },
+            nudgeRequested = { true },
+        )
+        nudged.run(1)
+        assertEquals(listOf(0L), sleeps)
+
+        val transport2 = QueueTransport(listOf(response(nrpPart(60_000))))
+        val sleeps2 = ArrayList<Long>()
+        pump(session(), spool(), transport2, sleeps2).run(1)
+        assertEquals(listOf(15_000L), sleeps2)
+    }
+
+    @Test
+    fun skewBoundedSleepChasesOnlyPastTheEdge() {
+        // F2: a frontier skew past 20 s collapses any longer sleep
+        // to the 200 ms floor; at or below the edge the M8 decision
+        // stands untouched, and a sleep already at the floor is
+        // never raised.
+        assertEquals(200L, SabrPump.skewBoundedSleep(5_000, 25_000))
+        assertEquals(200L, SabrPump.skewBoundedSleep(30_000, 20_001))
+        assertEquals(5_000L, SabrPump.skewBoundedSleep(5_000, 20_000))
+        assertEquals(5_000L, SabrPump.skewBoundedSleep(5_000, 3_000))
+        assertEquals(100L, SabrPump.skewBoundedSleep(100, 25_000))
     }
 
 }
