@@ -265,6 +265,18 @@ class HomeViewModel @Inject constructor(
                 _uiState.update { it.copy(isLoading = false, items = firstList) }
                 feedCache.save(firstList)
 
+                // Pemanasan pemutar cuplikan: bangun ExoPlayer di thread latar
+                // SEBELUM kartu pertama sempat memintanya (dwell 700 ms).
+                launch {
+                    try {
+                        previewManager.warmUp()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // hanya pemanasan; start() akan mencoba lagi sendiri
+                    }
+                }
+
                 // ---- Tahap B: pengayaan di latar. Gagal pun Beranda
                 // tahap A tetap berdiri.
                 try {
