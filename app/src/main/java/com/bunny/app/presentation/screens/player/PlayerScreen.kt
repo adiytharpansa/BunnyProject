@@ -1048,7 +1048,10 @@ private fun CommentsSection(
             fontWeight = FontWeight.SemiBold,
         )
         when {
-            state.isLoading -> CircularProgressIndicator()
+            state.isLoading -> CircularProgressIndicator(
+                modifier = Modifier.size(32.dp),
+                strokeWidth = 3.dp,
+            )
             state.items.isEmpty() -> Text(
                 stringResource(R.string.player_comments_unavailable),
                 style = MaterialTheme.typography.bodyMedium,
@@ -1313,7 +1316,10 @@ private fun RelatedSection(
                     .padding(24.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    strokeWidth = 3.dp,
+                )
             }
 
             items.isEmpty() -> Column(

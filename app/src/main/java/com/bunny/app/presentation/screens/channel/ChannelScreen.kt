@@ -192,7 +192,10 @@ fun ChannelScreen(
                             .padding(48.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircularProgressIndicator()
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(32.dp),
+                            strokeWidth = 3.dp,
+                        )
                     }
                 }
 

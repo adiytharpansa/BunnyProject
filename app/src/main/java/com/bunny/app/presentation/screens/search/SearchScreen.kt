@@ -219,7 +219,8 @@ fun SearchScreen(
                     )
 
                     state.isLoading -> CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier.align(Alignment.Center).size(32.dp),
+                        strokeWidth = 3.dp,
                     )
 
                     state.error != null && state.results.isEmpty() -> Column(
@@ -552,7 +553,12 @@ private fun ResultsList(
                         .fillMaxWidth()
                         .padding(16.dp),
                     contentAlignment = Alignment.Center,
-                ) { CircularProgressIndicator() }
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(32.dp),
+                        strokeWidth = 3.dp,
+                    )
+                }
             }
         } else if (state.loadMoreFailed) {
             item(key = "load_more_failed") {

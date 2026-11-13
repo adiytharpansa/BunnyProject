@@ -335,7 +335,10 @@ fun LoadingBox() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(
+                modifier = Modifier.size(32.dp),
+                strokeWidth = 3.dp,
+            )
             Text(
                 stringResource(R.string.personal_loading),
                 style = MaterialTheme.typography.bodySmall,
