@@ -97,12 +97,8 @@ class PlaybackManager @Inject constructor(
     @Volatile
     private var activityInBackground = false
 
-    /** Tidak ada PlayerView yang memegang permukaan video (pemutar mini). */
-    @Volatile
-    private var videoSurfaceHidden = false
-
     private val videoTrackDisabled: Boolean
-        get() = activityInBackground || videoSurfaceHidden
+        get() = activityInBackground
 
     private var _session: MediaSession? = null
 
@@ -689,16 +685,6 @@ class PlaybackManager @Inject constructor(
      * dilipat menjadi pemutar mini (false). Tanpa permukaan video, ExoPlayer
      * tetap mendekode ke permukaan pengganti.
      */
-    fun setVideoSurfaceVisible(visible: Boolean) {
-        val hidden = !visible
-        if (videoSurfaceHidden == hidden) return
-        videoSurfaceHidden = hidden
-        refreshVideoTrackState(
-            if (hidden) "Pemutar mini: jalur video dimatikan"
-            else "Halaman tonton: jalur video dinyalakan",
-        )
-    }
-
     private fun refreshVideoTrackState(reason: String) {
         if (!playerBuilt) return
         applyVideoTrackState(player)

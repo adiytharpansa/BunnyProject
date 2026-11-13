@@ -228,9 +228,17 @@ fun PlayerScreen(
     var infoExpanded by remember(videoId) { mutableStateOf(false) }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
+    // Kembali di halaman tonton mengecilkan ke pemutar mini — putar
+    // berlanjut, halaman lain bisa dijelajahi. Menutup total tinggal
+    // di tombol ✕ bar mini. Belum ada yang berputar (memuat/gagal):
+    // Kembali menutup seperti biasa.
     BackHandler {
-        viewModel.stopPlayback()
-        onBack()
+        if (state is PlayerUiState.Ready) {
+            onMinimize()
+        } else {
+            viewModel.stopPlayback()
+            onBack()
+        }
     }
 
     // Di layar penuh, Back keluar dari layar penuh, bukan menutup video.
@@ -420,6 +428,8 @@ fun PlayerScreen(
                 IconButton(onClick = {
                     if (isLandscape) {
                         toggleFullscreen()
+                    } else if (state is PlayerUiState.Ready) {
+                        onMinimize()
                     } else {
                         viewModel.stopPlayback()
                         onBack()
@@ -433,8 +443,8 @@ fun PlayerScreen(
                 }
             }
             // Kecilkan ke pemutar mini: putar berlanjut, halaman lain
-            // bisa dijelajahi. Berbeda dari tombol kembali, yang
-            // menghentikan putar.
+            // bisa dijelajahi. Sama seperti tombol kembali dan panah
+            // kiri atas; menutup total lewat tombol ✕ di bar mini.
             if (!isLandscape) {
                 Box(
                     modifier = Modifier

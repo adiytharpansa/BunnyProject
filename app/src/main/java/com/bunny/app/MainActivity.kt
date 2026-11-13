@@ -195,11 +195,9 @@ class MainActivity : ComponentActivity() {
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
 
-                // Pemutar mini tidak memegang permukaan video: matikan jalur video
-                // selama dilipat, nyalakan lagi saat halaman tonton dibuka.
-                LaunchedEffect(playerMinimized) {
-                    playbackManager.setVideoSurfaceVisible(!playerMinimized)
-                }
+                // Pemutar mini memegang permukaan video (video langsung
+                // di bar bawah), jadi jalur video tetap menyala selama
+                // dilipat; hanya latar aplikasi yang mematikannya.
                 val barVisible =
                     (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
                 // System Back walks the page stack back to Beranda
