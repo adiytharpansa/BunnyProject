@@ -515,13 +515,7 @@ fun PlayerScreen(
                         },
                         // Fase 7-C: for a live video the count is
                         // current watchers, and it says so.
-                        current.details.viewCount?.let {
-                            if (current.details.isLive) {
-                                stringResource(R.string.watching_now, formatCount(it))
-                            } else {
-                                stringResource(R.string.views_count, formatCount(it))
-                            }
-                        },
+                        current.details.viewCountText?.takeIf { it.isNotEmpty() },
                         current.details.uploadedText,
                     ).joinToString(" • ")
                     Surface(
@@ -1205,8 +1199,6 @@ private fun formatChapterTime(ms: Long): String {
     }
 }
 
-private fun formatCount(count: Long): String =
-    com.bunny.app.i18n.LocaleFormats.compactCount(count)
 
 private enum class RelatedFilter { SEMUA, KANAL, TERKAIT }
 

@@ -352,7 +352,7 @@ class LontarEngine(
 
     private suspend fun relatedUncached(videoId: String): List<VideoItem> {
         return try {
-            val watch = post("next", baseBody().put("videoId", videoId))
+            val watch = watchResponse(videoId)
             val items = InnertubeParser.parseRelatedVideos(watch)
             if (items.isEmpty()) {
             }
@@ -403,7 +403,19 @@ class LontarEngine(
 
     override suspend fun getVideoDetails(videoId: String): VideoDetails {
         return try {
-            InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
+            val details = InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
+            // Teks jumlah tayang ASLI hanya hidup di halaman tonton
+            // (respons "next"), bukan di respons player. Ambil apa
+            // adanya, upaya terbaik: gagal berarti tanpa teks, bukan
+            // teks susunan sendiri.
+            val watchText = try {
+                InnertubeParser.parseWatchViewCountText(watchResponse(videoId))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (watchText != null) details.copy(viewCountText = watchText) else details
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -412,6 +424,16 @@ class LontarEngine(
             throw e
         }
     }
+
+    /**
+     * Respons "next" (halaman tonton) dibagi antara teks tayang asli
+     * dan video terkait; di dalam jendela cache yang sama server hanya
+     * ditanya sekali.
+     */
+    private suspend fun watchResponse(videoId: String): JSONObject =
+        metadataCache.get("watch:$videoId") {
+            post("next", baseBody().put("videoId", videoId))
+        }
 
     /**
      * Panen Bertingkat's raw material: the winning player response's

@@ -85,6 +85,7 @@ object InnertubeParser {
             durationSeconds = renderer.optJSONObject("lengthText")
                 ?.let { parseDuration(textOf(it)) },
             viewCount = viewCountText?.let { parseCount(it) },
+            viewCountText = viewCountText?.takeIf { it.isNotEmpty() },
             uploadedText = renderer.optJSONObject("publishedTimeText")
                 ?.let { textOf(it) }
                 ?.takeIf { it.isNotEmpty() },
@@ -109,6 +110,8 @@ object InnertubeParser {
             durationSeconds = renderer.optJSONObject("lengthText")
                 ?.let { parseDuration(textOf(it)) },
             viewCount = infoText.takeIf { it.isNotEmpty() }?.let { parseCount(it) },
+            viewCountText = infoText.takeIf { it.isNotEmpty() }
+                ?.substringBefore("•")?.trim()?.takeIf { it.isNotEmpty() },
             uploadedText = infoText.takeIf { it.contains("•") }
                 ?.substringAfter("•")?.trim()?.takeIf { it.isNotEmpty() },
             isLive = false,
@@ -269,6 +272,7 @@ object InnertubeParser {
             durationSeconds = durationSeconds,
             viewCount = viewsLabel.takeIf { it.isNotEmpty() }
                 ?.let { parseCount(it) },
+            viewCountText = viewsLabel.takeIf { it.isNotEmpty() },
             uploadedText = uploadedText,
             isLive = isLive,
         )
@@ -648,6 +652,30 @@ object InnertubeParser {
     }
 
     // ----------------------------------------------------------------- player
+
+    /**
+     * Teks jumlah tayang asli dari halaman tonton (respons "next"):
+     * videoPrimaryInfoRenderer menyimpan kalimat persis yang YouTube
+     * tampilkan ("304,6 rb x ditonton" / "1,2 rb sedang menonton").
+     * Null bila jalurnya tidak ada — tidak ada teks karangan pengganti.
+     */
+    fun parseWatchViewCountText(watch: JSONObject): String? {
+        val contents = watch.optJSONObject("contents")
+            ?.optJSONObject("twoColumnWatchNextResults")
+            ?.optJSONObject("results")
+            ?.optJSONObject("results")
+            ?.optJSONArray("contents") ?: return null
+        for (i in 0 until contents.length()) {
+            val primary = contents.optJSONObject(i)
+                ?.optJSONObject("videoPrimaryInfoRenderer") ?: continue
+            return textOf(
+                primary.optJSONObject("viewCount")
+                    ?.optJSONObject("videoViewCountRenderer")
+                    ?.optJSONObject("viewCount"),
+            ).takeIf { it.isNotEmpty() }
+        }
+        return null
+    }
 
     fun parseVideoDetails(player: JSONObject): VideoDetails {
         val details = player.optJSONObject("videoDetails")

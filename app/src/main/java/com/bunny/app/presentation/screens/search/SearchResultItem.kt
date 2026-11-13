@@ -121,13 +121,7 @@ fun SearchResultItem(
                 )
                 val meta = listOfNotNull(
                     item.channelName.takeIf { it.isNotEmpty() },
-                    item.viewCount?.let {
-                        if (item.isLive) {
-                            stringResource(R.string.watching_now, formatCount(it))
-                        } else {
-                            stringResource(R.string.views_count, formatCount(it))
-                        }
-                    },
+                    item.viewCountText?.takeIf { it.isNotEmpty() },
                     item.uploadedText?.takeIf { it.isNotEmpty() },
                 ).joinToString(" • ")
                 if (meta.isNotEmpty()) {
@@ -168,6 +162,3 @@ private fun formatDuration(totalSeconds: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-/** Angka ringkas mengikuti bahasa perangkat (305K / 305 rb). */
-private fun formatCount(count: Long): String =
-    com.bunny.app.i18n.LocaleFormats.compactCount(count)

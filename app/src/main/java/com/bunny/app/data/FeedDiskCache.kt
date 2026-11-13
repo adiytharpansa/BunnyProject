@@ -50,6 +50,7 @@ class FeedDiskCache @Inject constructor(
                         if (o.has("durationSeconds")) o.optLong("durationSeconds") else null,
                     viewCount =
                         if (o.has("viewCount")) o.optLong("viewCount") else null,
+                    viewCountText = o.optString("viewCountText").ifEmpty { null },
                     uploadedText = o.optString("uploadedText").ifEmpty { null },
                     isLive = o.optBoolean("isLive", false),
                     reason = o.optString("reason").ifEmpty { null },
@@ -76,6 +77,7 @@ class FeedDiskCache @Inject constructor(
                     v.thumbnailUrl?.let { o.put("thumbnailUrl", it) }
                     v.durationSeconds?.let { o.put("durationSeconds", it) }
                     v.viewCount?.let { o.put("viewCount", it) }
+                    v.viewCountText?.let { o.put("viewCountText", it) }
                     v.uploadedText?.let { o.put("uploadedText", it) }
                     o.put("isLive", v.isLive)
                     v.reason?.let { o.put("reason", it) }

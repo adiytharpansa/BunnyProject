@@ -14,6 +14,12 @@ data class VideoItem(
     val thumbnailUrl: String?,
     val durationSeconds: Long?,
     val viewCount: Long?,
+    /**
+     * Teks jumlah tayang ASLI dari YouTube ("304,6 rb x ditonton",
+     * "1,2 rb sedang menonton") — yang ditampilkan apa adanya.
+     * Aplikasi tidak pernah menyusun teks ini dari angka.
+     */
+    val viewCountText: String? = null,
     val uploadedText: String?,
     val isLive: Boolean = false,
     /**
