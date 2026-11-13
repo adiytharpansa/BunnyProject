@@ -104,13 +104,13 @@ import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
 
-@UnstableApi
-@AndroidEntryPoint
 private val PasanganSaver = Saver<Pair<String, String>?, List<String>>(
     save = { p -> p?.let { listOf(it.first, it.second) } ?: emptyList() },
     restore = { l -> if (l.size == 2) l[0] to l[1] else null },
 )
 
+@UnstableApi
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject
