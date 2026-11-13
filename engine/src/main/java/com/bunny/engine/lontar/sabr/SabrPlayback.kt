@@ -678,14 +678,17 @@ class SabrPlayback internal constructor(
                 // outcome AND both frontiers on the journal — a
                 // death that used to be invisible (the frontier
                 // simply stopped) now names where it stopped.
+                val audioEndS =
+                    session.trackFor(session.audioFormat.itag)
+                        .timelineEndMs / 1000
+                val videoEndS =
+                    session.trackFor(session.videoFormat.itag)
+                        .timelineEndMs / 1000
                 onEvent?.invoke(
                     "SABR lintasan ke-$passes berakhir: " +
                         outcomeSummary(outcome) +
-                        " (ujung audio " +
-                        "${session.trackFor(session.audioFormat.itag)" +
-                            ".timelineEndMs / 1000} dtk, video " +
-                        "${session.trackFor(session.videoFormat.itag)" +
-                            ".timelineEndMs / 1000} dtk)",
+                        " (ujung audio $audioEndS dtk, " +
+                        "video $videoEndS dtk)",
                 )
                 when (outcome) {
                     is SabrOutcome.Completed -> {
