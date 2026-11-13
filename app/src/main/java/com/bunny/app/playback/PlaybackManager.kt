@@ -147,7 +147,6 @@ class PlaybackManager @Inject constructor(
     fun configure(playbackUserAgent: String?) {
         if (!playbackUserAgent.isNullOrBlank()) {
             userAgent = playbackUserAgent
-            PlaybackDiagnostics.log("User-Agent pemutaran: persona mesin")
         }
     }
 
@@ -177,7 +176,6 @@ class PlaybackManager @Inject constructor(
             .build()
         val sources = buildSourceChain(streams, metadata, classicRecorder)
         if (sources.isEmpty()) {
-            PlaybackDiagnostics.log("Tidak ada sumber yang dapat diputar untuk \"$title\"")
             return
         }
         playChain(sources, title)
@@ -203,7 +201,6 @@ class PlaybackManager @Inject constructor(
         watchReporter.stop()
         player.stop()
         player.clearMediaItems()
-        PlaybackDiagnostics.log("Pemutaran dihentikan")
     }
 
     /**
@@ -220,7 +217,6 @@ class PlaybackManager @Inject constructor(
         try {
             transitionWakeLock.acquire(TRANSITION_WAKELOCK_MS)
         } catch (e: SecurityException) {
-            PlaybackDiagnostics.log("Wake lock peralihan ditolak: ${e.message}")
         }
     }
 
@@ -249,19 +245,11 @@ class PlaybackManager @Inject constructor(
 
     // ------------------------------------------------- anti-buffering M2
 
-    /** Buffering episodes of the CURRENT SABR session (M2). */
-    private var sabrBufferingEpisodes = 0
-
-    /** Uptime the current SABR buffering episode began; -1 = none. */
-    private var sabrBufferingSinceMs: Long = -1
-    /** Dropped-frame total when the current episode began (detector). */
-    private var episodeDroppedStart = 0
-
     /** True once the current SABR session has reached READY. */
     private var sabrHasBeenReady = false
 
-    /** Dropped frames since the current SABR handle opened. */
-    private var droppedFramesTotal = 0
+    /** A SABR buffering episode is in progress (M15 catch-up gate). */
+    private var sabrWasBuffering = false
 
     // ------------------------------------------------ anti-buffering M15
 
@@ -372,7 +360,6 @@ class PlaybackManager @Inject constructor(
             if (leadMs >= CATCH_UP_TARGET_MS) {
                 if (player.playbackParameters.speed == CATCH_UP_SPEED) {
                     player.setPlaybackSpeed(1.0f)
-                    PlaybackDiagnostics.log("Pemulihan selesai: kembali 1,0x")
                 }
                 catchUpActive = false
                 catchUpEpisodeSeen = false
@@ -383,7 +370,6 @@ class PlaybackManager @Inject constructor(
         ) {
             player.setPlaybackSpeed(CATCH_UP_SPEED)
             catchUpActive = true
-            PlaybackDiagnostics.log("Pemulihan: putar 1,05x sampai penyangga pulih")
         }
     }
 
@@ -424,12 +410,6 @@ class PlaybackManager @Inject constructor(
                                 rescueBufferingSinceMs = now
                             }
                             if (now - rescueBufferingSinceMs >= SABR_STALL_RESCUE_MS) {
-                                PlaybackDiagnostics.log(
-                                    "SABR macet di tengah putar (BUFFERING > " +
-                                        "${SABR_STALL_RESCUE_MS / 1000} dtk) — " +
-                                        "pindah ke jalan klasik di posisi yang " +
-                                        "sama (${sabr.statusLine()})",
-                                )
                                 closeSabr()
                                 fallback?.invoke()
                                 return
@@ -476,10 +456,6 @@ class PlaybackManager @Inject constructor(
                 } else {
                     "batas waktu 25 detik"
                 }
-                PlaybackDiagnostics.log(
-                    "SABR tidak kunjung siap — $trigger; " +
-                        "beralih ke jalan klasik (${sabr.statusLine()})",
-                )
                 closeSabr()
                 fallback?.invoke()
             }
@@ -507,11 +483,8 @@ class PlaybackManager @Inject constructor(
     ) {
         closeSabr()
         currentSabr = sabr
-        // M2: a new handle starts with clean evidence counters.
-        sabrBufferingEpisodes = 0
-        sabrBufferingSinceMs = -1
         sabrHasBeenReady = false
-        droppedFramesTotal = 0
+        sabrWasBuffering = false
         currentPersonaName = streams.personaName
         currentSourceIsLocal = false
         clearQualityOverride()
@@ -522,10 +495,6 @@ class PlaybackManager @Inject constructor(
             .build()
         val chain = listOf("SABR (Anyam)" to buildSabrSource(sabr, metadata)) +
             buildSourceChain(streams, metadata)
-        PlaybackDiagnostics.log(
-            "Jalan untuk \"$title\": SABR (Anyam) lebih dulu, " +
-                "klasik di belakangnya",
-        )
         playChain(chain, title)
         armSabrWatchdog(sabr)
         armSabrPositionReporter(sabr)
@@ -616,7 +585,6 @@ class PlaybackManager @Inject constructor(
             videoFile != null -> source(videoFile)
             audioFile != null -> source(audioFile)
             else -> {
-                PlaybackDiagnostics.log("Tidak ada berkas unduhan untuk \"$title\"")
                 return
             }
         }
@@ -680,14 +648,10 @@ class PlaybackManager @Inject constructor(
             }
         }
         player.trackSelectionParameters = builder.build()
-        PlaybackDiagnostics.log(
-            "Kualitas dipilih: ${height?.let { "${it}p" } ?: "Otomatis"}",
-        )
     }
 
     fun setSpeed(speed: Float) {
         player.setPlaybackSpeed(speed)
-        PlaybackDiagnostics.log("Kecepatan putar: ${speed}x")
     }
 
     /** Current video size for the PiP aspect ratio; null when unknown. */
@@ -737,7 +701,6 @@ class PlaybackManager @Inject constructor(
     private fun refreshVideoTrackState(reason: String) {
         if (!playerBuilt) return
         applyVideoTrackState(player)
-        PlaybackDiagnostics.log(reason)
     }
 
     private fun applyVideoTrackState(exo: ExoPlayer) {
@@ -772,12 +735,6 @@ class PlaybackManager @Inject constructor(
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(BACK_BUFFER_MS, true)
             .build()
-        PlaybackDiagnostics.log(
-            "Penyangga pemutar: min ${MIN_BUFFER_MS / 1000} dtk, " +
-                "maks ${MAX_BUFFER_MS / 1000} dtk, batas " +
-                "${targetBufferBytes / (1024 * 1024)} MB, " +
-                "belakang ${BACK_BUFFER_MS / 1000} dtk",
-        )
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setTrackSelector(
@@ -820,7 +777,6 @@ class PlaybackManager @Inject constructor(
                             Player.STATE_ENDED -> "ENDED"
                             else -> "STATE_$state"
                         }
-                        PlaybackDiagnostics.log("Player: $name")
                     }
 
                     override fun onPositionDiscontinuity(
@@ -843,14 +799,7 @@ class PlaybackManager @Inject constructor(
                         ) {
                             return
                         }
-                        PlaybackDiagnostics.log(
-                            "SABR: lompat ke ${newPosition.positionMs / 1000} dtk",
-                        )
                         rescueBufferingSinceMs = -1
-                        if (sabrBufferingSinceMs >= 0) {
-                            sabrBufferingSinceMs = SystemClock.uptimeMillis()
-                            episodeDroppedStart = droppedFramesTotal
-                        }
                         // Mechanism 23, full form: hand the
                         // target to the road itself. If the spool
                         // does not cover it, the drive jumps — a
@@ -868,7 +817,6 @@ class PlaybackManager @Inject constructor(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        PlaybackDiagnostics.log("Player error: ${error.errorCodeName} — ${error.message}")
                         if (isTransientNetworkError(error) &&
                             !currentSourceIsLocal &&
                             !playerOnSabrSource() &&
@@ -876,9 +824,6 @@ class PlaybackManager @Inject constructor(
                         ) {
                             networkRetries++
                             val gen = chainGeneration
-                            PlaybackDiagnostics.log(
-                                "Jaringan putus sesaat, coba ulang ke-$networkRetries",
-                            )
                             mainHandler.postDelayed({
                                 if (gen == chainGeneration) exo.prepare()
                             }, 1_000L * networkRetries)
@@ -891,12 +836,6 @@ class PlaybackManager @Inject constructor(
                             // Terminal: the chain has no next source, so
                             // this failure is the one the user experiences.
                             // Persist it as on-device telemetry (Fase 4).
-                            PlaybackFailureLog.record(
-                                context,
-                                stage = "putar",
-                                subject = currentTitle,
-                                detail = "${error.errorCodeName} — ${error.message}",
-                            )
                             // Pemutus arus Lontar Hidup (Fase 6): an HTTP
                             // 403 from the media host AFTER real playback
                             // (past the cold-start allowance) is the GVS
@@ -910,10 +849,109 @@ class PlaybackManager @Inject constructor(
                                 httpStatusOf(error) == 403 &&
                                 exo.currentPosition > GVS_POSITION_THRESHOLD_MS
                             ) {
-                                PlaybackDiagnostics.log(
-                                    "Dugaan gerbang GVS: HTTP 403 pada posisi " +
-                                        "${exo.currentPosition}ms (persona $persona)",
-                                )
+                                onSuspectedGvs?.invoke(persona)
+                            } else if (!currentSourceIsLocal) {
+                                // Lantai Penyelamat: a terminal error
+                                // that is not the GVS signature means
+                                // the classic chain is exhausted — the
+                                // ViewModel's floor attempt takes it
+                                // from here. The floor's own persona is
+                                // excluded from the GVS branch above:
+                                // a floor failure is final, never a
+                                // recovery loop.
+                                onTerminalFailure?.invoke(exo.currentPosition)
+                            }
+                        }
+                    }
+                })
+                // Anti-buffering M2: the player's own evidence —
+                // which decoder really runs (a name settles the
+                // hardware/software question the web sources argue
+                // about), how many frames it drops, and how the
+                // SABR road's buffering episodes count and last.
+                // Without these, "buffering" stays a feeling; with
+                // them it is a measurement.
+                exo.addAnalyticsListener(object : AnalyticsListener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        val name = when (state) {
+                            Player.STATE_IDLE -> "IDLE"
+                            Player.STATE_BUFFERING -> "BUFFERING"
+                            Player.STATE_READY -> "READY"
+                            Player.STATE_ENDED -> "ENDED"
+                            else -> "STATE_$state"
+                        }
+                    }
+
+                    override fun onPositionDiscontinuity(
+                        oldPosition: Player.PositionInfo,
+                        newPosition: Player.PositionInfo,
+                        reason: Int,
+                    ) {
+                        // Langkah 6, mechanism 23 — panic-free
+                        // seek: a seek on the SABR road is a named
+                        // event, and it restarts every buffering
+                        // clock that could otherwise convict the
+                        // road for the viewer's travel time: the
+                        // M12 rescue measures its stretch from the
+                        // seek, and an episode already open in the
+                        // AnalyticsListener's accounting restarts
+                        // (with its dropped-frame baseline) so the
+                        // post-seek wait is judged on its own.
+                        if (reason != Player.DISCONTINUITY_REASON_SEEK ||
+                            currentSabr == null
+                        ) {
+                            return
+                        }
+                        rescueBufferingSinceMs = -1
+                        // Mechanism 23, full form: hand the
+                        // target to the road itself. If the spool
+                        // does not cover it, the drive jumps — a
+                        // fresh session seeded at the target —
+                        // instead of rolling sequentially from
+                        // zero and racing the rescue clock.
+                        currentSabr?.onSeekObserved(newPosition.positionMs)
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying) {
+                            networkRetries = 0
+                            releaseTransitionHold()
+                        }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (isTransientNetworkError(error) &&
+                            !currentSourceIsLocal &&
+                            !playerOnSabrSource() &&
+                            networkRetries < MAX_NETWORK_RETRIES
+                        ) {
+                            networkRetries++
+                            val gen = chainGeneration
+                            mainHandler.postDelayed({
+                                if (gen == chainGeneration) exo.prepare()
+                            }, 1_000L * networkRetries)
+                            return
+                        }
+                        val step = fallback
+                        if (step != null) {
+                            step.invoke()
+                        } else {
+                            // Terminal: the chain has no next source, so
+                            // this failure is the one the user experiences.
+                            // Persist it as on-device telemetry (Fase 4).
+                            // Pemutus arus Lontar Hidup (Fase 6): an HTTP
+                            // 403 from the media host AFTER real playback
+                            // (past the cold-start allowance) is the GVS
+                            // gate's signature. The ViewModel's recovery
+                            // takes it from here — demote the persona,
+                            // re-resolve, continue from this position.
+                            val persona = currentPersonaName
+                            if (persona != null &&
+                                persona != LontarEngine.FLOOR_PERSONA_NAME &&
+                                !currentSourceIsLocal &&
+                                httpStatusOf(error) == 403 &&
+                                exo.currentPosition > GVS_POSITION_THRESHOLD_MS
+                            ) {
                                 onSuspectedGvs?.invoke(persona)
                             } else if (!currentSourceIsLocal) {
                                 // Lantai Penyelamat: a terminal error
@@ -943,7 +981,6 @@ class PlaybackManager @Inject constructor(
                         initializedTimestampMs: Long,
                         initializationDurationMs: Long,
                     ) {
-                        PlaybackDiagnostics.log("Decoder video: $decoderName")
                     }
 
                     override fun onDroppedVideoFrames(
@@ -954,10 +991,6 @@ class PlaybackManager @Inject constructor(
                         val before = droppedFramesTotal
                         droppedFramesTotal += droppedFrames
                         if (droppedFramesTotal / 60 > before / 60) {
-                            PlaybackDiagnostics.log(
-                                "Frame dibuang kumulatif: $droppedFramesTotal " +
-                                    "(decode tertinggal?)",
-                            )
                         }
                     }
 
@@ -966,71 +999,18 @@ class PlaybackManager @Inject constructor(
                         state: Int,
                     ) {
                         if (currentSabr == null) return
-                        val now = SystemClock.uptimeMillis()
                         when (state) {
                             Player.STATE_READY -> {
                                 sabrHasBeenReady = true
-                                val since = sabrBufferingSinceMs
-                                if (since >= 0) {
-                                    sabrBufferingSinceMs = -1
-                                    sabrBufferingEpisodes++
-                                    PlaybackDiagnostics.log(
-                                        "Buffering ke-$sabrBufferingEpisodes: " +
-                                            "${(now - since) / 1000} dtk",
-                                    )
+                                if (sabrWasBuffering) {
+                                    sabrWasBuffering = false
                                     // M15: an episode ENDED — the
                                     // catch-up speed may engage.
                                     catchUpEpisodeSeen = true
-                                    // Detektor macet: one verdict
-                                    // line per episode, classified
-                                    // from the episode's own evidence
-                                    // — a far-ahead wait during the
-                                    // episode convicts the extractor,
-                                    // frames dropped during it convict
-                                    // the decoder, a wait exactly at
-                                    // the frontier convicts supply,
-                                    // and anything else is reported
-                                    // honestly as unclassified.
-                                    val wait = currentSabr?.lastReaderWait
-                                    val verdict = when {
-                                        wait != null &&
-                                            wait.atUptimeMs >= since &&
-                                            wait.position - wait.frontier > 262_144L ->
-                                            "diduga penyelidikan jauh ekstraktor " +
-                                                "(itag ${wait.itag} menunggu di " +
-                                                "${wait.position}, frontier " +
-                                                "${wait.frontier})"
-                                        droppedFramesTotal - episodeDroppedStart >= 30 ->
-                                            "diduga decode tertinggal " +
-                                                "(${droppedFramesTotal - episodeDroppedStart} " +
-                                                "frame dibuang selama episode)"
-                                        wait != null &&
-                                            wait.atUptimeMs >= since &&
-                                            wait.fileLength - wait.frontier > 65_536L ->
-                                            "lubang gulungan di itag ${wait.itag} " +
-                                                "(frontier ${wait.frontier}, berkas " +
-                                                "${wait.fileLength} — byte ada di " +
-                                                "berkas tapi buku catatan belum " +
-                                                "menjaminnya)"
-                                        wait != null && wait.atUptimeMs >= since ->
-                                            "pasokan gulungan tipis di posisi putar " +
-                                                "(itag ${wait.itag} menunggu tepat " +
-                                                "di frontier)"
-                                        else ->
-                                            "penyebab belum terklasifikasi " +
-                                                "dari bukti episode ini"
-                                    }
-                                    PlaybackDiagnostics.log(
-                                        "Detektor: buffering ke-" +
-                                            "$sabrBufferingEpisodes — $verdict",
-                                    )
                                 }
                             }
                             Player.STATE_BUFFERING -> {
-                                if (sabrHasBeenReady && sabrBufferingSinceMs < 0) {
-                                    sabrBufferingSinceMs = now
-                                    episodeDroppedStart = droppedFramesTotal
-                                }
+                                if (sabrHasBeenReady) sabrWasBuffering = true
                             }
                         }
                     }
@@ -1125,10 +1105,6 @@ class PlaybackManager @Inject constructor(
                 }
             }
         }
-        PlaybackDiagnostics.log(
-            "Memutar \"$title\" via $label" +
-                if (startPositionMs > 0) " (lanjut dari ${startPositionMs}ms)" else "",
-        )
         if (startPositionMs > 0) {
             player.setMediaSource(source, startPositionMs)
         } else {

@@ -29,7 +29,6 @@ class PlaybackService : MediaSessionService() {
     /** Listener log; disimpan supaya bisa dilepas di onDestroy. */
     private val logListener = object : Player.Listener {
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-            PlaybackDiagnostics.log("Layanan: playWhenReady=$playWhenReady reason=$reason")
         }
     }
 
@@ -49,12 +48,10 @@ class PlaybackService : MediaSessionService() {
         // a purely lazy session meant no notification and no background
         // playback on the device test).
         playbackManager.session()
-        PlaybackDiagnostics.log("Layanan dibuat; sesi media siap")
         playbackManager.player.addListener(logListener)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
-        PlaybackDiagnostics.log("Kontroler terhubung: ${controllerInfo.packageName}")
         return playbackManager.session()
     }
 
@@ -95,9 +92,6 @@ class PlaybackService : MediaSessionService() {
             try {
                 context.startService(Intent(context, PlaybackService::class.java))
             } catch (e: IllegalStateException) {
-                PlaybackDiagnostics.log(
-                    "Layanan tidak dapat dimulai dari latar: ${e.message}",
-                )
             }
         }
     }

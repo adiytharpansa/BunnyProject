@@ -87,7 +87,6 @@ class FeedPreviewManager @Inject constructor(
     fun start(streams: PlaybackStreams): Boolean {
         val sources = buildSources(streams)
         if (sources.isEmpty()) {
-            PlaybackDiagnostics.log("Pratinjau dilewati: tidak ada sumber yang dapat diputar")
             return false
         }
         generation++
@@ -120,7 +119,6 @@ class FeedPreviewManager @Inject constructor(
         if (chain.isEmpty()) return
         applySound(enabled)
         _status.update { it.copy(soundOn = enabled) }
-        PlaybackDiagnostics.log("Suara pratinjau: ${if (enabled) "menyala" else "mati"}")
     }
 
     /**
@@ -147,7 +145,6 @@ class FeedPreviewManager @Inject constructor(
         exo.setMediaSource(source)
         exo.prepare()
         exo.playWhenReady = true
-        PlaybackDiagnostics.log("Pratinjau mulai (sumber ${chainIndex + 1}/${chain.size}, gen $gen)")
     }
 
     private fun buildPlayer(): ExoPlayer {
@@ -196,10 +193,6 @@ class FeedPreviewManager @Inject constructor(
 
                     override fun onPlayerError(error: PlaybackException) {
                         if (chain.isEmpty()) return
-                        PlaybackDiagnostics.log(
-                            "Pratinjau gagal (sumber ${chainIndex + 1}/${chain.size}): " +
-                                error.errorCodeName,
-                        )
                         if (chainIndex + 1 < chain.size) {
                             // A failed preview source quietly tries the
                             // next one; a failed preview is never user-facing.

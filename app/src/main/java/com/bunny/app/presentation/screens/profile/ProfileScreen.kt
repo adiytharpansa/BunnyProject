@@ -28,6 +28,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,10 +75,23 @@ fun ProfileScreen(
     val desktopState by desktopViewModel.state.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
+    var showTechnical by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(stringResource(R.string.profile_title)) })
+            TopAppBar(
+                title = {
+                    Text(
+                        stringResource(
+                            if (showTechnical) {
+                                R.string.profile_technical_title
+                            } else {
+                                R.string.profile_title
+                            },
+                        ),
+                    )
+                },
+            )
         },
     ) { padding ->
         Column(
@@ -87,6 +103,13 @@ fun ProfileScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (showTechnical) {
+                TextButton(onClick = { showTechnical = false }) {
+                    Text(stringResource(R.string.technical_back))
+                }
+                GuestWarmingPanel()
+                EngineHealthPanel()
+            } else {
             when (val state = authState) {
                 is AuthRepository.State.SignedIn -> {
                     // The account's REAL photo and name, from YouTube's
@@ -201,8 +224,13 @@ fun ProfileScreen(
             OutlinedButton(onClick = onDownloadsClick) {
                 Text(stringResource(R.string.profile_downloads_button))
             }
-            GuestWarmingPanel()
-            EngineHealthPanel()
+            OutlinedButton(
+                onClick = { showTechnical = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.profile_technical_button))
+            }
+            }
         }
     }
 }

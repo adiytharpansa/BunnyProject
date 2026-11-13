@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -46,8 +45,6 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Subscriptions
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -72,12 +69,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.bunny.app.playback.CrashRecorder
 import com.bunny.core.model.VideoItem
-import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bunny.app.presentation.components.MiniPlayerBar
@@ -137,10 +131,6 @@ class MainActivity : ComponentActivity() {
                 val notificationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { granted ->
-                    PlaybackDiagnostics.log(
-                        "Izin notifikasi (saat buka): " +
-                            if (granted) "diberikan" else "ditolak",
-                    )
                 }
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= 33) {
@@ -183,9 +173,6 @@ class MainActivity : ComponentActivity() {
                 var feedItems by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
                 val topics = remember(feedItems) {
                     feedItems.mapNotNull { it.reason }.distinct()
-                }
-                var crashReport by remember {
-                    mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
                 // Fase 7-C: the bell's unread dot — one local check
                 // when the app starts; opening the page clears it.
@@ -306,19 +293,6 @@ class MainActivity : ComponentActivity() {
                                     },
                                     bottomPadding = barHeightDp,
                                 )
-                                val report = crashReport
-                                if (report != null) {
-                                    CrashReportBlock(
-                                        report = report,
-                                        onDismiss = {
-                                            CrashRecorder.clear(this@MainActivity)
-                                            crashReport = null
-                                        },
-                                        modifier = Modifier
-                                            .align(Alignment.TopCenter)
-                                            .padding(horizontal = 8.dp, vertical = 56.dp),
-                                    )
-                                }
                             } else if (selectedTab == 1) {
                                 Box(
                                     modifier = Modifier
@@ -438,7 +412,6 @@ class MainActivity : ComponentActivity() {
                 PictureInPictureParams.Builder().setAspectRatio(aspect).build(),
             )
         } catch (e: IllegalStateException) {
-            PlaybackDiagnostics.log("PiP gagal: ${e.message}")
         }
     }
 
@@ -481,55 +454,7 @@ class MainActivity : ComponentActivity() {
         // Tripwire paired with PlayerViewModel.onCleared: if the activity
         // dies mid-load, the diagnostics ring shows whether it finished,
         // was re-created for a config change, or was destroyed outright.
-        PlaybackDiagnostics.log(
-            "MainActivity hancur (finishing=$isFinishing, gantiKonfigurasi=$isChangingConfigurations)",
-        )
         super.onDestroy()
-    }
-}
-
-@Composable
-private fun CrashReportBlock(
-    report: String,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                stringResource(R.string.crash_title),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Text(
-                stringResource(R.string.crash_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onErrorContainer,
-            )
-            Box(
-                modifier = Modifier
-                    .heightIn(max = 300.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                Text(
-                    report,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                )
-            }
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.crash_dismiss))
-            }
-        }
     }
 }
 

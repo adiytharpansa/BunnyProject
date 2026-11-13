@@ -16,7 +16,6 @@ import com.bunny.app.data.FeedbackKind
 import com.bunny.app.data.SurveyPrompt
 import com.bunny.app.data.TasteRepository
 import com.bunny.app.playback.FeedPreviewManager
-import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PreviewStatus
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
@@ -217,9 +216,6 @@ class HomeViewModel @Inject constructor(
                         _uiState.update {
                             it.copy(isLoading = false, items = cached)
                         }
-                        PlaybackDiagnostics.log(
-                            "Beranda: ${cached.size} video dari cache disk, ${elapsed()} ms",
-                        )
                     }
                 }
 
@@ -266,9 +262,6 @@ class HomeViewModel @Inject constructor(
                     ranked
                 }
                 _uiState.update { it.copy(isLoading = false, items = firstList) }
-                PlaybackDiagnostics.log(
-                    "Beranda tahap A: ${firstList.size} video tampil ${elapsed()} ms",
-                )
                 feedCache.save(firstList)
 
                 // ---- Tahap B: pengayaan di latar. Gagal pun Beranda
@@ -376,9 +369,6 @@ class HomeViewModel @Inject constructor(
                         _uiState.update { it.copy(items = merged) }
                     }
                     val finalItems = _uiState.value.items
-                    PlaybackDiagnostics.log(
-                        "Beranda tahap B selesai: ${finalItems.size} video, ${elapsed()} ms",
-                    )
                     feedCache.save(finalItems)
                     // Catat tayangan muatan ini untuk aturan churn berikutnya
                     // (sesudah peringkat dihitung, supaya daftar ini tidak

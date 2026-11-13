@@ -565,10 +565,6 @@ class SabrPlayback internal constructor(
                         session = fresh
                     }
                     is SabrOutcome.TokenDemanded -> {
-                        engine.noteSabrFailure(
-                            "token",
-                            "SPS 3: server menuntut token — jalan SABR ditutup",
-                        )
                         // Langkah 7, mechanism 7: a token demand is
                         // the governance's headline failure signal.
                         recordGovernanceFailure()
@@ -580,13 +576,11 @@ class SabrPlayback internal constructor(
                         return
                     }
                     is SabrOutcome.SabrErrorReceived -> {
-                        engine.noteSabrFailure("sabr-error", "SABR_ERROR dari server")
                         recordGovernanceFailure()
                         die("SABR_ERROR")
                         return
                     }
                     is SabrOutcome.HttpFailed -> {
-                        engine.noteSabrFailure("HTTP ${outcome.status}", "POST SABR gagal")
                         recordGovernanceFailure()
                         die("HTTP ${outcome.status}")
                         return
@@ -616,7 +610,6 @@ class SabrPlayback internal constructor(
                             // noise (the handle was closed on purpose);
                             // keep them off the failure evidence surface.
                             if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
-                                engine.noteSabrFailure("macet", outcome.reason)
                                 // Langkah 7, mechanism 7: a real
                                 // stall is a road-level death; the
                                 // lifecycle kind above is not, and
@@ -657,10 +650,6 @@ class SabrPlayback internal constructor(
             // The drive must never die silently: an unwitnessed death
             // leaves spool readers waiting on data that will never
             // come. Record it and close the road with the reason.
-            engine.noteSabrFailure(
-                "penggerak",
-                "${e.javaClass.simpleName}: ${e.message}",
-            )
             die("penggerak pompa gagal: ${e.javaClass.simpleName}")
         } finally {
             pumpChild?.cancel()

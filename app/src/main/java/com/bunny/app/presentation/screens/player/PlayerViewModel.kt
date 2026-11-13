@@ -19,8 +19,6 @@ import com.bunny.app.data.RoadMemoryStore
 import com.bunny.app.data.WatchPositionStore
 import com.bunny.app.data.TasteRepository
 import java.io.File
-import com.bunny.app.playback.PlaybackDiagnostics
-import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
@@ -152,7 +150,6 @@ class PlayerViewModel @Inject constructor(
     val controllerPlayer: StateFlow<Player?> = _controllerPlayer.asStateFlow()
     private var controllerFuture: ListenableFuture<MediaController>? = null
 
-    val diagnostics = PlaybackDiagnostics.events
 
     /** Video yang diminta layar; menjaga open() tidak mengulang video asal setelah pindah. */
     private var requestedId: String? = null
@@ -185,7 +182,6 @@ class PlayerViewModel @Inject constructor(
                         taste.maybeQueueSurvey(finishedId)
                     }
                 }
-                PlaybackDiagnostics.log("Video selesai: putar otomatis berikutnya")
                 skipToNext(auto = true)
             }
         }
@@ -263,9 +259,6 @@ class PlayerViewModel @Inject constructor(
                 if (duration > 0) {
                     if (stored < duration - 15_000) {
                         player.seekTo(stored)
-                        PlaybackDiagnostics.log(
-                            "Melanjutkan dari posisi ${stored}ms",
-                        )
                     } else {
                         positions.clear(id)
                     }
@@ -383,10 +376,6 @@ class PlayerViewModel @Inject constructor(
         }
         recoveryUsedFor = id
         val position = playbackManager.player.currentPosition
-        PlaybackDiagnostics.log(
-            "Pemulihan putar: persona $persona diduga tergerbang GVS " +
-                "pada posisi ${position}ms — menyusun ulang aliran",
-        )
         viewModelScope.launch {
             val streams = try {
                 backend.getRefreshedPlaybackStreams(id, persona)
@@ -419,11 +408,6 @@ class PlayerViewModel @Inject constructor(
             if (position > 0) {
                 playbackManager.player.seekTo(position)
             }
-            PlaybackDiagnostics.log(
-                "Pemulihan putar selesai: aliran baru via " +
-                    (streams.personaName ?: "persona lain") +
-                    ", posisi dilanjutkan",
-            )
         }
     }
 
@@ -454,16 +438,6 @@ class PlayerViewModel @Inject constructor(
             null
         }
         if (floor == null || videoId != id) {
-            PlaybackDiagnostics.log(
-                "Lantai penyelamat: tidak tersedia untuk video ini",
-            )
-            PlaybackFailureLog.record(
-                application,
-                stage = "lantai",
-                subject = id,
-                detail = "lantai tidak tersedia (ditolak, live, atau " +
-                    "tanpa berkas progresif)",
-            )
             return null
         }
         PlaybackService.start(application)
@@ -477,20 +451,6 @@ class PlayerViewModel @Inject constructor(
         if (positionMs > 0) {
             playbackManager.player.seekTo(positionMs)
         }
-        PlaybackDiagnostics.log(
-            "Lantai penyelamat aktif: ANDROID · progresif 360p" +
-                if (positionMs > 0) {
-                    ", posisi dilanjutkan dari ${positionMs}ms"
-                } else {
-                    ""
-                },
-        )
-        PlaybackFailureLog.record(
-            application,
-            stage = "lantai",
-            subject = id,
-            detail = "lantai aktif: ANDROID progresif (360p)",
-        )
         return floor
     }
 
@@ -554,9 +514,6 @@ class PlayerViewModel @Inject constructor(
         val position = playbackManager.player.currentPosition
         floorUsedFor = null
         viewModelScope.launch {
-            PlaybackDiagnostics.log(
-                "Bor lantai: memutar paksa via Lantai Penyelamat",
-            )
             attemptFloor(id, details, position)
         }
     }
@@ -588,15 +545,12 @@ class PlayerViewModel @Inject constructor(
                                 _options.update { it.copy(speed = playbackParameters.speed) }
                             }
                         })
-                        PlaybackDiagnostics.log("MediaController terhubung ke layanan")
                     } catch (e: Exception) {
-                        PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
                     }
                 },
                 ContextCompat.getMainExecutor(application),
             )
         } catch (e: Exception) {
-            PlaybackDiagnostics.log("MediaController gagal: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -639,7 +593,6 @@ class PlayerViewModel @Inject constructor(
             .firstOrNull { it.id !in playedIds && !it.isLive }
             ?.id
         if (next == null) {
-            PlaybackDiagnostics.log("Berikutnya: belum ada rekomendasi")
             if (!auto) {
                 Toast.makeText(
                     application,
@@ -651,7 +604,6 @@ class PlayerViewModel @Inject constructor(
         }
         history.addLast(current)
         if (history.size > MAX_HISTORY) history.removeFirst()
-        PlaybackDiagnostics.log("Berikutnya: $next")
         playbackManager.holdForTransition()
         videoId = next
         load()
@@ -664,7 +616,6 @@ class PlayerViewModel @Inject constructor(
             playbackManager.player.seekTo(0L)
             return
         }
-        PlaybackDiagnostics.log("Sebelumnya: $previous")
         playbackManager.holdForTransition()
         videoId = previous
         load()
@@ -958,7 +909,6 @@ class PlayerViewModel @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            PlaybackDiagnostics.log("Rekomendasi gagal: ${e.javaClass.simpleName}: ${e.message}")
             emptyList()
         }
 
@@ -966,7 +916,6 @@ class PlayerViewModel @Inject constructor(
         // Tripwire: if loads die with "Parent job is Cancelling" because this
         // ViewModel is being cleared mid-flight, this line brackets them in
         // the diagnostics ring (field report 2026-11-10).
-        PlaybackDiagnostics.log("PlayerViewModel dibersihkan (onCleared)")
         if (playbackManager.queueHandler === queueHandler) {
             playbackManager.queueHandler = null
         }
@@ -987,7 +936,6 @@ class PlayerViewModel @Inject constructor(
         _related.value = RelatedUiState(isLoading = true)
         val attempt = ++loadAttempts
         _uiState.value = PlayerUiState.Loading
-        PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
         loadJob = viewModelScope.launch {
             // Hoisted so the catch below can hand the details to a
             // floor attempt (pemicu A) when the streams call is the
@@ -1053,14 +1001,6 @@ class PlayerViewModel @Inject constructor(
                     streams.hlsUrl?.let { "HLS" },
                     streams.progressiveUrl?.let { "progresif" },
                 )
-                PlaybackDiagnostics.log(
-                    "Stream tersedia: ${sources.joinToString(", ").ifEmpty { "tidak ada" }}",
-                )
-                // Tangga Adaptif, terbuka untuk diaudit (Lontar Hidup
-                // §6.3): persona apa yang dipilih, dan atas bukti apa.
-                backend.ladderDescription()
-                    .takeIf { it.isNotEmpty() }
-                    ?.let { PlaybackDiagnostics.log("Tangga mesin: $it") }
 
                 // Fase 8 (Anyam), Langkah 3: the SABR road is offered
                 // first when the remote config allows it. tryOpen
@@ -1076,10 +1016,6 @@ class PlayerViewModel @Inject constructor(
                 val jatahCap = com.bunny.app.playback.JatahCap
                     .heightCapPx(capQuota, capUsed)
                 if (jatahCap != null) {
-                    PlaybackDiagnostics.log(
-                        "Plafon Jatah aktif: kualitas SABR maks " +
-                            "${jatahCap}p (sisa anggaran menipis)",
-                    )
                 }
                 // Langkah 6, mechanism 10 — the road memory is
                 // consulted BEFORE the offer: a video the road
@@ -1089,10 +1025,6 @@ class PlayerViewModel @Inject constructor(
                 // failed tryOpen.
                 val roadRefused = roadMemory.isHardRefused(id)
                 if (roadRefused) {
-                    PlaybackDiagnostics.log(
-                        "Ingatan jalan: SABR pernah ditolak tuntas " +
-                            "untuk video ini — langsung jalan klasik",
-                    )
                 }
                 // Langkah 7, mechanism 7 — the self-disabling
                 // governance is consulted beside the road memory:
@@ -1105,29 +1037,17 @@ class PlayerViewModel @Inject constructor(
                 // every other SABR path.)
                 val governance = engine.sabrGovernanceVerdict()
                 if (governance.disabled) {
-                    PlaybackDiagnostics.log(
-                        "Tata kelola: SABR sedang dinonaktifkan lokal " +
-                            "untuk jaringan ini (${governance.failures} dari " +
-                            "${governance.attempts} percobaan gagal) — " +
-                            "jalan klasik dipakai",
-                    )
                 }
                 val sabr = if (roadRefused || governance.disabled) {
                     null
                 } else {
                     sabrCoordinator.tryOpen(id, jatahCap) { message ->
-                        PlaybackDiagnostics.log(message)
                     }
                 }
                 if (sabr != null) {
                     // A road that opened replaces any older
                     // refusal in the memory.
                     roadMemory.recordOk(id)
-                    PlaybackDiagnostics.log(
-                        "Jalan SABR (Anyam) terbuka: gulungan " +
-                            "video itag ${sabr.servedVideoItag}, " +
-                            "audio itag ${sabr.servedAudioItag}",
-                    )
                 }
                 if (sources.isEmpty() && sabr == null) {
                     // Lantai Penyelamat, pemicu A: the ladder answered
@@ -1163,9 +1083,6 @@ class PlayerViewModel @Inject constructor(
                         streams.dashRenditions,
                     )
                     if (classicRecorder != null) {
-                        PlaybackDiagnostics.log(
-                            "Gulungan: jalan klasik ikut mengisi (video $id)",
-                        )
                     }
                     playbackManager.play(
                         streams,
@@ -1191,7 +1108,6 @@ class PlayerViewModel @Inject constructor(
                 val used = library.monthUsageBytes().first()
                 val exceeded = quota != null && used > quota
                 if (exceeded) {
-                    PlaybackDiagnostics.log("Jatah terlampaui bulan ini")
                 }
                 _uiState.value = PlayerUiState.Ready(
                     details = details,
@@ -1209,12 +1125,8 @@ class PlayerViewModel @Inject constructor(
                 // Cancellation is control flow, not a playback failure: it
                 // must never become an error state (its message is a
                 // coroutines-internal string users cannot act on).
-                PlaybackDiagnostics.log("Pemuatan #$attempt dibatalkan")
                 throw e
             } catch (e: Exception) {
-                PlaybackDiagnostics.log(
-                    "Gagal menyiapkan (#$attempt): ${e.javaClass.simpleName}: ${e.message}",
-                )
                 // Lantai Penyelamat, pemicu A: the whole ladder
                 // refused (playerResponse already walked it twice,
                 // session swap included) — before the error reaches
@@ -1232,12 +1144,6 @@ class PlayerViewModel @Inject constructor(
                 // Fase 4 telemetry: load failures persist on-device so a
                 // refusal pattern (e.g. a tightening bot gate) stays
                 // visible across restarts, not only in this session's ring.
-                PlaybackFailureLog.record(
-                    application,
-                    stage = "muat",
-                    subject = id,
-                    detail = "${e.javaClass.simpleName}: ${e.message}",
-                )
                 _uiState.value = PlayerUiState.Error(
                     e.message ?: "Video tidak dapat disiapkan.",
                 )

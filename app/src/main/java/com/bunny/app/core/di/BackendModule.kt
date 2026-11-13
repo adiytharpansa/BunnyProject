@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.bunny.app.data.PersonaStatDao
-import com.bunny.app.playback.AppSurfaceFailureReporter
 import com.bunny.app.data.PrefsSabrGovernanceStore
 import com.bunny.app.data.PrefsVisitorStore
 import com.bunny.app.data.RoomPersonaStatsStore
@@ -103,7 +102,6 @@ object BackendModule {
         statsStore,
         networkClass,
         visitorStore,
-        failureReporter = AppSurfaceFailureReporter(context),
         sabrGovernance = SabrGovernance(governanceStore),
     )
 
