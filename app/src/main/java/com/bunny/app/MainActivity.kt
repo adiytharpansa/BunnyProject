@@ -131,6 +131,9 @@ class MainActivity : ComponentActivity() {
     /** True while a video is open — gates automatic PiP on leaving. */
     private var pipEligible = false
 
+    /** True selama jendela PiP tampil; dibaca PlayerScreen. */
+    private var inPip by mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // A cold start can BE the OAuth redirect (the browser sheet
@@ -321,6 +324,8 @@ class MainActivity : ComponentActivity() {
                                         openChannel = id to name
                                     },
                                     onPipClick = { enterPip() },
+                                    onEnterPip = { enterPip() },
+                                    isInPip = inPip,
                                     onVideoClick = openVideo,
                                     onMinimize = { playerMinimized = true },
                                 )
@@ -506,8 +511,11 @@ class MainActivity : ComponentActivity() {
      * Reached from the player's PiP chip and automatically when the
      * user leaves the app mid-video (onUserLeaveHint).
      */
-    private fun enterPip() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    private fun enterPip(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            return false
+        }
         val size = playbackManager.videoWidthHeight()
         val aspect = if (size != null) {
             val (w, h) = size
@@ -520,7 +528,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Rational(16, 9)
         }
-        try {
+        return try {
             enterPictureInPictureMode(
                 PictureInPictureParams.Builder().setAspectRatio(aspect).build(),
             )
@@ -528,6 +536,7 @@ class MainActivity : ComponentActivity() {
             MinorIssueRecorder.report(
                 MinorCategory.CAUGHT, "MainActivity", "Mode PiP gagal dimasuki", e,
             )
+            false
         }
     }
 
@@ -552,6 +561,7 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPip = isInPictureInPictureMode
         // Jendela PiP ditutup: Activity sudah berhenti (CREATED), tetapi onStop
         // mungkin lebih dulu melihat mode PiP aktif. Pastikan jalur video mati.
         if (!isInPictureInPictureMode &&

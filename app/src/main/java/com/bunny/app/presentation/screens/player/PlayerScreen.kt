@@ -116,6 +116,10 @@ fun PlayerScreen(
     onBack: () -> Unit,
     onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     onPipClick: () -> Unit = {},
+    /** Mencoba masuk PiP sistem; true bila jendela PiP benar-benar terbuka. */
+    onEnterPip: () -> Boolean = { false },
+    /** True selama jendela PiP tampil: hanya video yang digambar. */
+    isInPip: Boolean = false,
     onVideoClick: (videoId: String) -> Unit = {},
     /** Shrink to the mini player (playback continues); NOT a stop. */
     onMinimize: () -> Unit = {},
@@ -259,18 +263,24 @@ fun PlayerScreen(
             onMinimize()
         }
     }
-    // Kembali di halaman tonton mengecilkan ke pemutar mini — putar
-    // berlanjut, halaman lain bisa dijelajahi. Menutup total tinggal
-    // di tombol ✕ bar mini. Belum ada yang berputar (memuat/gagal):
-    // Kembali menutup seperti biasa.
-    BackHandler {
+
+    // Keluar dari halaman tonton: PiP bila video sedang diputar dan
+    // sistem mengizinkan; selain itu mengecil ke bar mini (perilaku
+    // lama). Belum ada yang berputar: tutup seperti biasa.
+    fun exitWatchPage() {
         if (state is PlayerUiState.Ready) {
+            if (isPlaying && onEnterPip()) return
             requestMinimize()
         } else {
             viewModel.stopPlayback()
             onBack()
         }
     }
+    // Kembali di halaman tonton mengecilkan ke pemutar mini — putar
+    // berlanjut, halaman lain bisa dijelajahi. Menutup total tinggal
+    // di tombol ✕ bar mini. Belum ada yang berputar (memuat/gagal):
+    // Kembali menutup seperti biasa.
+    BackHandler { exitWatchPage() }
 
     // Di layar penuh, Back keluar dari layar penuh, bukan menutup video.
     BackHandler(enabled = isLandscape) { toggleFullscreen() }
@@ -288,7 +298,7 @@ fun PlayerScreen(
         // (no separate app bar, like the official watch page).
         Box(
             modifier = (
-                if (isLandscape) {
+                if (isLandscape || isInPip) {
                     Modifier.fillMaxSize()
                 } else {
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -408,6 +418,7 @@ fun PlayerScreen(
                     // Bind the MediaController once it connects; it drives
                     // the same underlying player PlaybackManager loads.
                     if (view.player !== controller) view.player = controller
+                    view.useController = !isInPip
                     // Layar tetap menyala hanya selama video diputar.
                     view.keepScreenOn = isPlaying
                 },
@@ -451,6 +462,7 @@ fun PlayerScreen(
                     )
                 }
             }
+            if (!isInPip) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -461,14 +473,7 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    if (isLandscape) {
-                        toggleFullscreen()
-                    } else if (state is PlayerUiState.Ready) {
-                        requestMinimize()
-                    } else {
-                        viewModel.stopPlayback()
-                        onBack()
-                    }
+                    if (isLandscape) toggleFullscreen() else exitWatchPage()
                 }) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -499,9 +504,10 @@ fun PlayerScreen(
                     }
                 }
             }
+            }
         }
 
-        if (!isLandscape) {
+        if (!isLandscape && !isInPip) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
