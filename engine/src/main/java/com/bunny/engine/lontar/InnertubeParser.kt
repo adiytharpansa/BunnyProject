@@ -1061,7 +1061,14 @@ object InnertubeParser {
 
     /** "12:34" / "1:02:03" -> seconds. Null when unparseable. */
     fun parseDuration(text: String): Long? {
-        val parts = text.trim().split(":").map { it.toLongOrNull() ?: return null }
+        // Server menulis durasi untuk lokal Indonesia dengan TITIK
+        // ("1.41" = 1 menit 41 detik), lokal lain dengan titik dua;
+        // samakan dulu. Tanpa ini durasi baris videoRenderer/playlist
+        // terbaca null di perangkat Indonesia — tab Shorts membuang
+        // semua videonya (kosong 2026-11-13) dan lencana durasi serta
+        // Timbangan di kartu ikut hilang.
+        val parts = text.trim().replace('.', ':')
+            .split(":").map { it.toLongOrNull() ?: return null }
         return when (parts.size) {
             2 -> parts[0] * 60 + parts[1]
             3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]

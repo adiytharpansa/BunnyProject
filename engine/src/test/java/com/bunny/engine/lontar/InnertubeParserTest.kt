@@ -1113,4 +1113,31 @@ class InnertubeParserTest {
         assertEquals("Gol menit akhir", item.title)
         assertTrue(item.isShort)
     }
+
+    @Test
+    fun parseFeedPage_dotDuration_yieldsSeconds() {
+        // Durasi dari jawaban asli untuk lokal Indonesia memakai TITIK
+        // ("1.41" = 1 menit 41 detik) — dibuktikan dari jawaban
+        // pencarian asli 2026-11-13. Pembaca yang hanya paham ":"
+        // mengembalikan null dan tab Shorts membuang semua videonya.
+        val json = JSONObject(
+            """
+            {
+              "contents": [
+                {
+                  "videoRenderer": {
+                    "videoId": "dotdur12345",
+                    "title": { "simpleText": "Video pendek asli" },
+                    "lengthText": { "simpleText": "1.41" },
+                    "viewCountText": { "simpleText": "12 rb x ditonton" }
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val page = InnertubeParser.parseFeedPage(json)
+        assertEquals(1, page.items.size)
+        assertEquals(101L, page.items.single().durationSeconds)
+    }
 }
