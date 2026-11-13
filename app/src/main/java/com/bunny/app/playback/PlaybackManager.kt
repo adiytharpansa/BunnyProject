@@ -37,6 +37,7 @@ import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.sabr.ClassicSpoolRecorder
 import com.bunny.engine.lontar.sabr.SabrPlayback
 import com.bunny.engine.lontar.sabr.TeeDataSource
@@ -820,6 +821,7 @@ class PlaybackManager @Inject constructor(
                             // re-resolve, continue from this position.
                             val persona = currentPersonaName
                             if (persona != null &&
+                                persona != LontarEngine.FLOOR_PERSONA_NAME &&
                                 !currentSourceIsLocal &&
                                 httpStatusOf(error) == 403 &&
                                 exo.currentPosition > GVS_POSITION_THRESHOLD_MS
@@ -829,6 +831,16 @@ class PlaybackManager @Inject constructor(
                                         "${exo.currentPosition}ms (persona $persona)",
                                 )
                                 onSuspectedGvs?.invoke(persona)
+                            } else if (!currentSourceIsLocal) {
+                                // Lantai Penyelamat: a terminal error
+                                // that is not the GVS signature means
+                                // the classic chain is exhausted — the
+                                // ViewModel's floor attempt takes it
+                                // from here. The floor's own persona is
+                                // excluded from the GVS branch above:
+                                // a floor failure is final, never a
+                                // recovery loop.
+                                onTerminalFailure?.invoke(exo.currentPosition)
                             }
                         }
                     }
@@ -965,6 +977,17 @@ class PlaybackManager @Inject constructor(
      */
     @Volatile
     var onSuspectedGvs: ((personaName: String) -> Unit)? = null
+
+    /**
+     * Lantai Penyelamat callback, owned by PlayerViewModel while a
+     * video is open: the source chain ended in a terminal error that
+     * is NOT the GVS signature above (that one belongs to the
+     * recovery path) and not a local file — every classic road is
+     * exhausted, so the floor gets its one attempt, continuing from
+     * the position carried here.
+     */
+    @Volatile
+    var onTerminalFailure: ((positionMs: Long) -> Unit)? = null
 
     /** The HTTP status inside a playback error's cause chain, if any. */
     private fun httpStatusOf(error: Throwable?): Int? {

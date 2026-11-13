@@ -22,6 +22,7 @@ import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.app.playback.PlaybackManager
 import com.bunny.app.playback.PlaybackService
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.PlaybackStreams
 import com.bunny.core.model.VideoComment
 import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator
@@ -183,6 +184,7 @@ class PlayerViewModel @Inject constructor(
         connectController()
         playbackManager.queueHandler = queueHandler
         playbackManager.onSuspectedGvs = { persona -> onSuspectedGvs(persona) }
+        playbackManager.onTerminalFailure = { position -> onTerminalFailure(position) }
         playbackManager.player.addListener(endListener)
         // Resume bookkeeping: shelve the position every five
         // seconds of an open video (main thread — the scope's
@@ -306,6 +308,10 @@ class PlayerViewModel @Inject constructor(
     @Volatile
     private var recoveryUsedFor: String? = null
 
+    /** The video the one allowed floor attempt was spent on. */
+    @Volatile
+    private var floorUsedFor: String? = null
+
     /**
      * Pemulihan Putar (Lontar Hidup §8): a mid-stream GVS refusal is
      * answered by demoting the persona that earned it, re-resolving the
@@ -316,7 +322,16 @@ class PlayerViewModel @Inject constructor(
      */
     private fun onSuspectedGvs(persona: String) {
         val id = videoId ?: return
-        if (recoveryUsedFor == id) return
+        if (recoveryUsedFor == id) {
+            // The recovery already spent its one attempt on this
+            // video; what remains is the floor (Lantai Penyelamat,
+            // pemicu B — RANCANGAN-LANTAI-PENYELAMAT Bagian 3.2).
+            val details = (_uiState.value as? PlayerUiState.Ready)?.details
+                ?: return
+            val position = playbackManager.player.currentPosition
+            viewModelScope.launch { attemptFloor(id, details, position) }
+            return
+        }
         recoveryUsedFor = id
         val position = playbackManager.player.currentPosition
         PlaybackDiagnostics.log(
@@ -331,7 +346,18 @@ class PlayerViewModel @Inject constructor(
             } catch (e: Exception) {
                 null
             }
-            if (streams == null || videoId != id) return@launch
+            if (streams == null) {
+                // The re-resolve itself failed — the ladder is
+                // exhausted, so the floor gets its attempt from the
+                // saved position (pemicu B).
+                val readyDetails =
+                    (_uiState.value as? PlayerUiState.Ready)?.details
+                if (readyDetails != null && videoId == id) {
+                    attemptFloor(id, readyDetails, position)
+                }
+                return@launch
+            }
+            if (videoId != id) return@launch
             val details = (_uiState.value as? PlayerUiState.Ready)?.details
                 ?: return@launch
             playbackManager.configure(streams.playbackUserAgent)
@@ -349,6 +375,139 @@ class PlayerViewModel @Inject constructor(
                     (streams.personaName ?: "persona lain") +
                     ", posisi dilanjutkan",
             )
+        }
+    }
+
+    // ------------------------------------------------- lantai penyelamat
+
+    /**
+     * Lantai Penyelamat (RANCANGAN-LANTAI-PENYELAMAT Bagian 3.2): the
+     * one floor attempt for this video open — asks the engine for the
+     * ANDROID progressive file and plays it, continuing from
+     * [positionMs]. Returns the floor streams when playing, null when
+     * the floor holds nothing (the caller then surfaces the original
+     * failure, untouched). The attempt is recorded either way: a
+     * rescue that fired — or was asked for and found empty — must be
+     * visible in the on-device telemetry, never silent.
+     */
+    private suspend fun attemptFloor(
+        id: String,
+        details: VideoDetails,
+        positionMs: Long,
+    ): PlaybackStreams? {
+        if (floorUsedFor == id) return null
+        floorUsedFor = id
+        val floor = try {
+            backend.getFloorStreams(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        if (floor == null || videoId != id) {
+            PlaybackDiagnostics.log(
+                "Lantai penyelamat: tidak tersedia untuk video ini",
+            )
+            PlaybackFailureLog.record(
+                application,
+                stage = "lantai",
+                subject = id,
+                detail = "lantai tidak tersedia (ditolak, live, atau " +
+                    "tanpa berkas progresif)",
+            )
+            return null
+        }
+        PlaybackService.start(application)
+        playbackManager.configure(floor.playbackUserAgent)
+        playbackManager.play(
+            floor,
+            details.title,
+            details.channelName,
+            details.thumbnailUrl,
+        )
+        if (positionMs > 0) {
+            playbackManager.player.seekTo(positionMs)
+        }
+        PlaybackDiagnostics.log(
+            "Lantai penyelamat aktif: ANDROID · progresif 360p" +
+                if (positionMs > 0) {
+                    ", posisi dilanjutkan dari ${positionMs}ms"
+                } else {
+                    ""
+                },
+        )
+        PlaybackFailureLog.record(
+            application,
+            stage = "lantai",
+            subject = id,
+            detail = "lantai aktif: ANDROID progresif (360p)",
+        )
+        return floor
+    }
+
+    /**
+     * The tail of a floor-rescued OPEN (pemicu A): the open is
+     * charged exactly once, on the floor's real file size (Bagian
+     * 3.4 — the floor is a continuation of the same open, never a
+     * second charge), then the Ready state names the floor as the
+     * source, honestly.
+     */
+    private suspend fun finishOpenWithFloor(
+        id: String,
+        details: VideoDetails,
+        floor: PlaybackStreams,
+    ) {
+        val estimate = floor.estimatedSizeBytes
+        if (estimate != null) {
+            library.charge(id, details.title, estimate)
+        }
+        library.recordChannelWatch(details.channelName)
+        val quota = library.quotaBytes.first()
+        val used = library.monthUsageBytes().first()
+        _uiState.value = PlayerUiState.Ready(
+            details = details,
+            sourceNote = "Sumber: Lantai Penyelamat (ANDROID · 360p)",
+            estimatedSizeBytes = estimate,
+            jatahExceeded = quota != null && used > quota,
+            monthUsedBytes = used,
+            quotaBytes = quota,
+        )
+        applyResume(id)
+        loadRelated(id, details)
+        loadComments(id)
+    }
+
+    /**
+     * Pemicu B: PlaybackManager's source chain ended in a terminal
+     * error that is not the GVS signature — every classic road is
+     * exhausted, so the floor gets its one attempt from the last
+     * position.
+     */
+    private fun onTerminalFailure(positionMs: Long) {
+        val id = videoId ?: return
+        val details = (_uiState.value as? PlayerUiState.Ready)?.details
+            ?: return
+        viewModelScope.launch { attemptFloor(id, details, positionMs) }
+    }
+
+    /**
+     * Bor Lantai (Bagian 4): the diagnostics drill — forces the
+     * currently open video through the floor door so the rescue can
+     * be proven on demand, without waiting for every other road to
+     * fail. Bypasses the once-per-open guard on purpose; the real
+     * triggers keep theirs.
+     */
+    fun playViaFloor() {
+        val id = videoId ?: return
+        val details = (_uiState.value as? PlayerUiState.Ready)?.details
+            ?: return
+        val position = playbackManager.player.currentPosition
+        floorUsedFor = null
+        viewModelScope.launch {
+            PlaybackDiagnostics.log(
+                "Bor lantai: memutar paksa via Lantai Penyelamat",
+            )
+            attemptFloor(id, details, position)
         }
     }
 
@@ -399,6 +558,7 @@ class PlayerViewModel @Inject constructor(
         if (requestedId == videoId && _uiState.value !is PlayerUiState.Error) return
         requestedId = videoId
         recoveryUsedFor = null
+        floorUsedFor = null
         history.clear()
         playedIds.clear()
         this.videoId = videoId
@@ -755,6 +915,7 @@ class PlayerViewModel @Inject constructor(
             playbackManager.queueHandler = null
         }
         playbackManager.onSuspectedGvs = null
+        playbackManager.onTerminalFailure = null
         playbackManager.player.removeListener(endListener)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
@@ -772,6 +933,10 @@ class PlayerViewModel @Inject constructor(
         _uiState.value = PlayerUiState.Loading
         PlaybackDiagnostics.log("Membuka video $id via backend ${backend.id} (percobaan $attempt)")
         loadJob = viewModelScope.launch {
+            // Hoisted so the catch below can hand the details to a
+            // floor attempt (pemicu A) when the streams call is the
+            // one that failed.
+            var openedDetails: VideoDetails? = null
             try {
                 // Panen Bertingkat: a finished local download plays
                 // from the device — no network, and no second Jatah
@@ -822,6 +987,7 @@ class PlayerViewModel @Inject constructor(
                 // parallel version surfaced "Parent job is Cancelling" as
                 // the user-facing error on 2026-11-10).
                 val details = backend.getVideoDetails(id)
+                openedDetails = details
                 val streams = backend.getPlaybackStreams(id)
 
                 val sources = listOfNotNull(
@@ -907,6 +1073,14 @@ class PlayerViewModel @Inject constructor(
                     )
                 }
                 if (sources.isEmpty() && sabr == null) {
+                    // Lantai Penyelamat, pemicu A: the ladder answered
+                    // but holds nothing playable — before the error is
+                    // shown, the floor gets its one attempt.
+                    val floor = attemptFloor(id, details, 0L)
+                    if (floor != null) {
+                        finishOpenWithFloor(id, details, floor)
+                        return@launch
+                    }
                     _uiState.value = PlayerUiState.Error(
                         "Video ini tidak menyediakan aliran yang dapat diputar.",
                     )
@@ -983,6 +1157,20 @@ class PlayerViewModel @Inject constructor(
                 PlaybackDiagnostics.log(
                     "Gagal menyiapkan (#$attempt): ${e.javaClass.simpleName}: ${e.message}",
                 )
+                // Lantai Penyelamat, pemicu A: the whole ladder
+                // refused (playerResponse already walked it twice,
+                // session swap included) — before the error reaches
+                // the user, the floor gets its one attempt. Only when
+                // the details are in hand: the floor plays a video,
+                // not an error screen with a guessed title.
+                val floorDetails = openedDetails
+                if (floorDetails != null) {
+                    val floor = attemptFloor(id, floorDetails, 0L)
+                    if (floor != null) {
+                        finishOpenWithFloor(id, floorDetails, floor)
+                        return@launch
+                    }
+                }
                 // Fase 4 telemetry: load failures persist on-device so a
                 // refusal pattern (e.g. a tightening bot gate) stays
                 // visible across restarts, not only in this session's ring.

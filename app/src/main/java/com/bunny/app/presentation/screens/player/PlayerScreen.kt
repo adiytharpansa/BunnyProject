@@ -1000,6 +1000,7 @@ fun PlayerScreen(
                             MetadataFailureLog.clear(context)
                             pastDataFailures = null
                         },
+                        onDrillFloor = { viewModel.playViaFloor() },
                     )
                     CommentsSection(
                         state = comments,
@@ -1204,6 +1205,7 @@ private fun DiagnosticsBlock(
     onClearFailures: () -> Unit = {},
     pastDataFailures: String? = null,
     onClearDataFailures: () -> Unit = {},
+    onDrillFloor: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     TextButton(onClick = { expanded = !expanded }) {
@@ -1218,6 +1220,17 @@ private fun DiagnosticsBlock(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (onDrillFloor != null) {
+            // Bor Lantai (RANCANGAN-LANTAI-PENYELAMAT Bagian 4):
+            // prove the rescue on demand instead of waiting for
+            // every other road to fail first.
+            OutlinedButton(
+                onClick = onDrillFloor,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text(stringResource(R.string.player_drill_floor))
+            }
+        }
         if (pastFailures != null) {
             Text(
                 stringResource(R.string.player_failures_title),

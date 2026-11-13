@@ -7,6 +7,7 @@
     <string name="playback_channel_name">Pemutaran Bunny</string>
     <string name="player_loading">Menyiapkan video…</string>
     <string name="player_diagnostics">Diagnostik pemutaran</string>
+    <string name="player_drill_floor">Putar via Lantai Penyelamat (bor)</string>
     <string name="crash_title">Crash terakhir tercatat</string>
     <string name="crash_hint">Mohon kirim tangkapan layar teks di bawah ini agar bug-nya bisa diperbaiki tepat sasaran.</string>
     <string name="crash_dismiss">Tutup &amp; hapus catatan</string>
