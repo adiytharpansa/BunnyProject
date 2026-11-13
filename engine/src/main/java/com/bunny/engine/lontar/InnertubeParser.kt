@@ -64,10 +64,7 @@ object InnertubeParser {
                         ?.let(out::add)
                 }
                 if (node.has("shortsLockupViewModel")) {
-                    // Bentuk lockup dari video pendek yang sama;
-                    // anatominya sama dengan lockupViewModel.
-                    parseLockupVideo(node.getJSONObject("shortsLockupViewModel"))
-                        ?.copy(isShort = true)
+                    parseShortsLockup(node.getJSONObject("shortsLockupViewModel"))
                         ?.let(out::add)
                 }
                 val keys = node.keys()
@@ -224,6 +221,77 @@ object InnertubeParser {
             obj.optJSONObject("lockupViewModel")?.let(lockups::add)
         }
         return lockups.mapNotNull(::parseLockupVideo).distinctBy { it.id }
+    }
+
+    /**
+     * Baris grid Shorts dari jawaban pencarian TANPA tapis. Anatomi
+     * ASLI-nya beda total dari lockupViewModel biasa (terverifikasi
+     * dari jawaban YouTube langsung, 2026-11-13): id video di
+     * onTap...reelWatchEndpoint.videoId, judul di
+     * overlayMetadata.primaryText.content, teks tayang ASLI di
+     * overlayMetadata.secondaryText.content, gambar di
+     * thumbnailViewModel...image.sources. Baris ini TIDAK membawa
+     * nama kanal maupun durasi — keduanya dibiarkan kosong, tidak
+     * dikarang. (Percobaan pertama memakai ulang parseLockupVideo
+     * dan pulang nol item: contentId/metadata gaya lockup biasa
+     * memang tidak ada di sini.)
+     */
+    private fun parseShortsLockup(lockup: JSONObject): VideoItem? {
+        val reel = lockup.optJSONObject("onTap")
+            ?.optJSONObject("innertubeCommand")
+            ?.optJSONObject("reelWatchEndpoint")
+        val videoId = reel?.optString("videoId")?.takeIf { it.isNotEmpty() }
+            ?: lockup.optString("entityId").substringAfterLast('-')
+                .takeIf { it.length == 11 }
+            ?: return null
+        val overlay = lockup.optJSONObject("overlayMetadata")
+        val title = overlay?.optJSONObject("primaryText")
+            ?.optString("content").orEmpty()
+        if (title.isEmpty()) return null
+        val viewText = overlay?.optJSONObject("secondaryText")
+            ?.optString("content")?.takeIf { it.isNotEmpty() }
+        var thumbUrl: String? = null
+        var bestWidth = -1
+        val sources = lockup.optJSONObject("thumbnailViewModel")
+            ?.optJSONObject("thumbnailViewModel")
+            ?.optJSONObject("image")
+            ?.optJSONArray("sources")
+        if (sources != null) {
+            for (i in 0 until sources.length()) {
+                val s = sources.optJSONObject(i) ?: continue
+                val w = s.optInt("width")
+                if (w > bestWidth && s.optString("url").isNotEmpty()) {
+                    bestWidth = w
+                    thumbUrl = s.optString("url")
+                }
+            }
+        }
+        if (thumbUrl == null) {
+            val thumbs = reel?.optJSONObject("thumbnail")
+                ?.optJSONArray("thumbnails")
+            if (thumbs != null) {
+                for (i in 0 until thumbs.length()) {
+                    val s = thumbs.optJSONObject(i) ?: continue
+                    val w = s.optInt("width")
+                    if (w > bestWidth && s.optString("url").isNotEmpty()) {
+                        bestWidth = w
+                        thumbUrl = s.optString("url")
+                    }
+                }
+            }
+        }
+        return VideoItem(
+            id = videoId,
+            title = title,
+            channelId = null,
+            channelName = "",
+            thumbnailUrl = thumbUrl,
+            durationSeconds = null,
+            viewCount = null,
+            viewCountText = viewText,
+            uploadedText = null,
+            isShort = true,
+        )
     }
 
     private fun parseLockupVideo(lockup: JSONObject): VideoItem? {

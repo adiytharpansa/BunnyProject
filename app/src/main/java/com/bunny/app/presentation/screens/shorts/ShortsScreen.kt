@@ -238,6 +238,9 @@ private fun ShortsPage(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Baris kanal hanya bila sumber membawa nama kanal;
+                // grid Shorts tidak membawanya — tidak dikarang.
+                if (item.channelName.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
@@ -263,6 +266,7 @@ private fun ShortsPage(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                }
                 }
                 Text(
                     text = item.title,

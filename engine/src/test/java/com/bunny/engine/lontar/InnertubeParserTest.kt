@@ -1080,38 +1080,57 @@ class InnertubeParserTest {
 
     @Test
     fun parseFeedPage_shortsLockup_yieldsShortItem() {
+        // Fixture dari jawaban pencarian ASLI tertangkap 2026-11-13
+        // (dipotong ke bidang yang dibaca): anatomi shortsLockup
+        // NYATA — bukan gaya lockupViewModel biasa. Versi karangan
+        // sebelumnya lulus tes sambil aplikasi pulang nol item.
         val json = JSONObject(
             """
             {
-              "contents": {
-                "richGridRenderer": {
-                  "contents": [
-                    {
-                      "richItemRenderer": {
-                        "content": {
-                          "shortsLockupViewModel": {
-                            "contentId": "def456XYZ09",
-                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
-                            "metadata": {
-                              "lockupMetadataViewModel": {
-                                "title": { "content": "Gol menit akhir" }
-                              }
-                            }
+              "contents": [
+                {
+                  "shortsLockupViewModel": {
+                    "entityId": "shorts-shelf-item-BV9u81-0HuI",
+                    "accessibilityText": "WHO DID IT BEST?! | Triple Charm #Shorts, 84 rb x ditonton - putar video Shorts",
+                    "onTap": {
+                      "innertubeCommand": {
+                        "reelWatchEndpoint": {
+                          "videoId": "BV9u81-0HuI",
+                          "thumbnail": {
+                            "thumbnails": [
+                              { "url": "https://i.ytimg.com/vi/BV9u81-0HuI/frame0.jpg", "width": 1080, "height": 1920 }
+                            ]
                           }
                         }
                       }
+                    },
+                    "overlayMetadata": {
+                      "primaryText": { "content": "WHO DID IT BEST?! | Triple Charm #Shorts" },
+                      "secondaryText": { "content": "84 rb x ditonton" }
+                    },
+                    "thumbnailViewModel": {
+                      "thumbnailViewModel": {
+                        "image": {
+                          "sources": [
+                            { "url": "https://i.ytimg.com/vi/BV9u81-0HuI/oar2.jpg", "width": 405, "height": 720 }
+                          ]
+                        }
+                      }
                     }
-                  ]
+                  }
                 }
-              }
+              ]
             }
             """.trimIndent(),
         )
         val page = InnertubeParser.parseFeedPage(json)
         assertEquals(1, page.items.size)
         val item = page.items.single()
-        assertEquals("def456XYZ09", item.id)
-        assertEquals("Gol menit akhir", item.title)
+        assertEquals("BV9u81-0HuI", item.id)
+        assertEquals("WHO DID IT BEST?! | Triple Charm #Shorts", item.title)
+        assertEquals("84 rb x ditonton", item.viewCountText)
+        assertEquals("https://i.ytimg.com/vi/BV9u81-0HuI/oar2.jpg", item.thumbnailUrl)
+        assertEquals("", item.channelName)
         assertTrue(item.isShort)
     }
 
