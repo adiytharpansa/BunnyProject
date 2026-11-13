@@ -334,20 +334,6 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
-                                    LiveScreen(
-                                        onVideoClick = { openVideoId = it },
-                                        onSearchClick = { openSearch = true },
-                                        onNotificationsClick = { openNotifications = true },
-                                        topics = topics,
-                                        notificationsUnread = notifUnread,
-                                    )
-                                }
-                            } else if (selectedTab == 2) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(bottom = barHeightDp),
-                                ) {
                                     ShortsScreen(
                                         onVideoClick = {
                                             playerVerticalFor = it
@@ -356,7 +342,7 @@ class MainActivity : ComponentActivity() {
                                         onSearchClick = { openSearch = true },
                                     )
                                 }
-                            } else if (selectedTab == 3) {
+                            } else if (selectedTab == 2) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -559,7 +545,8 @@ private fun CrashReportBlock(
 /**
  * Bottom bar: icon-only, a soft tonal pill behind the selected icon,
  * hairline on top. Built by hand because the Material NavigationBar has
- * a fixed 80dp height. Tabs: Beranda · Live · Shorts · Kanal · Profil.
+ * a fixed 80dp height. Tabs: Beranda · Shorts · Kanal · Profil.
+ * (Live pindah jadi kategori "Siaran Langsung" di Beranda, 2026-11-13.)
  */
 @Composable
 private fun BunnyBottomBar(
@@ -597,30 +584,22 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 1,
                 onClick = { onSelect(1) },
-                filled = Icons.Filled.Sensors,
-                outlined = Icons.Outlined.Sensors,
-                description = stringResource(R.string.nav_live),
-                modifier = Modifier.weight(1f),
-            )
-            BottomBarItem(
-                selected = selectedTab == 2,
-                onClick = { onSelect(2) },
                 filled = ShortsIcons.Filled,
                 outlined = ShortsIcons.Outlined,
                 description = stringResource(R.string.nav_shorts),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
-                selected = selectedTab == 3,
-                onClick = { onSelect(3) },
+                selected = selectedTab == 2,
+                onClick = { onSelect(2) },
                 filled = Icons.Filled.Subscriptions,
                 outlined = Icons.Outlined.Subscriptions,
                 description = stringResource(R.string.nav_kanal),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
-                selected = selectedTab == 4,
-                onClick = { onSelect(4) },
+                selected = selectedTab == 3,
+                onClick = { onSelect(3) },
                 filled = Icons.Filled.AccountCircle,
                 outlined = Icons.Outlined.AccountCircle,
                 description = stringResource(R.string.nav_profile),

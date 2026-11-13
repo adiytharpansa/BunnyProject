@@ -93,6 +93,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.bunny.app.R
 import com.bunny.app.data.SurveyPrompt
 import com.bunny.app.presentation.components.BunnyHeader
+import com.bunny.app.presentation.screens.live.LiveViewModel
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
@@ -112,6 +113,14 @@ private val FeedHorizontalPadding = 12.dp
 /** Vertical gap between feed items. */
 private val FeedItemSpacing = 16.dp
 
+/**
+ * Chip kategori siaran langsung — selalu chip kedua di Beranda,
+ * persis sesudah chip "Beranda" (keputusan pengguna 2026-11-13,
+ * menggantikan tab Live tersendiri). Nilainya kunci filter, dan
+ * labelnya memang teks ini.
+ */
+private const val LIVE_TOPIC_CHIP = "Siaran Langsung"
+
 @UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,6 +137,7 @@ fun HomeScreen(
     /** Fase 7-C: whether the bell wears its unread dot. */
     notificationsUnread: Boolean = false,
     viewModel: HomeViewModel = hiltViewModel(),
+    liveViewModel: LiveViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
     val jatah by viewModel.jatah.collectAsState()
@@ -135,12 +145,21 @@ fun HomeScreen(
     var showQuotaDialog by remember { mutableStateOf(false) }
     // Topic chips: they filter the mixture already on screen — Bunny's
     // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
+    // Satu pengecualian: chip "Siaran Langsung" (selalu kedua, sesudah
+    // Beranda) — isinya daftar live dari mesin, dimuat saat pertama
+    // dipilih.
+    val liveState by liveViewModel.uiState.collectAsState()
     var topicFilter by remember { mutableStateOf<String?>(null) }
-    val topics = state.items.mapNotNull { it.reason }.distinct()
-    val visibleItems = if (topicFilter == null) {
-        state.items
-    } else {
-        state.items.filter { it.reason == topicFilter }
+    val topics = listOf(LIVE_TOPIC_CHIP) +
+        state.items.mapNotNull { it.reason }.distinct()
+    val visibleItems = when {
+        topicFilter == LIVE_TOPIC_CHIP -> liveState.items
+        topicFilter == null -> state.items
+        else -> state.items.filter { it.reason == topicFilter }
+    }
+
+    LaunchedEffect(topicFilter) {
+        if (topicFilter == LIVE_TOPIC_CHIP) liveViewModel.ensureLoaded()
     }
 
     LaunchedEffect(state.items) { onFeedChanged(state.items) }
@@ -185,11 +204,13 @@ fun HomeScreen(
     LifecycleEventEffect(Lifecycle.Event.ON_START) { foregroundCount++ }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.stopPreview() }
 
-    LaunchedEffect(previewCandidate, foregroundCount) {
+    LaunchedEffect(previewCandidate, foregroundCount, topicFilter) {
         // Stop the previous card's preview IMMEDIATELY when the candidate
         // changes; otherwise it keeps playing (and then swaps to the new
         // video while still attached to the old card) during the dwell.
         viewModel.stopPreview()
+        // Kategori Siaran Langsung: tanpa pratinjau senyap.
+        if (topicFilter == LIVE_TOPIC_CHIP) return@LaunchedEffect
         val candidate = previewCandidate ?: return@LaunchedEffect
         delay(PREVIEW_DWELL_MS)
         viewModel.startPreview(candidate)
@@ -306,6 +327,41 @@ fun HomeScreen(
             .nestedScroll(headerConnection),
     ) {
         when {
+            // Kategori Siaran Langsung: keadaan muat/galat/kosong
+            // milik daftar live sendiri.
+            topicFilter == LIVE_TOPIC_CHIP && liveState.isLoading &&
+                liveState.items.isEmpty() ->
+                SkeletonFeed(topPadding = headerPadDp)
+
+            topicFilter == LIVE_TOPIC_CHIP && liveState.error != null &&
+                liveState.items.isEmpty() -> Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = liveState.error ?: stringResource(R.string.error_generic),
+                    color = MaterialTheme.colorScheme.error,
+                )
+                Button(onClick = { liveViewModel.load() }) {
+                    Text(stringResource(R.string.retry))
+                }
+            }
+
+            topicFilter == LIVE_TOPIC_CHIP && liveState.items.isEmpty() -> Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.live_empty),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             // First load: skeleton cards in the feed's own
             // geometry — no bare spinner on an empty screen.
             state.isLoading && state.items.isEmpty() ->
@@ -335,8 +391,18 @@ fun HomeScreen(
             }
 
             else -> PullToRefreshBox(
-                isRefreshing = state.isLoading,
-                onRefresh = { viewModel.load() },
+                isRefreshing = if (topicFilter == LIVE_TOPIC_CHIP) {
+                    liveState.isLoading
+                } else {
+                    state.isLoading
+                },
+                onRefresh = {
+                    if (topicFilter == LIVE_TOPIC_CHIP) {
+                        liveViewModel.load()
+                    } else {
+                        viewModel.load()
+                    }
+                },
                 // Bottom edge of the header as it is RIGHT NOW (full
                 // height minus however much it has collapsed).
                 headerBottomPx = { headerHeightPx + headerOffsetPx },
@@ -352,22 +418,26 @@ fun HomeScreen(
                     ),
                     verticalArrangement = Arrangement.spacedBy(FeedItemSpacing),
                 ) {
-                    item {
+                    if (topicFilter != LIVE_TOPIC_CHIP) {
+                        item {
                         JatahBar(
                             jatah = jatah,
                             onSetQuota = { showQuotaDialog = true },
                             modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                         )
                     }
+                    }
                     // Kartu survei kepuasan. SENGAJA tanpa key String: kandidat
                     // pratinjau membaca key bertipe String sebagai id video.
-                    survey?.let { prompt ->
+                    if (topicFilter != LIVE_TOPIC_CHIP) {
+                        survey?.let { prompt ->
                         item {
                             SatisfactionCard(
                                 prompt = prompt,
                                 onAnswer = { viewModel.answerSurvey(it) },
                                 modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                             )
+                        }
                         }
                     }
                     items(visibleItems, key = { it.id }) { item ->

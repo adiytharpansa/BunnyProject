@@ -22,10 +22,12 @@ data class LiveUiState(
 )
 
 /**
- * The Live tab: streams broadcasting right now, composed by the
+ * Siaran langsung: streams broadcasting right now, composed by the
  * engine from live-filtered topic searches (see
  * [ExtractionBackend.getLiveFeed]). A finite list, refreshed by
  * reloading — live catalogues reward a fresh look, not pagination.
+ * Sejak 2026-11-13 ini menghidupi kategori "Siaran Langsung" di
+ * Beranda (tab Live tersendiri digantikan tab Shorts).
  */
 @HiltViewModel
 class LiveViewModel @Inject constructor(
@@ -37,8 +39,16 @@ class LiveViewModel @Inject constructor(
     val uiState: StateFlow<LiveUiState> = _uiState.asStateFlow()
 
     private var loadJob: Job? = null
+    private var started = false
 
-    init {
+    /**
+     * Muat sekali saja — kategori Siaran Langsung di Beranda memanggil
+     * ini saat chip-nya pertama dipilih, supaya Beranda tidak membayar
+     * lima pencarian live di setiap buka. Panggilan berikutnya diam.
+     */
+    fun ensureLoaded() {
+        if (started) return
+        started = true
         load()
     }
 
