@@ -167,6 +167,8 @@ class MainActivity : ComponentActivity() {
                 // screens own their scaffolds, this one only owns the tab
                 // bar and the player overlay.
                 var openVideoId by remember { mutableStateOf<String?>(null) }
+    // Video yang dibuka dari tab Shorts: halaman putarnya vertikal.
+    var playerVerticalFor by remember { mutableStateOf<String?>(null) }
                 var openSearch by remember { mutableStateOf(false) }
                 var openNotifications by remember { mutableStateOf(false) }
                 var openDownloads by remember { mutableStateOf(false) }
@@ -252,7 +254,11 @@ class MainActivity : ComponentActivity() {
                             if (videoId != null && !playerMinimized) {
                                 PlayerScreen(
                                     videoId = videoId,
-                                    onBack = { openVideoId = null },
+                                    verticalStage = playerVerticalFor == videoId,
+                                    onBack = {
+                                        openVideoId = null
+                                        playerVerticalFor = null
+                                    },
                                     onChannelClick = { id, name ->
                                         openChannel = id to name
                                     },
@@ -343,7 +349,10 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     ShortsScreen(
-                                        onVideoClick = { openVideoId = it },
+                                        onVideoClick = {
+                                            playerVerticalFor = it
+                                            openVideoId = it
+                                        },
                                         onSearchClick = { openSearch = true },
                                     )
                                 }

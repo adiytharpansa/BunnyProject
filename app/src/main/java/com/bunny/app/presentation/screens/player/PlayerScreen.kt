@@ -113,6 +113,12 @@ fun PlayerScreen(
     onVideoClick: (videoId: String) -> Unit = {},
     /** Shrink to the mini player (playback continues); NOT a stop. */
     onMinimize: () -> Unit = {},
+    /**
+     * Panggung vertikal 9:16 (halaman putar Shorts): video pendek
+     * dibuka dari tab Shorts tampil tegak memenuhi halaman, bukan
+     * terjepit di panggung 16:9. Logika putar tidak berubah.
+     */
+    verticalStage: Boolean = false,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -259,6 +265,8 @@ fun PlayerScreen(
             modifier = (
                 if (isLandscape) {
                     Modifier.fillMaxSize()
+                } else if (verticalStage) {
+                    Modifier.fillMaxWidth().aspectRatio(9f / 16f)
                 } else {
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 }

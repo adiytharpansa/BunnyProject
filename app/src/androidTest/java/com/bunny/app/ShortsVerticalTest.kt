@@ -110,12 +110,13 @@ class ShortsVerticalTest {
             afterSwipe.isNotEmpty(),
         )
 
-        // TES TONTON: ketuk kartu pertama -> pemutar Bunny membuka
-        // videonya. Panggung pemutar berbingkai 16:9, jadi orientasi
-        // ASLI video terbaca dari gambarnya: video vertikal tampil
-        // tegak di tengah dengan sisi hitam, video 16:9 memenuhi
-        // panggung. Tangkapan "tonton.png" adalah buktinya — vonis
-        // vertikal tidak lagi berhenti di bingkai kartu.
+        // TES TONTON: ketuk kartu pertama -> halaman putar Shorts
+        // membuka videonya dengan panggung VERTIKAL 9:16 (bukan
+        // 16:9). Penanda halaman pemutar: bagian komentar, ATAU
+        // keadaan galat putar (di awan, IP pusat data ditolak
+        // YouTube dengan LOGIN_REQUIRED — halaman tetap terbuka dan
+        // geometri panggungnya tetap terukur). Bukti gambarnya
+        // "tonton.png", diambil sebelum asersi apa pun.
         val card = device.findObjects(By.clickable(true)).firstOrNull { obj ->
             val b = obj.visibleBounds
             b.width() > 0 && b.height() > b.width() * 3 / 2 && b.height() > 800
@@ -124,16 +125,27 @@ class ShortsVerticalTest {
         val watchDeadline = System.currentTimeMillis() + 60_000
         var playerOpen = false
         while (System.currentTimeMillis() < watchDeadline) {
-            // Halaman pemutar memuat bagian komentar di bawah video.
-            if (device.hasObject(By.textContains("Komentar"))) {
+            if (device.hasObject(By.textContains("Komentar")) ||
+                device.hasObject(By.textContains("Coba lagi")) ||
+                device.hasObject(By.textContains("Diagnostik pemutaran"))
+            ) {
                 playerOpen = true
                 break
             }
             Thread.sleep(2_000)
         }
-        assertTrue("Pemutar tidak terbuka setelah kartu diketuk", playerOpen)
         // Beri waktu aliran mulai (SABR/klasik) lalu ambil buktinya.
         Thread.sleep(12_000)
         device.takeScreenshot(File(shotsDir, "tonton.png"))
+        assertTrue("Halaman pemutar tidak terbuka setelah kartu diketuk", playerOpen)
+        // Panggung vertikal: ada simpul setinggi >= 1,5x lebarnya dan
+        // >= 1200px yang menempel di dekat atas layar (PlayerView di
+        // dalam bingkai 9:16). Panggung 16:9 lama tingginya ~600px.
+        val tallStage = device.findObjects(By.pkg(context.packageName)).any { obj ->
+            val b = obj.visibleBounds
+            b.width() > 0 && b.height() > b.width() * 3 / 2 &&
+                b.height() >= 1200 && b.top < 200
+        }
+        assertTrue("Panggung putar tidak vertikal (tidak ada simpul tinggi 9:16)", tallStage)
     }
 }
