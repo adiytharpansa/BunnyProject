@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_shorts">Shorts</string>
+    <string name="shorts_play">Play</string>
+    <string name="shorts_empty">No short videos right now.</string>
+</resources>

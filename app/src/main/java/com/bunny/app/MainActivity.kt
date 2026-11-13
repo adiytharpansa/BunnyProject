@@ -41,11 +41,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +78,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.bunny.app.presentation.components.LiveChip
 import com.bunny.app.presentation.components.LocalLiveChip
 import com.bunny.app.presentation.components.MiniPlayerBar
+import com.bunny.app.presentation.components.ShortsIcons
+import com.bunny.app.presentation.screens.shorts.ShortsScreen
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
@@ -231,8 +231,8 @@ class MainActivity : ComponentActivity() {
                 // bersama; menekannya membuka tab Live.
                 CompositionLocalProvider(
                     LocalLiveChip provides LiveChip(
-                        liveSelected = selectedTab == 1,
-                        onOpenLive = { selectedTab = 1 },
+                        liveSelected = selectedTab == 4,
+                        onOpenLive = { selectedTab = 4 },
                         onOpenHome = { selectedTab = 0 },
                     ),
                 ) {
@@ -340,6 +340,18 @@ class MainActivity : ComponentActivity() {
                                 )
                                                                 }
                                     "tab1" -> {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(bottom = barHeightDp),
+                                        ) {
+                                            ShortsScreen(
+                                                onVideoClick = { openVideoId = it },
+                                                onSearchClick = { openSearch = true },
+                                            )
+                                        }
+                                    }
+                                    "tab4" -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -353,7 +365,8 @@ class MainActivity : ComponentActivity() {
                                         notificationsUnread = notifUnread,
                                     )
                                 }
-                                                                }
+                                                                                                    }
+
                                     "tab2" -> {
                                 Box(
                                     modifier = Modifier
@@ -513,7 +526,7 @@ class MainActivity : ComponentActivity() {
 /**
  * Bottom bar: icon-only, a soft tonal pill behind the selected icon,
  * hairline on top. Built by hand because the Material NavigationBar has
- * a fixed 80dp height. Tabs: Beranda · Live · Kanal · Profil.
+ * a fixed 80dp height. Tabs: Beranda · Shorts · Kanal · Profil.
  */
 @Composable
 private fun BunnyBottomBar(
@@ -551,9 +564,9 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 1,
                 onClick = { onSelect(1) },
-                filled = Icons.Filled.Sensors,
-                outlined = Icons.Outlined.Sensors,
-                description = stringResource(R.string.nav_live),
+                filled = ShortsIcons.Filled,
+                outlined = ShortsIcons.Outlined,
+                description = stringResource(R.string.nav_shorts),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
