@@ -509,6 +509,18 @@ class PlaybackManager @Inject constructor(
         val chain = listOf("SABR (Anyam)" to buildSabrSource(sabr, metadata)) +
             buildSourceChain(streams, metadata)
         playChain(chain, title)
+        // Mechanism 24 (SABR Mandiri L3): when the engine proves a
+        // pin switch on the wire, it calls the handle back — the
+        // player is re-pointed at the new itag carrying the running
+        // position. The generation stamp is this chain's: any later
+        // chain (a fallthrough, a new video, a stop) makes a late
+        // callback a no-op.
+        val sabrGeneration = chainGeneration
+        sabr.onServingSwitch = { _, _ ->
+            mainHandler.post {
+                applySabrServingSwitch(sabr, sabrGeneration)
+            }
+        }
         armSabrWatchdog(sabr)
         armSabrPositionReporter(sabr)
         armSabrStallRescue(sabr)
@@ -522,6 +534,34 @@ class PlaybackManager @Inject constructor(
             )
         } else {
             watchReporter.stop()
+        }
+    }
+
+    /**
+     * Mechanism 24 (SABR Mandiri L3): the player side of a proven
+     * pin switch. Runs on the main thread. Both guards must hold —
+     * the handle is still this playback's, and the source chain
+     * has not advanced since the SABR source was set — otherwise
+     * the callback is stale and does nothing. The re-point itself
+     * reuses the chain's own position-carrying shape
+     * (setMediaSource with the running position, then prepare;
+     * playWhenReady is deliberately untouched, so a paused video
+     * stays paused). A failure here is not a new failure mode:
+     * the old source's video track stops growing, the stall
+     * rescue and the classic chain behind it take over with the
+     * position carried, exactly as designed.
+     */
+    private fun applySabrServingSwitch(sabr: SabrPlayback, generation: Int) {
+        if (currentSabr !== sabr || chainGeneration != generation) return
+        val metadata = player.currentMediaItem?.mediaMetadata ?: return
+        try {
+            player.setMediaSource(
+                buildSabrSource(sabr, metadata),
+                player.currentPosition,
+            )
+            player.prepare()
+        } catch (e: Exception) {
+            // Left to the stall rescue / classic chain by design.
         }
     }
 
