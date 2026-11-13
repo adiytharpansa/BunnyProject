@@ -88,15 +88,26 @@ class ShortsVerticalTest {
             cards.isNotEmpty(),
         )
 
-        // Geser ke video berikutnya dan ambil bukti kedua.
+        // Geser ke video berikutnya dan ambil bukti kedua. Ukur
+        // berulang sampai batas waktu: satu potret pohon semantik di
+        // perangkat virtual bisa meleset tepat sesudah geser, padahal
+        // kartunya tampil (terbukti 2026-11-13: tangkapan shorts-2
+        // menunjukkan kartu vertikalnya sementara satu kali ukur
+        // pulang kosong dan matriks tercatat gagal).
         val width = device.displayWidth
         val height = device.displayHeight
         device.swipe(width / 2, height * 3 / 4, width / 2, height / 4, 20)
         Thread.sleep(2_500)
         device.takeScreenshot(File(shotsDir, "shorts-2.png"))
+        val swipeDeadline = System.currentTimeMillis() + 15_000
+        var afterSwipe = verticalCards()
+        while (afterSwipe.isEmpty() && System.currentTimeMillis() < swipeDeadline) {
+            Thread.sleep(1_500)
+            afterSwipe = verticalCards()
+        }
         assertTrue(
-            "Setelah geser, kartu vertikal hilang",
-            verticalCards().isNotEmpty(),
+            "Setelah geser, kartu vertikal hilang (terukur: $afterSwipe)",
+            afterSwipe.isNotEmpty(),
         )
     }
 }
