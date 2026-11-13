@@ -186,6 +186,48 @@ class LontarEngine(
         return Page(items = roundRobin(pages, MAX_LIVE_ITEMS), nextPage = null)
     }
 
+    override suspend fun getShortsFeed(): Page<VideoItem> {
+        // The Shorts grid rides the UNFILTERED search answer: any
+        // `params` field at all — even this engine's own video-only
+        // constant — switches the answer to the classic video layout
+        // and the grid disappears (probed both ways against YouTube
+        // with this project's own session bootstrap on 2026-11-13:
+        // no params -> 30 shortsLockupViewModel rows; video-only
+        // params -> 0 shorts rows, 21 ordinary videos). So this feed
+        // posts the bare query and keeps only rows the parser marked
+        // as vertical shorts. A short duration alone proved nothing:
+        // the first device round filled the tab with 16:9 videos.
+        val firstFailure =
+            java.util.concurrent.atomic.AtomicReference<Exception?>(null)
+        val pages = coroutineScope {
+            SHORTS_SEED_QUERIES.map { query ->
+                async {
+                    try {
+                        searchShortsRaw(query)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        firstFailure.compareAndSet(null, e)
+                        emptyList()
+                    }
+                }
+            }.awaitAll()
+        }
+        val items = roundRobin(pages, MAX_SHORTS_ITEMS)
+        // Every query failing must surface as an error, never as a
+        // quietly empty feed (the UI keeps the two states apart).
+        val failure = firstFailure.get()
+        if (items.isEmpty() && failure != null) throw failure
+        return Page(items = items, nextPage = null)
+    }
+
+    /** One bare (params-free) search; only parser-marked shorts survive. */
+    private suspend fun searchShortsRaw(query: String): List<VideoItem> {
+        val body = baseBody().put("query", query)
+        return InnertubeParser.parseFeedPage(post("search", body)).items
+            .filter { it.isShort }
+    }
+
     /** One live-filtered search; only badge-flagged live items survive. */
     private suspend fun searchLive(query: String): List<VideoItem> {
         val body = baseBody()
@@ -1630,6 +1672,7 @@ class LontarEngine(
 
         private const val MAX_SEED_ITEMS = 60
         private const val MAX_LIVE_ITEMS = 40
+        private const val MAX_SHORTS_ITEMS = 40
 
         /** The player-response cache is a courtesy, not an archive. */
         private const val MAX_PLAYER_CACHE_ENTRIES = 100
@@ -1647,6 +1690,15 @@ class LontarEngine(
         private val RETRY_DELAYS_MS = longArrayOf(600L, 1_800L)
 
         /** Live seed topics: query to Chip Alasan label. */
+        private val SHORTS_SEED_QUERIES: List<String> = listOf(
+            "#shorts",
+            "shorts viral",
+            "shorts lucu",
+            "shorts musik",
+            "shorts bola",
+            "shorts gaming",
+        )
+
         private val LIVE_SEED_QUERIES: List<Pair<String, String>> = listOf(
             "berita" to "Berita",
             "musik" to "Musik",

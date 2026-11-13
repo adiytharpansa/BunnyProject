@@ -8,9 +8,6 @@ import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,10 +22,11 @@ data class ShortsUiState(
 )
 
 /**
- * Tab Shorts: HANYA video pendek vertikal asli (baris reel/lockup
- * yang ditandai parser), disusun dari beberapa pencarian topik lewat
- * [ExtractionBackend.search] yang sudah ada — tanpa mengubah kontrak
- * mesin. Daftar terbatas, disegarkan dengan memuat ulang.
+ * Tab Shorts: umpan video pendek vertikal asli dari
+ * [ExtractionBackend.getShortsFeed] — mesin yang menyusunnya dari
+ * pencarian tanpa tapis dan hanya menerima baris bertanda vertikal.
+ * Gagal memuat tampil sebagai galat + coba lagi, tidak pernah
+ * menyamar sebagai daftar kosong.
  */
 @HiltViewModel
 class ShortsViewModel @Inject constructor(
@@ -50,106 +48,24 @@ class ShortsViewModel @Inject constructor(
         loadJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
-                val results = coroutineScope {
-                    SHORTS_QUERIES.map { query ->
-                        async {
-                            try {
-                                Result.success(
-                                    // TANPA filter durasi di permintaan:
-                                    // pencarian bertapis menjawab dengan
-                                    // halaman hasil polos tanpa rak —
-                                    // rak Shorts (baris reel) hanya muncul
-                                    // di pencarian biasa, dan hanya baris
-                                    // bertanda isShort yang diterima
-                                    // (bukti kosong 2026-11-13: bertapis
-                                    // + isShort = nol item).
-                                    backend.search(
-                                        query,
-                                        null,
-                                    ).items.filter { isShort(it) },
-                                )
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                Result.failure<List<VideoItem>>(e)
-                            }
-                        }
-                    }.awaitAll()
-                }
-                val items = interleave(results.mapNotNull { it.getOrNull() })
-                if (items.isEmpty()) {
-                    val failure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            items = emptyList(),
-                            // Gagal memuat TIDAK BOLEH tampil sebagai
-                            // "belum ada video": pesan pengecualian bisa
-                            // null, jadi kegagalan apa pun dipastikan
-                            // menghasilkan error tak-kosong dan layar
-                            // menampilkan galat + tombol coba lagi
-                            // (terbukti di perangkat 2026-11-13: mode
-                            // pesawat tampil sebagai daftar kosong).
-                            error = if (failure != null) {
-                                failure.message ?: "Unknown error"
-                            } else {
-                                null
-                            },
-                        )
-                    }
-                } else {
+                val items = backend.getShortsFeed().items
+                if (items.isNotEmpty()) {
                     thumbnails.preload(items)
-                    _uiState.update { it.copy(isLoading = false, items = items) }
+                }
+                _uiState.update {
+                    it.copy(isLoading = false, items = items, error = null)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(isLoading = false, error = e.message ?: "Unknown error")
+                    it.copy(
+                        isLoading = false,
+                        items = emptyList(),
+                        error = e.message ?: "Unknown error",
+                    )
                 }
             }
         }
-    }
-
-    private fun isShort(item: VideoItem): Boolean {
-        if (item.isLive) return false
-        // HANYA baris yang ditandai parser sebagai video pendek
-        // vertikal (perender reel/lockup Shorts). Aturan durasi saja
-        // terbukti menjaring video 16:9 biasa berdurasi pendek —
-        // bingkai kartunya memang vertikal, tetapi videonya melebar
-        // (bukti perangkat virtual 2026-11-13: "2:50" dan "0:59"
-        // sama-sama 16:9). Durasi bukan bukti vertikal; bentuk
-        // perendernya yang menentukan.
-        return item.isShort
-    }
-
-    /** Round-robin antar topik, duplikat dibuang. */
-    private fun interleave(pages: List<List<VideoItem>>): List<VideoItem> {
-        val merged = mutableListOf<VideoItem>()
-        val seen = mutableSetOf<String>()
-        var index = 0
-        var added = true
-        while (added) {
-            added = false
-            for (list in pages) {
-                val item = list.getOrNull(index) ?: continue
-                added = true
-                if (seen.add(item.id)) merged += item
-            }
-            index++
-        }
-        return merged.take(MAX_ITEMS)
-    }
-
-    private companion object {
-        const val MAX_ITEMS = 40
-        val SHORTS_QUERIES = listOf(
-            "#shorts",
-            "shorts viral",
-            "shorts lucu",
-            "shorts musik",
-            "shorts bola",
-            "shorts gaming",
-        )
     }
 }

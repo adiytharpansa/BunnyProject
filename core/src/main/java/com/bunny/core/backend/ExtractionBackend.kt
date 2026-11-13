@@ -63,6 +63,16 @@ interface ExtractionBackend {
     suspend fun getLiveFeed(): Page<VideoItem> =
         Page(items = emptyList(), nextPage = null)
 
+    /**
+     * Genuinely vertical short videos — the Shorts tab. A finite
+     * composed list like [getLiveFeed]; no pagination. Only items the
+     * source itself marks as vertical shorts belong here: a short
+     * DURATION is not evidence of a vertical video. Backends without
+     * a shorts source return an empty page.
+     */
+    suspend fun getShortsFeed(): Page<VideoItem> =
+        Page(items = emptyList(), nextPage = null)
+
     suspend fun getVideoDetails(videoId: String): VideoDetails
 
     suspend fun getPlaybackStreams(videoId: String): PlaybackStreams
