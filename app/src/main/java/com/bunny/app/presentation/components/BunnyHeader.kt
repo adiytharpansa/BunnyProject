@@ -69,7 +69,11 @@ fun BunnyHeader(
             onSearchClick = onSearchClick,
             notificationsUnread = notificationsUnread,
         )
-        if (topics.size > 1) {
+        // Dulu: baris disembunyikan bila topik <= 1 — akibatnya chip
+        // Beranda + "Siaran Langsung" ikut hilang selama umpan masih
+        // memuat (topik alasan belum ada). Kini tampil bila ada
+        // minimal satu topik; kosong tetap sembunyi.
+        if (topics.isNotEmpty()) {
             BunnyTopicTabs(
                 topics = topics,
                 selected = selectedTopic,

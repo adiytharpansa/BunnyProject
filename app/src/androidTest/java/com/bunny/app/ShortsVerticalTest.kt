@@ -51,6 +51,9 @@ class ShortsVerticalTest {
         // "Siaran Langsung" adalah chip kedua di Beranda. Ketuk,
         // tunggu daftar live ATAU keadaan kosong/galatnya yang jujur,
         // foto, lalu kembali ke chip Beranda sebelum lanjut ke Shorts.
+        // Chip muncul bersama baris topik; umpan Beranda di awan bisa
+        // lambat, jadi tunggu sampai 90 detik sebelum mencarinya.
+        device.wait(Until.hasObject(By.text("Siaran Langsung")), 90_000)
         val liveChip = device.findObject(By.text("Siaran Langsung"))
             ?: throw AssertionError("Chip 'Siaran Langsung' tidak ditemukan di Beranda")
         liveChip.click()
