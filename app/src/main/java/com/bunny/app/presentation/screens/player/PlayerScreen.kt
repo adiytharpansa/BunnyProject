@@ -99,6 +99,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.launch
 import com.bunny.app.R
+import com.bunny.app.ui.motion.AppMotion
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.presentation.components.ResilientImage
@@ -256,11 +257,11 @@ fun PlayerScreen(
     val transition = remember { Animatable(0f) }
     val transitionScope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
-        transition.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
+        transition.animateTo(1f, tween(AppMotion.PlayerOpen, easing = AppMotion.EmphasizedDecelerate))
     }
     fun requestMinimize() {
         transitionScope.launch {
-            transition.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
+            transition.animateTo(0f, tween(AppMotion.PlayerClose, easing = AppMotion.EmphasizedAccelerate))
             onMinimize()
         }
     }
@@ -711,10 +712,7 @@ fun PlayerScreen(
                             )
                             AnimatedContent(
                                 targetState = subscribed,
-                                transitionSpec = {
-                                    fadeIn(tween(150, delayMillis = 90)) togetherWith
-                                        fadeOut(tween(90))
-                                },
+                                transitionSpec = { AppMotion.fadeSwap() },
                                 label = "subscribe",
                             ) { isSubscribed ->
                                 if (isSubscribed) {

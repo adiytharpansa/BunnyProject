@@ -12,6 +12,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
 import com.bunny.app.ui.motion.AppMotion
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
@@ -449,9 +452,20 @@ class MainActivity : ComponentActivity() {
 
                         }
 
-                        if (videoId != null && playerMinimized) {
-                            val ready = playerUiState as? PlayerUiState.Ready
-                            if (ready != null) {
+                        val readyNow = playerUiState as? PlayerUiState.Ready
+                        // Jepretan terakhir: isi tetap ada selama animasi KELUAR.
+                        var lastReady by remember { mutableStateOf<PlayerUiState.Ready?>(null) }
+                        if (readyNow != null) lastReady = readyNow
+
+                        AnimatedVisibility(
+                            visible = videoId != null && playerMinimized && readyNow != null,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = if (barVisible) barHeightDp else 0.dp),
+                            enter = AppMotion.BarEnter,
+                            exit = AppMotion.BarExit,
+                        ) {
+                            lastReady?.let { ready ->
                                 MiniPlayerBar(
                                     title = ready.details.title,
                                     channelName = ready.details.channelName,
@@ -463,15 +477,6 @@ class MainActivity : ComponentActivity() {
                                         openVideoId = null
                                         playerMinimized = false
                                     },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomCenter)
-                                        .padding(
-                                            bottom = if (barVisible) {
-                                                barHeightDp
-                                            } else {
-                                                0.dp
-                                            },
-                                        ),
                                 )
                             }
                         }
@@ -483,13 +488,17 @@ class MainActivity : ComponentActivity() {
                                 (if (videoId != null && playerMinimized) 72.dp else 0.dp),
                         )
 
-                        if (barVisible) {
-                            // Slides down and fades with Home's header.
+                        AnimatedVisibility(
+                            visible = barVisible,
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            enter = AppMotion.BarEnter,
+                            exit = AppMotion.BarExit,
+                        ) {
+                            // Meluncur turun dan memudar bersama header Beranda.
                             BunnyBottomBar(
                                 selectedTab = selectedTab,
                                 onSelect = { selectedTab = it },
                                 modifier = Modifier
-                                    .align(Alignment.BottomCenter)
                                     .onSizeChanged { barHeightPx = it.height.toFloat() }
                                     .graphicsLayer {
                                         val f = barsFraction.floatValue
@@ -665,20 +674,27 @@ private fun BottomBarItem(
     modifier: Modifier = Modifier,
 ) {
     val accent = MaterialTheme.colorScheme.primary
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
     val tint by animateColorAsState(
         targetValue = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(200),
+        animationSpec = tween(AppMotion.Tint),
         label = "navTint",
     )
     val pillAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(200),
+        animationSpec = tween(AppMotion.Tint),
         label = "navPillAlpha",
     )
     val pillScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.4f,
-        animationSpec = tween(200),
+        animationSpec = AppMotion.PillSpring,
         label = "navPillScale",
+    )
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.88f else 1f,
+        animationSpec = AppMotion.PressSpring,
+        label = "navPress",
     )
     Box(
         modifier = modifier
@@ -687,7 +703,7 @@ private fun BottomBarItem(
                 selected = selected,
                 onClick = onClick,
                 role = Role.Tab,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = source,
                 indication = null,
             ),
         contentAlignment = Alignment.Center,
@@ -703,11 +719,21 @@ private fun BottomBarItem(
                 .clip(RoundedCornerShape(17.dp))
                 .background(accent.copy(alpha = 0.20f)),
         )
-        Icon(
-            imageVector = if (selected) filled else outlined,
-            contentDescription = description,
-            tint = tint,
-            modifier = Modifier.size(26.dp),
-        )
+        Crossfade(
+            targetState = selected,
+            modifier = Modifier.graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            },
+            animationSpec = tween(AppMotion.Tint),
+            label = "navIcon",
+        ) { isSelected ->
+            Icon(
+                imageVector = if (isSelected) filled else outlined,
+                contentDescription = description,
+                tint = tint,
+                modifier = Modifier.size(26.dp),
+            )
+        }
     }
 }

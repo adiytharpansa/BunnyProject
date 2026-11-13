@@ -1,8 +1,6 @@
 package com.bunny.app.ui.motion
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
@@ -35,10 +33,7 @@ fun Modifier.tappable(
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed && enabled) pressedScale else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium,
-        ),
+        animationSpec = AppMotion.PressSpring,
         label = "pressScale",
     )
     val haptic = LocalHapticFeedback.current
