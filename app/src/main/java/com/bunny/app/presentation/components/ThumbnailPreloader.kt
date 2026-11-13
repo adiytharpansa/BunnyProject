@@ -17,10 +17,10 @@ private const val THUMB_WIDTH = 960
 private const val THUMB_HEIGHT = 540
 
 /** Jumlah thumbnail yang ditunggu sebelum daftar dimunculkan. */
-private const val FIRST_SCREEN_COUNT = 4
+private const val FIRST_SCREEN_COUNT = 8
 
 /** Batas tunggu; jaringan lambat tidak boleh menahan daftar selamanya. */
-private const val PRELOAD_TIMEOUT_MS = 1_200L
+private const val PRELOAD_TIMEOUT_MS = 2_500L
 
 /**
  * Request thumbnail tunggal yang dipakai pra-muat DAN VideoCard.

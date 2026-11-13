@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import com.bunny.app.ui.motion.tappable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,7 +31,6 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,7 +68,7 @@ import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
 import kotlin.math.roundToInt
 
-private val CardShape = RoundedCornerShape(14.dp)
+private val CardShape = RoundedCornerShape(20.dp)
 private val AvatarSize = 40.dp
 private val AvatarGap = 12.dp
 private val LiveRed = Color(0xFFD32F2F)
@@ -129,7 +127,7 @@ fun VideoCard(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
                 shape = CardShape,
             )
-            .tappable(shape = CardShape) { onClick() },
+            .clickable { onClick() },
     ) {
         Box(
             modifier = Modifier
@@ -249,10 +247,6 @@ fun VideoCard(
                 )
             }
         }
-        HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant,
-            thickness = 0.5.dp,
-        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -311,7 +305,13 @@ fun VideoCard(
                     val meta = listOfNotNull(
                         // Fase 7-C: a live card's count is who is
                         // watching NOW, not how often it was watched.
-                        item.viewCountText?.takeIf { it.isNotEmpty() },
+                        item.viewCount?.let {
+                            if (item.isLive) {
+                                "${formatCount(it)} sedang menonton"
+                            } else {
+                                "${formatCount(it)} x ditonton"
+                            }
+                        },
                         item.uploadedText,
                     ).joinToString(" • ")
                     if (meta.isNotEmpty()) {
@@ -537,3 +537,8 @@ private fun formatDuration(totalSeconds: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
+private fun formatCount(count: Long): String = when {
+    count >= 1_000_000 -> "%.1f jt".format(count / 1_000_000.0)
+    count >= 1_000 -> "%.1f rb".format(count / 1_000.0)
+    else -> count.toString()
+}

@@ -54,13 +54,6 @@ object EngineConfig {
          * per network class, on device evidence).
          */
         val sabrEnabled: Boolean = false,
-        /** Mechanism 24 (SABR Mandiri): Bunny stepping its own
-         *  SABR video pin from measured evidence. Default ON —
-         *  unlike the road itself, adaptation only ever moves
-         *  inside the fence the open already allowed; the switch
-         *  exists so a misbehaving stepper can be silenced
-         *  remotely without an app update. */
-        val sabrAdaptEnabled: Boolean = true,
         /** Personas allowed to speak SABR, by [PlayerPersona.name]. */
         val sabrPersonas: List<String> = listOf("VISIONOS"),
         /** Total on-disk budget for all spools, in megabytes. */
@@ -93,10 +86,6 @@ object EngineConfig {
          * update.
          */
         val floorEnabled: Boolean = true,
-        /** Pintu TVHTML5 (Satu Ketuk): versi klien, dapat diubah dari jauh. */
-        val bearerTvClientVersion: String = "7.20260707.07.00",
-        /** Pintu ANDROID (Satu Ketuk): versi klien, dapat diubah dari jauh. */
-        val bearerAndroidClientVersion: String = "21.26.364",
     )
 
     val DEFAULTS = Values(
@@ -198,20 +187,11 @@ object EngineConfig {
                 // threshold that silently means "never".
                 minAttempts = minOf(killMin, killWindow),
             ),
-            sabrAdaptEnabled = if (json.has("sabrAdaptEnabled")) {
-                json.optBoolean("sabrAdaptEnabled")
-            } else {
-                DEFAULTS.sabrAdaptEnabled
-            },
             floorEnabled = if (json.has("floorEnabled")) {
                 json.optBoolean("floorEnabled")
             } else {
                 DEFAULTS.floorEnabled
             },
-            bearerTvClientVersion = json.optString("bearerTvClientVersion")
-                .takeIf { it.isNotBlank() } ?: DEFAULTS.bearerTvClientVersion,
-            bearerAndroidClientVersion = json.optString("bearerAndroidClientVersion")
-                .takeIf { it.isNotBlank() } ?: DEFAULTS.bearerAndroidClientVersion,
         )
     }
 }

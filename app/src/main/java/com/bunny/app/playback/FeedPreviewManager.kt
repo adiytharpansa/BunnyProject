@@ -12,9 +12,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -22,20 +21,12 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import com.bunny.core.model.PlaybackStreams
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
 
 /**
  * What the UI needs to know about the running preview.
@@ -74,24 +65,7 @@ class FeedPreviewManager @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
 
-    /** Pemutar yang sudah dibangun di thread latar, menunggu konfigurasi ringan di main. */
-    @Volatile private var rawPlayer: ExoPlayer? = null
-    private val warmMutex = Mutex()
-
-    private val playerLazy = lazy {
-        val raw = rawPlayer ?: createRawPlayer()
-        rawPlayer = null
-        configurePlayer(raw)
-    }
-
-    /** Sama dengan klien pemutar utama: HTTP/2, timeout eksplisit, tanpa redirect https->http. */
-    private val previewHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .followSslRedirects(false)
-            .build()
-    }
+    private val playerLazy = lazy { buildPlayer() }
 
     /** The shared preview player; attach it to one card at a time. */
     val player: ExoPlayer get() = playerLazy.value
@@ -106,48 +80,17 @@ class FeedPreviewManager @Inject constructor(
     private var generation = 0
 
     /**
-     * Memanaskan pemutar cuplikan tanpa membebani thread utama: ExoPlayer dan
-     * klien HTTP dibangun di thread latar (Builder yang dibuat di thread tanpa
-     * Looper memakai Looper utama sebagai thread aplikasi, jadi pemutar tetap
-     * dipakai dari main seperti biasa). Hanya konfigurasi ringan yang berjalan
-     * di main. Aman dipanggil berkali-kali.
-     */
-    suspend fun warmUp() {
-        if (playerLazy.isInitialized()) return
-        val built: ExoPlayer? = warmMutex.withLock {
-            if (playerLazy.isInitialized() || rawPlayer != null) {
-                null
-            } else {
-                // NonCancellable: pemutar yang sudah jadi tidak boleh bocor
-                // karena pemanggilnya dibatalkan di tengah jalan.
-                withContext(NonCancellable + Dispatchers.Default) {
-                    previewHttpClient // memicu inisialisasi lazy (trust store dsb.)
-                    createRawPlayer()
-                }
-            }
-        }
-        if (built != null) {
-            // Kembali di thread utama = thread aplikasi pemutar; release() aman.
-            if (playerLazy.isInitialized()) built.release() else rawPlayer = built
-        }
-        player // konfigurasi ringan di main bila belum
-    }
-
-    /**
      * Starts a preview. Returns false when [streams] offers nothing
      * playable, so the caller never marks a card as "previewing" for a
      * preview that does not exist.
      */
-    suspend fun start(streams: PlaybackStreams): Boolean {
-        val gen = ++generation
-        val sources = withContext(Dispatchers.Default) { buildSources(streams, gen) }
+    fun start(streams: PlaybackStreams): Boolean {
+        val sources = buildSources(streams)
         if (sources.isEmpty()) {
+            PlaybackDiagnostics.log("Pratinjau dilewati: tidak ada sumber yang dapat diputar")
             return false
         }
-        warmUp()
-        // Diganti oleh start()/stop() lain selama menunggu: bukan "tak ada
-        // yang bisa diputar", jadi lempar pembatalan, jangan kembalikan false.
-        if (gen != generation) throw CancellationException("pratinjau diganti")
+        generation++
         chain = sources
         chainIndex = 0
         _status.value = PreviewStatus()
@@ -177,6 +120,7 @@ class FeedPreviewManager @Inject constructor(
         if (chain.isEmpty()) return
         applySound(enabled)
         _status.update { it.copy(soundOn = enabled) }
+        PlaybackDiagnostics.log("Suara pratinjau: ${if (enabled) "menyala" else "mati"}")
     }
 
     /**
@@ -198,14 +142,15 @@ class FeedPreviewManager @Inject constructor(
 
     private fun playCurrent() {
         val source = chain.getOrNull(chainIndex) ?: return
+        val gen = generation
         val exo = player
         exo.setMediaSource(source)
         exo.prepare()
         exo.playWhenReady = true
+        PlaybackDiagnostics.log("Pratinjau mulai (sumber ${chainIndex + 1}/${chain.size}, gen $gen)")
     }
 
-    /** Berat: aman dipanggil dari thread latar. Tidak menyentuh pemutar sesudah build. */
-    private fun createRawPlayer(): ExoPlayer {
+    private fun buildPlayer(): ExoPlayer {
         // A preview needs a couple of seconds of runway, not ExoPlayer's
         // default 50 s: a scrolled-past card must not drag megabytes.
         val loadControl = DefaultLoadControl.Builder()
@@ -217,73 +162,68 @@ class FeedPreviewManager @Inject constructor(
             )
             .build()
         return ExoPlayer.Builder(context)
-            .setRenderersFactory(
-                DefaultRenderersFactory(context).setEnableDecoderFallback(true),
-            )
             .setLoadControl(loadControl)
             .build()
+            .also { exo ->
+                exo.volume = 0f
+                // Short videos loop instead of freezing on the last frame.
+                exo.repeatMode = Player.REPEAT_MODE_ONE
+                // Preview frugality: a small picture, and no audio or
+                // subtitle tracks at all (a muted preview must not
+                // download audio it will never play).
+                exo.trackSelectionParameters = exo.trackSelectionParameters
+                    .buildUpon()
+                    .setMaxVideoSize(426, 240)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                    .build()
+                exo.addListener(object : Player.Listener {
+                    override fun onRenderedFirstFrame() {
+                        if (chain.isEmpty()) return
+                        _status.update { it.copy(firstFrameRendered = true) }
+                    }
+
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        if (chain.isEmpty()) return
+                        if (videoSize.width <= 0 || videoSize.height <= 0) return
+                        var aspect =
+                            videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                        if (videoSize.unappliedRotationDegrees % 180 != 0) {
+                            aspect = 1f / aspect
+                        }
+                        _status.update { it.copy(videoAspect = aspect) }
+                    }
+
+                    override fun onPlayerError(error: PlaybackException) {
+                        if (chain.isEmpty()) return
+                        PlaybackDiagnostics.log(
+                            "Pratinjau gagal (sumber ${chainIndex + 1}/${chain.size}): " +
+                                error.errorCodeName,
+                        )
+                        if (chainIndex + 1 < chain.size) {
+                            // A failed preview source quietly tries the
+                            // next one; a failed preview is never user-facing.
+                            chainIndex++
+                            playCurrent()
+                        } else {
+                            // Chain exhausted: tell the UI so the card
+                            // returns to its thumbnail instead of a black box.
+                            _status.update { it.copy(failed = true) }
+                        }
+                    }
+                })
+            }
     }
 
-    /** Ringan: HARUS di thread utama (thread aplikasi pemutar). */
-    private fun configurePlayer(built: ExoPlayer): ExoPlayer = built.also { exo ->
-        exo.volume = 0f
-        // Short videos loop instead of freezing on the last frame.
-        exo.repeatMode = Player.REPEAT_MODE_ONE
-        // Preview frugality: a small picture, and no audio or
-        // subtitle tracks at all (a muted preview must not
-        // download audio it will never play).
-        exo.trackSelectionParameters = exo.trackSelectionParameters
-            .buildUpon()
-            .setMaxVideoSize(426, 240)
-            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
-            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-            .build()
-        exo.addListener(object : Player.Listener {
-            override fun onRenderedFirstFrame() {
-                if (chain.isEmpty()) return
-                _status.update { it.copy(firstFrameRendered = true) }
-            }
-
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                if (chain.isEmpty()) return
-                if (videoSize.width <= 0 || videoSize.height <= 0) return
-                var aspect =
-                    videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
-                if (videoSize.unappliedRotationDegrees % 180 != 0) {
-                    aspect = 1f / aspect
-                }
-                _status.update { it.copy(videoAspect = aspect) }
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                if (chain.isEmpty()) return
-                // Error dari sumber generasi lama tidak
-                // boleh memajukan rantai yang baru.
-                val tag = exo.currentMediaItem?.localConfiguration?.tag
-                if (tag != generation) return
-                if (chainIndex + 1 < chain.size) {
-                    // A failed preview source quietly tries the
-                    // next one; a failed preview is never user-facing.
-                    chainIndex++
-                    playCurrent()
-                } else {
-                    // Chain exhausted: tell the UI so the card
-                    // returns to its thumbnail instead of a black box.
-                    _status.update { it.copy(failed = true) }
-                }
-            }
-        })
-    }
-
-    private fun item(uri: Uri, gen: Int): MediaItem =
-        MediaItem.Builder().setUri(uri).setTag(gen).build()
-
-    private fun buildSources(streams: PlaybackStreams, gen: Int): List<MediaSource> {
-        val httpFactory = OkHttpDataSource.Factory(previewHttpClient)
+    private fun buildSources(streams: PlaybackStreams): List<MediaSource> {
+        val httpFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(streams.playbackUserAgent ?: DEFAULT_USER_AGENT)
+            .setAllowCrossProtocolRedirects(true)
         val out = mutableListOf<MediaSource>()
 
         streams.dashManifestContent?.takeIf { it.isNotBlank() }?.let { manifest ->
+            // Same in-memory manifest serving as the real player: the
+            // manifest URI resolves from bytes, segments from network.
             val manifestBytes = manifest.toByteArray(Charsets.UTF_8)
             val manifestUri = Uri.parse(MANIFEST_URI)
             val delegatingFactory = DataSource.Factory {
@@ -318,19 +258,19 @@ class FeedPreviewManager @Inject constructor(
                 }
             }
             out += DashMediaSource.Factory(delegatingFactory)
-                .createMediaSource(item(manifestUri, gen))
+                .createMediaSource(MediaItem.fromUri(manifestUri))
         }
         streams.dashManifestUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += DashMediaSource.Factory(httpFactory)
-                .createMediaSource(item(Uri.parse(url), gen))
+                .createMediaSource(MediaItem.fromUri(url))
         }
         streams.hlsUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += HlsMediaSource.Factory(httpFactory)
-                .createMediaSource(item(Uri.parse(url), gen))
+                .createMediaSource(MediaItem.fromUri(url))
         }
         streams.progressiveUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += DefaultMediaSourceFactory(httpFactory)
-                .createMediaSource(item(Uri.parse(url), gen))
+                .createMediaSource(MediaItem.fromUri(url))
         }
         return out
     }

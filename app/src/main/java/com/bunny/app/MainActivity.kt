@@ -11,21 +11,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import com.bunny.app.data.AppSettings
-import com.bunny.app.presentation.screens.settings.SettingsScreen
-import com.bunny.app.ui.motion.AppMotion
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import android.graphics.Color as AndroidColor
 import androidx.lifecycle.Lifecycle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -37,16 +24,13 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -56,27 +40,27 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Subscriptions
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.Saver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,17 +72,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.bunny.app.playback.CrashRecorder
 import com.bunny.core.model.VideoItem
+import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackManager
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.bunny.app.presentation.components.LiveChip
-import com.bunny.app.presentation.components.LocalLiveChip
-import com.bunny.app.presentation.components.FloatingMiniPlayer
-import com.bunny.app.presentation.components.MINI_CORNER_BOTTOM_RIGHT
-import com.bunny.app.presentation.components.ShortsIcons
-import com.bunny.app.presentation.screens.shorts.ShortsScreen
+import com.bunny.app.presentation.components.MiniPlayerBar
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
@@ -112,19 +94,10 @@ import com.bunny.app.presentation.screens.profile.PersonalFeedScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.profile.SubscriptionsScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
-import com.bunny.app.bug.BugReportHost
-import com.bunny.app.bug.MinorCategory
-import com.bunny.app.bug.MinorIssueHost
-import com.bunny.app.bug.MinorIssueRecorder
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
 import javax.inject.Inject
-
-private val PasanganSaver = Saver<Pair<String, String>?, List<String>>(
-    save = { p -> p?.let { listOf(it.first, it.second) } ?: emptyList() },
-    restore = { l -> if (l.size == 2) l[0] to l[1] else null },
-)
 
 @UnstableApi
 @AndroidEntryPoint
@@ -148,33 +121,14 @@ class MainActivity : ComponentActivity() {
     /** True while a video is open — gates automatic PiP on leaving. */
     private var pipEligible = false
 
-    /** True selama jendela PiP tampil; dibaca PlayerScreen. */
-    private var inPip by mutableStateOf(false)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // A cold start can BE the OAuth redirect (the browser sheet
         // returns to a fresh process); hand it to the same door.
-        if (savedInstanceState == null) {
-            intent?.data?.let { desktopAuth.handleRedirect(it) }
-        }
-        AppSettings.init(applicationContext)
-        enableEdgeToEdge(
-            // Bar sistem transparan (keputusan pengguna 2026-11-13):
-            // ikon gelap di tema terang; keterbacaan saat menggulir
-            // dijaga selubung gradien di akar tata letak.
-            statusBarStyle = SystemBarStyle.auto(
-                AndroidColor.TRANSPARENT,
-                AndroidColor.TRANSPARENT,
-            ),
-            navigationBarStyle = SystemBarStyle.auto(
-                AndroidColor.TRANSPARENT,
-                AndroidColor.TRANSPARENT,
-            ),
-        )
+        intent?.data?.let { desktopAuth.handleRedirect(it) }
+        enableEdgeToEdge()
         setContent {
             BunnyTheme {
-                BugReportHost()
                 // Izin notifikasi diminta SEKALI saat Bunny pertama kali
                 // dibuka (Android 13+). Dialognya dibuat oleh sistem. Tanda
                 // "sudah diminta" disimpan sebelum dialog tampil, jadi tidak
@@ -183,6 +137,10 @@ class MainActivity : ComponentActivity() {
                 val notificationLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { granted ->
+                    PlaybackDiagnostics.log(
+                        "Izin notifikasi (saat buka): " +
+                            if (granted) "diberikan" else "ditolak",
+                    )
                 }
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= 33) {
@@ -205,38 +163,29 @@ class MainActivity : ComponentActivity() {
                 // one optional open video. Still a plain state machine — the
                 // screens own their scaffolds, this one only owns the tab
                 // bar and the player overlay.
-                var openVideoId by rememberSaveable { mutableStateOf<String?>(null) }
-                var openSearch by rememberSaveable { mutableStateOf(false) }
-                var openNotifications by rememberSaveable { mutableStateOf(false) }
-                var openDownloads by rememberSaveable { mutableStateOf(false) }
-                var openSettings by rememberSaveable { mutableStateOf(false) }
-                var openPersonal by rememberSaveable { mutableStateOf<String?>(null) }
+                var openVideoId by remember { mutableStateOf<String?>(null) }
+                var openSearch by remember { mutableStateOf(false) }
+                var openNotifications by remember { mutableStateOf(false) }
+                var openDownloads by remember { mutableStateOf(false) }
+                var openPersonal by remember { mutableStateOf<String?>(null) }
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
-                var playerMinimized by rememberSaveable { mutableStateOf(false) }
-                // Pojok terakhir jendela mini (bit 0 = kanan, bit 1 = bawah); bertahan
-                // saat membesar lalu mengecil lagi dan saat layar diputar.
-                var miniCorner by rememberSaveable { mutableStateOf(MINI_CORNER_BOTTOM_RIGHT) }
-
-                // Membuka video selalu membesarkan pemutar — termasuk
-                // ketukan pada video yang sedang dilipat (nilainya
-                // sama, jadi tanpa ini tidak ada yang berubah).
-                val openVideo: (String) -> Unit = { id ->
-                    openVideoId = id
-                    playerMinimized = false
-                }
+                var playerMinimized by remember { mutableStateOf(false) }
                 val playerViewModel: PlayerViewModel = hiltViewModel()
                 val playerUiState by playerViewModel.uiState.collectAsState()
                 val playerController by playerViewModel.controllerPlayer.collectAsState()
-                var openChannel by rememberSaveable(stateSaver = PasanganSaver) {
+                var openChannel by remember {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
-                var selectedTab by rememberSaveable { mutableStateOf(0) }
+                var selectedTab by remember { mutableStateOf(0) }
                 // Isi feed Beranda yang dilaporkan HomeScreen; Live dan Kanal
                 // memakainya untuk daftar tab dan (di Kanal) untuk isi video.
                 var feedItems by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
                 val topics = remember(feedItems) {
                     feedItems.mapNotNull { it.reason }.distinct()
+                }
+                var crashReport by remember {
+                    mutableStateOf(CrashRecorder.read(this@MainActivity))
                 }
                 // Fase 7-C: the bell's unread dot — one local check
                 // when the app starts; opening the page clears it.
@@ -250,25 +199,6 @@ class MainActivity : ComponentActivity() {
                 val barHeightDp = with(LocalDensity.current) { barHeightPx.toDp() }
 
                 val videoId = openVideoId
-
-                // Jepretan muatan terakhir yang tidak kosong.
-                // Cabang-cabang AnimatedContent di bawah masih
-                // tersusun selama transisi KELUAR, sesudah keadaan
-                // sumbernya dikosongkan (video ditutup, kanal
-                // ditutup) — membaca !! pada keadaan sumber di sana
-                // mogok (NPE MainActivity:276, laporan perangkat
-                // 2026-11-13). Jepretan ini diperbarui setiap
-                // komposisi saat sumbernya terisi, jauh sebelum
-                // cabangnya bisa ada, jadi !! pada jepretan aman
-                // menurut konstruksi.
-                var lastVideoId by rememberSaveable { mutableStateOf<String?>(null) }
-                var lastChannel by rememberSaveable(stateSaver = PasanganSaver) {
-                    mutableStateOf<Pair<String, String>?>(null)
-                }
-                var lastPersonal by rememberSaveable { mutableStateOf<String?>(null) }
-                if (videoId != null) lastVideoId = videoId
-                if (openChannel != null) lastChannel = openChannel
-                if (openPersonal != null) lastPersonal = openPersonal
                 // PiP hanya saat halaman tonton yang tampil — dalam
                 // keadaan mini, jendela PiP akan berisi UI tab, bukan
                 // video (permukaan pemutar sedang tidak terpasang).
@@ -276,28 +206,20 @@ class MainActivity : ComponentActivity() {
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
 
-                // Posisi gulir halaman tonton tinggal di sini (di luar
-                // layar yang dilipat), jadi mengecil lalu membesar
-                // tidak mengulang gulir dari atas.
-                val playerScrollState = remember(videoId) {
-                    androidx.compose.foundation.ScrollState(0)
+                // Pemutar mini tidak memegang permukaan video: matikan jalur video
+                // selama dilipat, nyalakan lagi saat halaman tonton dibuka.
+                LaunchedEffect(playerMinimized) {
+                    playbackManager.setVideoSurfaceVisible(!playerMinimized)
                 }
-
-                // Pemutar mini memegang permukaan video (video langsung
-                // di bar bawah), jadi jalur video tetap menyala selama
-                // dilipat; hanya latar aplikasi yang mematikannya.
                 val barVisible =
-                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null && !openSettings
+                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
-                val playerExpanded = videoId != null && !playerMinimized
-                val canGoBack = !playerExpanded &&
-                    (openChannel != null || openSearch || openNotifications ||
-                        openDownloads || openSettings || openPersonal != null || selectedTab != 0)
+                val canGoBack = videoId == null &&
+                    (openChannel != null || openSearch || openNotifications || openDownloads || openPersonal != null || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
-                        openSettings -> openSettings = false
                         openPersonal != null -> openPersonal = null
                         openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
@@ -306,15 +228,6 @@ class MainActivity : ComponentActivity() {
                         else -> selectedTab = 0
                     }
                 }
-                // Chip "Siaran Langsung" di sebelah "Beranda" pada header
-                // bersama; menekannya membuka tab Live.
-                CompositionLocalProvider(
-                    LocalLiveChip provides LiveChip(
-                        liveSelected = selectedTab == 4,
-                        onOpenLive = { selectedTab = 4 },
-                        onOpenHome = { selectedTab = 0 },
-                    ),
-                ) {
                 Scaffold { scaffoldPadding ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         // While the bottom bar is on screen it overlays the
@@ -333,71 +246,42 @@ class MainActivity : ComponentActivity() {
                                     },
                                 ),
                         ) {
-                            val screenKey = when {
-                                videoId != null && !playerMinimized -> "player"
-                                openChannel != null -> "channel"
-                                openSearch -> "search"
-                                openNotifications -> "notifications"
-                                openDownloads -> "downloads"
-                                openSettings -> "settings"
-                                openPersonal != null -> "personal"
-                                else -> "tab$selectedTab"
-                            }
-                            AnimatedContent(
-                                targetState = screenKey,
-                                transitionSpec = {
-                                    AppMotion.screenTransition(initialState, targetState)
-                                },
-                                label = "screen",
-                            ) { key ->
-                                when (key) {
-                                    "player" -> {
+                            if (videoId != null && !playerMinimized) {
                                 PlayerScreen(
-                                    videoId = videoId ?: lastVideoId!!,
-                                    scrollState = playerScrollState,
+                                    videoId = videoId,
                                     onBack = { openVideoId = null },
                                     onChannelClick = { id, name ->
                                         openChannel = id to name
                                     },
                                     onPipClick = { enterPip() },
-                                    onEnterPip = { enterPip() },
-                                    isInPip = inPip,
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                     onMinimize = { playerMinimized = true },
                                 )
-                                                                }
-                                    "channel" -> {
-                                val (channelId, channelName) = openChannel ?: lastChannel!!
+                            } else if (openChannel != null) {
+                                val (channelId, channelName) = openChannel!!
                                 ChannelScreen(
                                     channelId = channelId,
                                     channelName = channelName,
                                     onBack = { openChannel = null },
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                 )
-                                                                }
-                                    "search" -> {
+                            } else if (openSearch) {
                                 SearchScreen(
                                     onBack = { openSearch = false },
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                 )
-                                                                }
-                                    "notifications" -> {
+                            } else if (openNotifications) {
                                 NotificationsScreen(
                                     onBack = { openNotifications = false },
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                 )
-                                                                }
-                                    "downloads" -> {
+                            } else if (openDownloads) {
                                 DownloadsScreen(
                                     onBack = { openDownloads = false },
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                 )
-                                                                }
-                                    "settings" -> {
-                                        SettingsScreen(onBack = { openSettings = false })
-                                    }
-                                    "personal" -> {
-                                when (openPersonal ?: lastPersonal) {
+                            } else if (openPersonal != null) {
+                                when (openPersonal) {
                                     "subs" -> SubscriptionsScreen(
                                         onBack = { openPersonal = null },
                                         onChannelClick = { id, name ->
@@ -405,15 +289,14 @@ class MainActivity : ComponentActivity() {
                                         },
                                     )
                                     else -> PersonalFeedScreen(
-                                        mode = (openPersonal ?: lastPersonal)!!,
+                                        mode = openPersonal!!,
                                         onBack = { openPersonal = null },
-                                        onVideoClick = openVideo,
+                                        onVideoClick = { openVideoId = it },
                                     )
                                 }
-                                                                }
-                                    "tab0" -> {
+                            } else if (selectedTab == 0) {
                                 HomeScreen(
-                                    onVideoClick = openVideo,
+                                    onVideoClick = { openVideoId = it },
                                     onSearchClick = { openSearch = true },
                                     onNotificationsClick = { openNotifications = true },
                                     notificationsUnread = notifUnread,
@@ -423,36 +306,34 @@ class MainActivity : ComponentActivity() {
                                     },
                                     bottomPadding = barHeightDp,
                                 )
-                                                                }
-                                    "tab1" -> {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(bottom = barHeightDp),
-                                        ) {
-                                            ShortsScreen(
-                                                onVideoClick = openVideo,
-                                                onSearchClick = { openSearch = true },
-                                            )
-                                        }
-                                    }
-                                    "tab4" -> {
+                                val report = crashReport
+                                if (report != null) {
+                                    CrashReportBlock(
+                                        report = report,
+                                        onDismiss = {
+                                            CrashRecorder.clear(this@MainActivity)
+                                            crashReport = null
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(horizontal = 8.dp, vertical = 56.dp),
+                                    )
+                                }
+                            } else if (selectedTab == 1) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     LiveScreen(
-                                        onVideoClick = openVideo,
+                                        onVideoClick = { openVideoId = it },
                                         onSearchClick = { openSearch = true },
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,
                                         notificationsUnread = notifUnread,
                                     )
                                 }
-                                                                                                    }
-
-                                    "tab2" -> {
+                            } else if (selectedTab == 2) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -462,7 +343,7 @@ class MainActivity : ComponentActivity() {
                                         onChannelClick = { id, name ->
                                             openChannel = id to name
                                         },
-                                        onVideoClick = openVideo,
+                                        onVideoClick = { openVideoId = it },
                                         onSearchClick = { openSearch = true },
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,
@@ -470,77 +351,54 @@ class MainActivity : ComponentActivity() {
                                         notificationsUnread = notifUnread,
                                     )
                                 }
-                                                                }
-                                    else -> {
+                            } else {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     ProfileScreen(
-                                        onSettingsClick = { openSettings = true },
                                         onDownloadsClick = { openDownloads = true },
                                         onPersonalClick = { openPersonal = it },
                                     )
                                 }
-                                                                }
-                                }
                             }
-
                         }
 
-                        val readyNow = playerUiState as? PlayerUiState.Ready
-                        // Jepretan terakhir: isi tetap ada selama animasi KELUAR.
-                        var lastReady by remember { mutableStateOf<PlayerUiState.Ready?>(null) }
-                        if (readyNow != null) lastReady = readyNow
-
-                        val navBarBottom = WindowInsets.navigationBars.asPaddingValues()
-                            .calculateBottomPadding()
-                        AnimatedVisibility(
-                            visible = videoId != null && playerMinimized && readyNow != null,
-                            modifier = Modifier.fillMaxSize(),
-                            enter = fadeIn(tween(160)) +
-                                slideInVertically(tween(220)) { it / 10 },
-                            exit = fadeOut(tween(140)) +
-                                slideOutVertically(tween(160)) { it / 10 },
-                        ) {
-                            lastReady?.let {
-                                FloatingMiniPlayer(
+                        if (videoId != null && playerMinimized) {
+                            val ready = playerUiState as? PlayerUiState.Ready
+                            if (ready != null) {
+                                MiniPlayerBar(
+                                    title = ready.details.title,
+                                    channelName = ready.details.channelName,
+                                    thumbnailUrl = ready.details.thumbnailUrl,
                                     player = playerController,
-                                    corner = miniCorner,
-                                    onCornerChange = { miniCorner = it },
-                                    // Jauhi bar tab; tanpa bar tab, jauhi bilah navigasi sistem.
-                                    bottomInset = if (barVisible) barHeightDp else navBarBottom,
                                     onExpand = { playerMinimized = false },
                                     onClose = {
                                         playerViewModel.stopPlayback()
                                         openVideoId = null
                                         playerMinimized = false
                                     },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(
+                                            bottom = if (barVisible) {
+                                                barHeightDp
+                                            } else {
+                                                0.dp
+                                            },
+                                        ),
                                 )
                             }
                         }
 
-                        // Perekam masalah ringan: tidak menggambar apa pun bila
-                        // tidak ada yang terdeteksi. Alat pengembangan; dihapus saat rilis.
-                        if (AppSettings.developerTools) {
-                            MinorIssueHost(
-                                bottomPadding = (if (barVisible) barHeightDp else 0.dp) +
-                                    (if (videoId != null && playerMinimized) 72.dp else 0.dp),
-                            )
-                        }
-
-                        AnimatedVisibility(
-                            visible = barVisible,
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                            enter = AppMotion.BarEnter,
-                            exit = AppMotion.BarExit,
-                        ) {
-                            // Meluncur turun dan memudar bersama header Beranda.
+                        if (barVisible) {
+                            // Slides down and fades with Home's header.
                             BunnyBottomBar(
                                 selectedTab = selectedTab,
                                 onSelect = { selectedTab = it },
                                 modifier = Modifier
+                                    .align(Alignment.BottomCenter)
                                     .onSizeChanged { barHeightPx = it.height.toFloat() }
                                     .graphicsLayer {
                                         val f = barsFraction.floatValue
@@ -549,35 +407,7 @@ class MainActivity : ComponentActivity() {
                                     },
                             )
                         }
-
-                        // Selubung bar status: bar sistem kini transparan,
-                        // jadi gradien krem tipis ini menjaga ikon
-                        // jam/baterai tetap terbaca saat isi menggulir di
-                        // bawahnya. Hanya di layar tab — bukan halaman
-                        // tonton, bukan PiP. Box polos tanpa clickable:
-                        // ketukan lolos ke unsur di bawahnya.
-                        if (!playerExpanded && !inPip) {
-                            val statusBarTop = WindowInsets.statusBars
-                                .asPaddingValues().calculateTopPadding()
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .fillMaxWidth()
-                                    .height(statusBarTop)
-                                    .background(
-                                        Brush.verticalGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.background
-                                                    .copy(alpha = 0.92f),
-                                                MaterialTheme.colorScheme.background
-                                                    .copy(alpha = 0f),
-                                            ),
-                                        ),
-                                    ),
-                            )
-                        }
                     }
-                }
                 }
             }
         }
@@ -589,11 +419,8 @@ class MainActivity : ComponentActivity() {
      * Reached from the player's PiP chip and automatically when the
      * user leaves the app mid-video (onUserLeaveHint).
      */
-    private fun enterPip(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        if (!packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-            return false
-        }
+    private fun enterPip() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val size = playbackManager.videoWidthHeight()
         val aspect = if (size != null) {
             val (w, h) = size
@@ -606,15 +433,12 @@ class MainActivity : ComponentActivity() {
         } else {
             Rational(16, 9)
         }
-        return try {
+        try {
             enterPictureInPictureMode(
                 PictureInPictureParams.Builder().setAspectRatio(aspect).build(),
             )
         } catch (e: IllegalStateException) {
-            MinorIssueRecorder.report(
-                MinorCategory.CAUGHT, "MainActivity", "Mode PiP gagal dimasuki", e,
-            )
-            false
+            PlaybackDiagnostics.log("PiP gagal: ${e.message}")
         }
     }
 
@@ -639,17 +463,11 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        inPip = isInPictureInPictureMode
-        // Jendela PiP ditutup dengan ✕: putar berhenti total, sama
-        // seperti YouTube (keputusan pengguna 2026-11-13; memperbesar
-        // kembali jendela TIDAK masuk kondisi ini karena Activity
-        // tidak berhenti di CREATED). Activity sudah berhenti, tetapi
-        // onStop mungkin lebih dulu melihat mode PiP aktif, jadi
-        // jalur video juga dipastikan mati di sini.
+        // Jendela PiP ditutup: Activity sudah berhenti (CREATED), tetapi onStop
+        // mungkin lebih dulu melihat mode PiP aktif. Pastikan jalur video mati.
         if (!isInPictureInPictureMode &&
             lifecycle.currentState == Lifecycle.State.CREATED
         ) {
-            playbackManager.player.pause()
             playbackManager.setBackgroundMode(true)
         }
     }
@@ -663,14 +481,62 @@ class MainActivity : ComponentActivity() {
         // Tripwire paired with PlayerViewModel.onCleared: if the activity
         // dies mid-load, the diagnostics ring shows whether it finished,
         // was re-created for a config change, or was destroyed outright.
+        PlaybackDiagnostics.log(
+            "MainActivity hancur (finishing=$isFinishing, gantiKonfigurasi=$isChangingConfigurations)",
+        )
         super.onDestroy()
+    }
+}
+
+@Composable
+private fun CrashReportBlock(
+    report: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                stringResource(R.string.crash_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Text(
+                stringResource(R.string.crash_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Box(
+                modifier = Modifier
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    report,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.crash_dismiss))
+            }
+        }
     }
 }
 
 /**
  * Bottom bar: icon-only, a soft tonal pill behind the selected icon,
  * hairline on top. Built by hand because the Material NavigationBar has
- * a fixed 80dp height. Tabs: Beranda · Shorts · Kanal · Profil.
+ * a fixed 80dp height. Tabs: Beranda · Live · Kanal · Profil.
  */
 @Composable
 private fun BunnyBottomBar(
@@ -708,9 +574,9 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 1,
                 onClick = { onSelect(1) },
-                filled = ShortsIcons.Filled,
-                outlined = ShortsIcons.Outlined,
-                description = stringResource(R.string.nav_shorts),
+                filled = Icons.Filled.Sensors,
+                outlined = Icons.Outlined.Sensors,
+                description = stringResource(R.string.nav_live),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
@@ -743,27 +609,20 @@ private fun BottomBarItem(
     modifier: Modifier = Modifier,
 ) {
     val accent = MaterialTheme.colorScheme.primary
-    val source = remember { MutableInteractionSource() }
-    val pressed by source.collectIsPressedAsState()
     val tint by animateColorAsState(
         targetValue = if (selected) accent else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(AppMotion.Tint),
+        animationSpec = tween(200),
         label = "navTint",
     )
     val pillAlpha by animateFloatAsState(
         targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(AppMotion.Tint),
+        animationSpec = tween(200),
         label = "navPillAlpha",
     )
     val pillScale by animateFloatAsState(
         targetValue = if (selected) 1f else 0.4f,
-        animationSpec = AppMotion.PillSpring,
+        animationSpec = tween(200),
         label = "navPillScale",
-    )
-    val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.88f else 1f,
-        animationSpec = AppMotion.PressSpring,
-        label = "navPress",
     )
     Box(
         modifier = modifier
@@ -772,7 +631,7 @@ private fun BottomBarItem(
                 selected = selected,
                 onClick = onClick,
                 role = Role.Tab,
-                interactionSource = source,
+                interactionSource = remember { MutableInteractionSource() },
                 indication = null,
             ),
         contentAlignment = Alignment.Center,
@@ -788,21 +647,11 @@ private fun BottomBarItem(
                 .clip(RoundedCornerShape(17.dp))
                 .background(accent.copy(alpha = 0.20f)),
         )
-        Crossfade(
-            targetState = selected,
-            modifier = Modifier.graphicsLayer {
-                scaleX = pressScale
-                scaleY = pressScale
-            },
-            animationSpec = tween(AppMotion.Tint),
-            label = "navIcon",
-        ) { isSelected ->
-            Icon(
-                imageVector = if (isSelected) filled else outlined,
-                contentDescription = description,
-                tint = tint,
-                modifier = Modifier.size(26.dp),
-            )
-        }
+        Icon(
+            imageVector = if (selected) filled else outlined,
+            contentDescription = description,
+            tint = tint,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.bunny.app.data.PersonaStatDao
+import com.bunny.app.playback.AppSurfaceFailureReporter
 import com.bunny.app.data.PrefsSabrGovernanceStore
 import com.bunny.app.data.PrefsVisitorStore
 import com.bunny.app.data.RoomPersonaStatsStore
@@ -36,19 +37,8 @@ object BackendModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
-        // Gagal cepat di jaringan mati; percobaan ulang sudah diatur
-        // sendiri oleh LontarEngine.postJson.
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        // Bawaan OkHttp hanya 5 permintaan sekaligus per host. Beranda
-        // mengirim lima pencarian, sesi, dan jalan-jalan terkait ke
-        // www.youtube.com sekaligus, jadi sisanya antre.
-        .dispatcher(
-            okhttp3.Dispatcher().apply {
-                maxRequests = 64
-                maxRequestsPerHost = 16
-            },
-        )
         .build()
 
     @Provides
@@ -102,11 +92,8 @@ object BackendModule {
         statsStore,
         networkClass,
         visitorStore,
+        failureReporter = AppSurfaceFailureReporter(context),
         sabrGovernance = SabrGovernance(governanceStore),
-        locale = com.bunny.core.model.RequestLocale(
-            hl = com.bunny.app.i18n.ContentLocale.fromDevice().hl,
-            gl = com.bunny.app.i18n.ContentLocale.fromDevice().gl,
-        ),
     )
 
     @Provides

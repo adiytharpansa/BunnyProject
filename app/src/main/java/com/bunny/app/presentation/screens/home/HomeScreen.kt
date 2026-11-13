@@ -136,15 +136,11 @@ fun HomeScreen(
     // Topic chips: they filter the mixture already on screen — Bunny's
     // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
     var topicFilter by remember { mutableStateOf<String?>(null) }
-    val topics = remember(state.items) {
-        state.items.mapNotNull { it.reason }.distinct()
-    }
-    val visibleItems = remember(state.items, topicFilter) {
-        if (topicFilter == null) {
-            state.items
-        } else {
-            state.items.filter { it.reason == topicFilter }
-        }
+    val topics = state.items.mapNotNull { it.reason }.distinct()
+    val visibleItems = if (topicFilter == null) {
+        state.items
+    } else {
+        state.items.filter { it.reason == topicFilter }
     }
 
     LaunchedEffect(state.items) { onFeedChanged(state.items) }
@@ -378,14 +374,7 @@ fun HomeScreen(
                         val isPreviewingThis = previewingId == item.id
                         VideoCard(
                             item = item,
-                            // TANPA animateItem: animasi penempatan item
-                            // memaksa ukur-ulang massal setiap pergantian
-                            // isi feed (muat dua tahap/cache -> segar) —
-                            // terbukti di perangkat sebagai frame macet
-                            // 771 ms dengan tahap ukur 383 ms x3
-                            // (Perekam Masalah Ringan, 2026-11-13).
-                            modifier = Modifier
-                                .padding(horizontal = FeedHorizontalPadding),
+                            modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                             onClick = { onVideoClick(item.id) },
                             previewPlayer = if (isPreviewingThis) {
                                 viewModel.previewPlayer

@@ -158,15 +158,6 @@ class SabrPlayback internal constructor(
     @Volatile
     var onEvent: ((String) -> Unit)? = null
 
-    /**
-     * Mechanism 24 (SABR Mandiri): fired once per PROVEN pin
-     * switch with the new video itag and the playhead at the
-     * switch — the app re-points the player at the new itag
-     * carrying the position. Set right after the handle is created.
-     */
-    @Volatile
-    var onServingSwitch: ((videoItag: Int, positionMs: Long) -> Unit)? = null
-
     private val readySignal = CompletableDeferred<Boolean>()
 
     /**
@@ -244,23 +235,6 @@ class SabrPlayback internal constructor(
      */
     @Volatile
     private var jumpsSpent: Int = 0
-
-    /**
-     * Mechanism 24: one bandwidth meter per OPEN, shared by every
-     * pass (and by an adaptation's proof pump), so the decider
-     * sees one continuous estimate instead of each pass starting
-     * blind at the factory guess.
-     */
-    private val bandwidthMeter = EwmaBandwidthMeter()
-
-    /**
-     * Mechanism 24: a decider-posted pin switch awaiting execution
-     * at the top of the drive loop — the [pendingJumpMs] pattern.
-     * Written from the pump's progress callback (which then cuts
-     * the pump); consumed only by the drive thread.
-     */
-    @Volatile
-    private var pendingAdaptation: SabrFormat? = null
 
     fun start() {
         if (job != null) return
@@ -378,67 +352,8 @@ class SabrPlayback internal constructor(
         // Mechanism 21: the honest preroll wait is named at most
         // once per open (see the pump's onSleepDecision below).
         var prerollWaitLogged = false
-        // Mechanism 24 (SABR Mandiri): this open's own stepper.
-        // The ladder is the fence the open itself allowed (the
-        // opening pick's own rules); the decider can only move
-        // inside it. Off in config, or a ladder under two rungs,
-        // leaves the road exactly as it was: server-steered only.
-        val adaptation = if (engine.sabrSettings().adaptEnabled) {
-            val ladder = sabrVideoLadder(
-                openData.formats,
-                openData.capHeightPx,
-                openData.ceiling,
-            )
-            if (ladder.size >= 2) {
-                SabrAdaptation(openData.videoPin, ladder)
-            } else {
-                null
-            }
-        } else {
-            null
-        }
         try {
             while (true) {
-                // Mechanism 24 (SABR Mandiri): an adaptation the
-                // decider posted while the previous pass ran is
-                // executed now, in the jump's shape: mint the
-                // forced-pin session over the SAME spool, seeded
-                // at the playhead, and let its own pump PROVE the
-                // new track before the player is told anything.
-                // Unproven inside the window the switch is
-                // cancelled, the old session keeps the road, and
-                // the spent budget stays spent (the decider
-                // counted it when it fired).
-                val adaptTarget = pendingAdaptation
-                if (adaptTarget != null) {
-                    pendingAdaptation = null
-                    val adapted = openData.newSession(
-                        startTimeMs = playerPositionMs,
-                        videoPinOverride = adaptTarget,
-                    )
-                    adapted.restoreFrom(spool)
-                    adoptClassicRanges(adapted)
-                    if (proveAdaptedSession(adapted, adaptTarget)) {
-                        session = adapted
-                        activeSession = adapted
-                        servedVideoItag = adaptTarget.itag
-                        onServingSwitch?.invoke(
-                            adaptTarget.itag,
-                            playerPositionMs,
-                        )
-                        onEvent?.invoke(
-                            "SABR mandiri: pin video sekarang itag " +
-                                "${adaptTarget.itag} (terbukti dari kawat)",
-                        )
-                    } else {
-                        onEvent?.invoke(
-                            "SABR mandiri: ganti ke itag ${adaptTarget.itag} " +
-                                "dibatalkan — buktinya tidak tiba dalam " +
-                                "${ADAPT_PROOF_TIMEOUT_MS / 1000} dtk; " +
-                                "pin lama diteruskan",
-                        )
-                    }
-                }
                 // Mechanism 23: a seek posted while the previous
                 // pass ran (or between passes) becomes the next
                 // pass — a fresh session seeded at the target
@@ -478,7 +393,7 @@ class SabrPlayback internal constructor(
                     session = session,
                     spool = spool,
                     transport = engine.createSabrTransport(openData.userAgent),
-                    bandwidth = bandwidthMeter,
+                    bandwidth = EwmaBandwidthMeter(),
                     onProgress = {
                         roadState.pulse()
                         if (!readySignal.isCompleted && session.initReceived) {
@@ -517,41 +432,6 @@ class SabrPlayback internal constructor(
                                     projectionText(session) +
                                     sleepDecisionText(session),
                             )
-                        }
-                        // Mechanism 24 (SABR Mandiri): the decider
-                        // is fed at this same cadence — spool lead
-                        // and the shared meter's estimate against
-                        // the session's current pin. Only once the
-                        // road has proven itself: the opening
-                        // belongs to the open's own pin choice.
-                        val decider = adaptation
-                        if (decider != null && readySignal.isCompleted &&
-                            pendingAdaptation == null && pendingJumpMs < 0
-                        ) {
-                            val leadMs = session.bufferedEndMs() - playerPositionMs
-                            val estimateBps = bandwidthMeter.estimateBps()
-                            when (
-                                val decision = decider.evaluate(
-                                    nowMs = SystemClock.uptimeMillis(),
-                                    leadMs = leadMs,
-                                    estimateBps = estimateBps,
-                                    current = session.videoFormat,
-                                )
-                            ) {
-                                is SabrAdaptDecision.SwitchTo -> {
-                                    pendingAdaptation = decision.target
-                                    onEvent?.invoke(
-                                        "SABR mandiri: " +
-                                            (if (decision.down) "turun" else "naik") +
-                                            " ke itag ${decision.target.itag} " +
-                                            "(jarak aman ${leadMs / 1000} dtk, ukur " +
-                                            "${estimateBps / 1_000_000} Mbps, pin " +
-                                            "${session.videoFormat.bitrate / 1_000_000} Mbps)",
-                                    )
-                                    pumpChild?.cancel()
-                                }
-                                SabrAdaptDecision.Stay -> Unit
-                            }
                         }
                     },
                     onTrackComplete = { roadState.markComplete(it) },
@@ -625,7 +505,7 @@ class SabrPlayback internal constructor(
                     // ending), and a seek cuts just the pump child
                     // (loop around: the pending jump at the top
                     // becomes the next pass).
-                    if ((pendingJumpMs >= 0 || pendingAdaptation != null) &&
+                    if (pendingJumpMs >= 0 &&
                         currentCoroutineContext().isActive
                     ) {
                         continue
@@ -685,6 +565,10 @@ class SabrPlayback internal constructor(
                         session = fresh
                     }
                     is SabrOutcome.TokenDemanded -> {
+                        engine.noteSabrFailure(
+                            "token",
+                            "SPS 3: server menuntut token — jalan SABR ditutup",
+                        )
                         // Langkah 7, mechanism 7: a token demand is
                         // the governance's headline failure signal.
                         recordGovernanceFailure()
@@ -696,11 +580,13 @@ class SabrPlayback internal constructor(
                         return
                     }
                     is SabrOutcome.SabrErrorReceived -> {
+                        engine.noteSabrFailure("sabr-error", "SABR_ERROR dari server")
                         recordGovernanceFailure()
                         die("SABR_ERROR")
                         return
                     }
                     is SabrOutcome.HttpFailed -> {
+                        engine.noteSabrFailure("HTTP ${outcome.status}", "POST SABR gagal")
                         recordGovernanceFailure()
                         die("HTTP ${outcome.status}")
                         return
@@ -730,6 +616,7 @@ class SabrPlayback internal constructor(
                             // noise (the handle was closed on purpose);
                             // keep them off the failure evidence surface.
                             if (!outcome.reason.contains("cancelled", ignoreCase = true)) {
+                                engine.noteSabrFailure("macet", outcome.reason)
                                 // Langkah 7, mechanism 7: a real
                                 // stall is a road-level death; the
                                 // lifecycle kind above is not, and
@@ -770,6 +657,10 @@ class SabrPlayback internal constructor(
             // The drive must never die silently: an unwitnessed death
             // leaves spool readers waiting on data that will never
             // come. Record it and close the road with the reason.
+            engine.noteSabrFailure(
+                "penggerak",
+                "${e.javaClass.simpleName}: ${e.message}",
+            )
             die("penggerak pompa gagal: ${e.javaClass.simpleName}")
         } finally {
             pumpChild?.cancel()
@@ -797,54 +688,6 @@ class SabrPlayback internal constructor(
         adoptClassicRanges(seeded)
         activeSession = seeded
         return seeded
-    }
-
-    /**
-     * Mechanism 24: the pre-fill proof for an adaptation session.
-     * Its own pump rolls over the same spool until the target
-     * track holds a playable head AND the spool serves the
-     * playhead plus [ADAPT_PROOF_LEAD_MS] under the new pin — the
-     * cold-spool ready rule, reused. False when the window closes
-     * first or the proof pump ends unproven; the proof pump is
-     * always stopped before returning.
-     */
-    private suspend fun proveAdaptedSession(
-        adapted: SabrSession,
-        target: SabrFormat,
-    ): Boolean {
-        val proofPump = SabrPump(
-            session = adapted,
-            spool = spool,
-            transport = engine.createSabrTransport(openData.userAgent),
-            bandwidth = bandwidthMeter,
-            onProgress = { roadState.pulse() },
-            onTrackComplete = { roadState.markComplete(it) },
-            leadAware = true,
-            positionHintMs = { playerPositionMs },
-            pipelined = true,
-            maxLeadMs = leadCapMs,
-        )
-        val run = scope.async { proofPump.run(MAX_PUMP_REQUESTS) }
-        try {
-            val deadline = SystemClock.uptimeMillis() + ADAPT_PROOF_TIMEOUT_MS
-            while (true) {
-                if (spool.track(target.itag).hasPlayableHead() &&
-                    adapted.coversPosition(
-                        playerPositionMs + ADAPT_PROOF_LEAD_MS,
-                    )
-                ) {
-                    return true
-                }
-                if (!run.isActive ||
-                    SystemClock.uptimeMillis() >= deadline
-                ) {
-                    return false
-                }
-                delay(200)
-            }
-        } finally {
-            run.cancel()
-        }
     }
 
     /**
@@ -988,15 +831,6 @@ class SabrPlayback internal constructor(
         /** Mechanism 21: a pre-ready pump sleep at least this long
          *  is a named preroll wait, not a hiccup. */
         const val PREROLL_WAIT_EVENT_MS = 5_000L
-
-        /** Mechanism 24: an adaptation's proof window — the new
-         *  track must prove itself inside this or the switch is
-         *  cancelled and the old pin keeps the road. */
-        const val ADAPT_PROOF_TIMEOUT_MS = 12_000L
-
-        /** Mechanism 24: spool cover past the playhead the proof
-         *  demands before the player is told to switch. */
-        const val ADAPT_PROOF_LEAD_MS = 8_000L
         // The pre-M8 hunger constants (cold window 60 s, hunger
         // lead 120 s, polite cap 5 s) are gone: leadBoundedSleep's
         // bands carry the same shape as the pump's own rule now.

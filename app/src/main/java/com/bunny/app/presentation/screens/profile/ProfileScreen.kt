@@ -2,6 +2,8 @@ package com.bunny.app.presentation.screens.profile
 
 import android.app.Activity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,18 +12,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.NewReleases
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Subscriptions
-import androidx.compose.material.icons.outlined.ThumbUp
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -29,16 +22,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,31 +40,38 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bunny.app.R
-import com.bunny.app.data.AuthRepository
 import com.bunny.app.presentation.components.ResilientImage
-import com.bunny.app.presentation.components.SectionCard
-import com.bunny.app.presentation.components.SettingsRow
-import androidx.compose.runtime.remember
+import com.bunny.app.data.AuthRepository
 
 /**
- * Profil. Masuk lewat SATU pintu: tombol "Masuk dengan Google" membuka
- * halaman resmi Google di lembar peramban sistem. Halaman ini hanya
- * memuat hal tentang akun. Alat diagnostik ada di Pengaturan > Lanjutan.
+ * Profile. Sign-in is ONE door (unified 2026-11-12 on the user's
+ * order — "satukan jadi satu tombol", "jangan pernah ada
+ * cadangan"): the "Masuk dengan Google" button opens Google's own
+ * page in the system browser sheet (Satu Pintu, Desktop client +
+ * PKCE), the returning key is proven at the official Data API, and
+ * that is the whole sign-in. Every earlier door — the Satu Ketuk
+ * system sheet (its key was refused by the internal doors), the TV
+ * code (kept briefly as an optional upgrade, then removed), the
+ * dead Fase 5 cookie harvest — is gone, not parked as a spare.
+ *
+ * Signed in, the personal rooms it powers are the three Data API
+ * surfaces: the account's own subscriptions, the newest uploads
+ * from them, and the videos the account liked. Server home and
+ * watch history are not among them — no honest door to them was
+ * ever proven, and Bunny shows nothing it cannot serve for real.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     onPersonalClick: (String) -> Unit = {},
     onDownloadsClick: () -> Unit = {},
-    onSettingsClick: () -> Unit = {},
     viewModel: AuthViewModel = hiltViewModel(),
     desktopViewModel: DesktopSignInViewModel = hiltViewModel(),
 ) {
     val authState by viewModel.state.collectAsState()
     val desktopState by desktopViewModel.state.collectAsState()
-    val activity = LocalContext.current as? Activity
-    var showSignOutDialog by rememberSaveable { mutableStateOf(false) }
-    val signedIn = authState as? AuthRepository.State.SignedIn
+    val context = LocalContext.current
+    val activity = context as? Activity
 
     Scaffold(
         topBar = {
@@ -87,187 +83,126 @@ fun ProfileScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // ---- Kepala akun
-            if (signedIn != null) {
-                AccountHeader(
-                    avatarUrl = signedIn.avatarUrl,
-                    title = signedIn.name
-                        ?: stringResource(R.string.profile_account_fallback),
-                    subtitle = stringResource(R.string.profile_signed_in_hint),
-                )
-            } else {
-                AccountHeader(
-                    avatarUrl = null,
-                    title = stringResource(R.string.profile_guest_title),
-                    subtitle = null,
-                )
-                // ---- Kartu masuk
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            stringResource(R.string.profile_login_hint),
-                            style = MaterialTheme.typography.bodyMedium,
+            when (val state = authState) {
+                is AuthRepository.State.SignedIn -> {
+                    // The account's REAL photo and name, from YouTube's
+                    // own account response — no letter stand-ins.
+                    if (state.avatarUrl != null) {
+                        ResilientImage(
+                            url = state.avatarUrl,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape),
                         )
-                        if (desktopViewModel.configured) {
-                            Button(
-                                onClick = {
-                                    if (activity != null) {
-                                        desktopViewModel.start(activity)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(stringResource(R.string.profile_login_button))
-                            }
-                            DesktopStatusText(desktopState)
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme
+                                    .onPrimaryContainer,
+                                modifier = Modifier.size(56.dp),
+                            )
                         }
-                        Text(
-                            stringResource(R.string.profile_login_privacy),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    }
+                    Text(
+                        state.name
+                            ?: stringResource(R.string.profile_account_fallback),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(R.string.profile_signed_in_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                    OutlinedButton(
+                        onClick = { onPersonalClick("subs") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.personal_subs_button))
+                    }
+                    OutlinedButton(
+                        onClick = { onPersonalClick("latest") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.personal_latest_button))
+                    }
+                    OutlinedButton(
+                        onClick = { onPersonalClick("liked") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.personal_liked_button))
+                    }
+                    TextButton(onClick = { viewModel.signOut() }) {
+                        Text(stringResource(R.string.profile_signout))
+                    }
+                }
+                AuthRepository.State.SignedOut -> {
+                    Box(
+                        modifier = Modifier
+                            .size(96.dp)
+                            .clip(CircleShape)
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(56.dp),
                         )
+                    }
+                    Text(
+                        stringResource(R.string.profile_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(R.string.profile_login_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                    if (desktopViewModel.configured) {
+                        Button(
+                            onClick = {
+                                if (activity != null) {
+                                    desktopViewModel.start(activity)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.profile_login_button))
+                        }
+                        DesktopStatusText(desktopState)
                     }
                 }
             }
-
-            // ---- Akun saya (hanya saat sudah masuk)
-            if (signedIn != null) {
-                SectionCard(title = stringResource(R.string.profile_section_account)) {
-                    SettingsRow(
-                        icon = Icons.Outlined.Subscriptions,
-                        title = stringResource(R.string.personal_subs_button),
-                        onClick = { onPersonalClick("subs") },
-                    )
-                    SettingsRow(
-                        icon = Icons.Outlined.NewReleases,
-                        title = stringResource(R.string.personal_latest_button),
-                        onClick = { onPersonalClick("latest") },
-                    )
-                    SettingsRow(
-                        icon = Icons.Outlined.ThumbUp,
-                        title = stringResource(R.string.personal_liked_button),
-                        onClick = { onPersonalClick("liked") },
-                        showDivider = false,
-                    )
-                }
+            OutlinedButton(onClick = onDownloadsClick) {
+                Text(stringResource(R.string.profile_downloads_button))
             }
-
-            // ---- Umum
-            SectionCard(title = stringResource(R.string.profile_section_general)) {
-                SettingsRow(
-                    icon = Icons.Outlined.Download,
-                    title = stringResource(R.string.profile_downloads_button),
-                    onClick = onDownloadsClick,
-                )
-                SettingsRow(
-                    icon = Icons.Outlined.Settings,
-                    title = stringResource(R.string.profile_settings_button),
-                    onClick = onSettingsClick,
-                    showDivider = false,
-                )
-            }
-
-            // ---- Keluar
-            if (signedIn != null) {
-                TextButton(
-                    onClick = { showSignOutDialog = true },
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                ) {
-                    Text(
-                        stringResource(R.string.profile_signout),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        }
-    }
-
-    if (showSignOutDialog) {
-        AlertDialog(
-            onDismissRequest = { showSignOutDialog = false },
-            title = { Text(stringResource(R.string.profile_signout_confirm_title)) },
-            text = { Text(stringResource(R.string.profile_signout_confirm_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showSignOutDialog = false
-                        viewModel.signOut()
-                    },
-                ) {
-                    Text(
-                        stringResource(R.string.profile_signout),
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSignOutDialog = false }) {
-                    Text(stringResource(R.string.settings_cancel))
-                }
-            },
-        )
-    }
-}
-
-/** Foto (atau ikon bawaan), nama, dan satu baris keterangan. */
-@Composable
-private fun AccountHeader(
-    avatarUrl: String?,
-    title: String,
-    subtitle: String?,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(88.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (avatarUrl != null) {
-                ResilientImage(
-                    url = avatarUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Icon(
-                    Icons.Filled.Person,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(52.dp),
-                )
-            }
-        }
-        Text(
-            title,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.Center,
-        )
-        if (subtitle != null) {
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            GuestWarmingPanel()
+            EngineHealthPanel()
         }
     }
 }
@@ -281,7 +216,7 @@ private fun AccountHeader(
  * browse answering is.
  */
 @Composable
-internal fun GuestWarmingPanel(
+private fun GuestWarmingPanel(
     viewModel: GuestWarmingViewModel = hiltViewModel(),
 ) {
     val report by viewModel.report.collectAsState()
@@ -402,7 +337,7 @@ private fun DesktopStatusText(state: DesktopSignInViewModel.State) {
  * persona, a coloured dot, when it was measured and on what network.
  */
 @Composable
-internal fun EngineHealthPanel(
+private fun EngineHealthPanel(
     viewModel: EngineHealthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()

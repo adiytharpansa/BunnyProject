@@ -56,15 +56,13 @@ build_script:
   - sh: |
       set -e
       export PATH="$HOME/gradle-${GRADLE_VERSION}/bin:$PATH"
-      gradle lint testDebugUnitTest assembleDebug assembleRelease --stacktrace
+      gradle lint testDebugUnitTest assembleDebug --stacktrace
 
 test: off
 
 artifacts:
   - path: app/build/outputs/apk/debug
     name: BunnyDebugApk
-  - path: app/build/outputs/apk/release
-    name: BunnyReleaseApkUnsigned
   - path: app/build/reports
     name: AppReports
   - path: engine/build/reports

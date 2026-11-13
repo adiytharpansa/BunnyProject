@@ -1,11 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <style name="Theme.Bunny" parent="android:Theme.Material.NoActionBar">
-        <!-- Bar sistem transparan diatur dari kode (enableEdgeToEdge di
-             MainActivity, keputusan pengguna 2026-11-13); di sini hanya
-             kontras paksa dimatikan agar sistem tidak mengecat ulang
-             di belakang ikon. -->
-        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
-        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+        <item name="android:statusBarColor">#0F0F0F</item>
+        <item name="android:navigationBarColor">#0F0F0F</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>

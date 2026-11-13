@@ -2,7 +2,6 @@ package com.bunny.app.presentation.screens.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import com.bunny.app.ui.motion.tappable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,8 +18,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.res.stringResource
-import com.bunny.app.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,7 +50,7 @@ fun SearchResultItem(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .tappable(onClick = onClick),
+            .clickable(onClick = onClick),
     ) {
         Box(
             modifier = Modifier
@@ -122,7 +119,13 @@ fun SearchResultItem(
                 )
                 val meta = listOfNotNull(
                     item.channelName.takeIf { it.isNotEmpty() },
-                    item.viewCountText?.takeIf { it.isNotEmpty() },
+                    item.viewCount?.let {
+                        if (item.isLive) {
+                            "${formatCount(it)} sedang menonton"
+                        } else {
+                            "${formatCount(it)} x ditonton"
+                        }
+                    },
                     item.uploadedText?.takeIf { it.isNotEmpty() },
                 ).joinToString(" • ")
                 if (meta.isNotEmpty()) {
@@ -163,3 +166,19 @@ private fun formatDuration(totalSeconds: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
+/** 1.700.000 → "1,7 jt"; 1.000 → "1 rb" (tanpa ",0" yang berlebih). */
+private fun formatCount(count: Long): String = when {
+    count >= 1_000_000_000 -> compact(count / 1_000_000_000.0, "M")
+    count >= 1_000_000 -> compact(count / 1_000_000.0, "jt")
+    count >= 1_000 -> compact(count / 1_000.0, "rb")
+    else -> count.toString()
+}
+
+private fun compact(value: Double, unit: String): String {
+    val rounded = (value * 10).roundToInt() / 10.0
+    return if (rounded % 1.0 == 0.0) {
+        "${rounded.toInt()} $unit"
+    } else {
+        "%.1f %s".format(rounded, unit)
+    }
+}

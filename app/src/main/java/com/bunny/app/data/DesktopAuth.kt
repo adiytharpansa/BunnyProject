@@ -1,13 +1,11 @@
 package com.bunny.app.data
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Base64
 import androidx.browser.customtabs.CustomTabsIntent
 import com.bunny.engine.lontar.LontarAuth
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,7 +55,6 @@ sealed interface DesktopRedirect {
 
 @Singleton
 class DesktopAuth @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val httpClient: OkHttpClient,
     private val authRepository: AuthRepository,
     private val lontarAuth: LontarAuth,
@@ -83,7 +80,6 @@ class DesktopAuth @Inject constructor(
         val state = randomUrlSafe(24)
         pendingVerifier = verifier
         pendingState = state
-        savePending(verifier, state)
         _redirect.value = null
         val challenge = Base64.encodeToString(
             MessageDigest.getInstance("SHA-256")
@@ -119,7 +115,8 @@ class DesktopAuth @Inject constructor(
     /** MainActivity forwards every incoming deep link here. */
     fun handleRedirect(uri: Uri): Boolean {
         if (uri.scheme != DesktopClientConfig.redirectScheme) return false
-        val expectedState = consumePendingState()
+        val expectedState = pendingState
+        pendingState = null
         val returnedState = uri.getQueryParameter("state")
         val error = uri.getQueryParameter("error")
         val code = uri.getQueryParameter("code")
@@ -148,8 +145,9 @@ class DesktopAuth @Inject constructor(
 
     /** Redeems the authorization code. Throws on transport/HTTP failure. */
     suspend fun exchange(code: String): Granted {
-        val verifier = consumePendingVerifier()
+        val verifier = pendingVerifier
             ?: throw java.io.IOException("PKCE verifier hilang")
+        pendingVerifier = null
         val (httpCode, root) = postFormRaw(
             TOKEN_URL,
             mapOf(
@@ -265,42 +263,7 @@ class DesktopAuth @Inject constructor(
         }
     }
 
-    // ------------------------------------------------------------ PKCE awet
-    // Pasangan PKCE juga disimpan di SharedPreferences: bila Android
-    // mematikan proses saat pengguna berada di browser, redirect
-    // yang kembali tidak lagi gagal "state tidak cocok". Salinan
-    // tersimpan selalu dihapus saat dipakai (satu kali pakai).
-    private val pendingPrefs by lazy {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    }
-
-    private fun savePending(verifier: String, state: String) {
-        pendingPrefs.edit()
-            .putString(KEY_VERIFIER, verifier)
-            .putString(KEY_STATE, state)
-            .apply()
-    }
-
-    private fun consumePendingState(): String? {
-        val inMemory = pendingState
-        pendingState = null
-        val saved = pendingPrefs.getString(KEY_STATE, null)
-        pendingPrefs.edit().remove(KEY_STATE).apply()
-        return inMemory ?: saved
-    }
-
-    private fun consumePendingVerifier(): String? {
-        val inMemory = pendingVerifier
-        pendingVerifier = null
-        val saved = pendingPrefs.getString(KEY_VERIFIER, null)
-        pendingPrefs.edit().remove(KEY_VERIFIER).apply()
-        return inMemory ?: saved
-    }
-
     private companion object {
-        const val PREFS_NAME = "desktop_auth_pending"
-        const val KEY_VERIFIER = "pkce_verifier"
-        const val KEY_STATE = "pkce_state"
         const val AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
         const val TOKEN_URL = "https://oauth2.googleapis.com/token"
         const val REVOKE_URL = "https://oauth2.googleapis.com/revoke"

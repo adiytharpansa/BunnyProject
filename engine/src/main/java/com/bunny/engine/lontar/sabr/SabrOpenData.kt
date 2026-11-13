@@ -51,15 +51,6 @@ data class SabrOpenData(
     fun newSession(
         cpn: String = SabrSession.generateCpn(),
         startTimeMs: Long = 0,
-        /**
-         * Mechanism 24 (SABR Mandiri): a forced video pin for an
-         * adaptation session. Null — every existing caller — mints
-         * the opening pin exactly as before; a value must come from
-         * the open's own ladder ([sabrVideoLadder]), never above
-         * the opening pin and never past the open's cap or codec
-         * ceiling.
-         */
-        videoPinOverride: SabrFormat? = null,
     ): SabrSession =
         SabrSession(
             videoId = videoId,
@@ -69,7 +60,7 @@ data class SabrOpenData(
             durationSeconds = durationSeconds,
             formats = formats,
             audioItag = audioPin.itag,
-            videoItag = (videoPinOverride ?: videoPin).itag,
+            videoItag = videoPin.itag,
             startTimeMs = startTimeMs,
             cpn = cpn,
             viewportWidth = viewportWidth,
@@ -94,10 +85,6 @@ data class SabrSettings(
     /** Langkah 7, mechanism 7: the self-disabling governance's
      *  threshold, carried with the rest of the SABR config slice. */
     val killThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
-    /** Mechanism 24 (SABR Mandiri): Bunny's own quality stepping.
-     *  On by default; off returns SABR to following the server's
-     *  steering only, exactly the pre-M24 behaviour. */
-    val adaptEnabled: Boolean = true,
 )
 
 /**

@@ -8,8 +8,6 @@ data class VideoDetails(
     val channelId: String?,
     val channelName: String,
     val viewCount: Long?,
-    /** Teks jumlah tayang asli dari halaman tonton YouTube. */
-    val viewCountText: String? = null,
     val likeCount: Long?,
     val uploadedText: String?,
     val isLive: Boolean = false,

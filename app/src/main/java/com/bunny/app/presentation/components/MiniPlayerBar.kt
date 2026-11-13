@@ -1,11 +1,6 @@
 package com.bunny.app.presentation.components
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Pause
@@ -23,7 +19,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -32,31 +27,26 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import androidx.media3.common.util.UnstableApi
 import com.bunny.app.R
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * Pemutar mini (Fase 6): the watch session shrunk to a bar above the
- * tab bar. Playback itself never stops — the surface moves to this
- * bar's own PlayerView, so the video keeps playing live in miniature
- * while the user browses, and tapping the bar expands back to the
- * watch page. Progress is polled from the session's player
- * (half-second steps: cheap, and honest — it shows the player's own
- * numbers).
+ * tab bar. Playback itself never stops — the full screen's PlayerView
+ * simply lets go of the surface, the sound keeps playing through the
+ * session, and tapping the bar expands back to the watch page.
+ * Progress is polled from the session's player (half-second steps:
+ * cheap, and honest — it shows the player's own numbers).
  */
 @UnstableApi
 @Composable
@@ -86,51 +76,23 @@ fun MiniPlayerBar(
             }
         }
     }
-    // Seret ke atas = membesarkan (mengikuti jari, lepas di ambang
-    // langsung membuka; selain itu memantul kembali). Ketuk tetap
-    // membesarkan seperti biasa.
-    val density = LocalDensity.current
-    val expandThresholdPx = with(density) { 56.dp.toPx() }
-    val dragAnim = remember { Animatable(0f) }
-    val dragScope = rememberCoroutineScope()
-    val dragState = rememberDraggableState { delta ->
-        dragScope.launch {
-            dragAnim.snapTo((dragAnim.value + delta).coerceAtMost(0f))
-        }
-    }
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .graphicsLayer { translationY = dragAnim.value }
-            .draggable(
-                state = dragState,
-                orientation = Orientation.Vertical,
-                onDragStopped = {
-                    if (dragAnim.value < -expandThresholdPx) {
-                        onExpand()
-                        dragScope.launch { dragAnim.snapTo(0f) }
-                    } else {
-                        dragScope.launch { dragAnim.animateTo(0f, tween(160)) }
-                    }
-                },
-            )
             .clickable(onClick = onExpand),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                        this.player = player
-                    }
-                },
-                update = { it.player = player },
-                modifier = Modifier.size(width = 114.dp, height = 64.dp),
+            ResilientImage(
+                url = thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 64.dp, height = 36.dp)
+                    .clip(RoundedCornerShape(6.dp)),
             )
             Column(
                 modifier = Modifier

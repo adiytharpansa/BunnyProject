@@ -162,10 +162,7 @@ fun KanalScreen(
                 .weight(1f),
         ) {
             when {
-                list == null -> CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center).size(32.dp),
-                    strokeWidth = 3.dp,
-                )
+                list == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
 
                 // Tab topik dipilih: tampilkan video, atau pesan kosong.
                 filter != null && topicVideos.isEmpty() -> Text(

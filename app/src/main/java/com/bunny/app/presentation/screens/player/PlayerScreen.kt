@@ -11,13 +11,6 @@ import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,6 +49,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -64,7 +58,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,7 +68,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -97,15 +89,16 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.launch
 import com.bunny.app.R
-import com.bunny.app.ui.motion.AppMotion
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.presentation.components.ResilientImage
+import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlayerTouchGestures
 import com.bunny.core.model.Chapters
 import kotlin.math.roundToInt
+import com.bunny.app.playback.MetadataFailureLog
+import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoComment
 
@@ -117,29 +110,20 @@ fun PlayerScreen(
     onBack: () -> Unit,
     onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     onPipClick: () -> Unit = {},
-    /** Mencoba masuk PiP sistem; true bila jendela PiP benar-benar terbuka. */
-    onEnterPip: () -> Boolean = { false },
-    /** True selama jendela PiP tampil: hanya video yang digambar. */
-    isInPip: Boolean = false,
     onVideoClick: (videoId: String) -> Unit = {},
     /** Shrink to the mini player (playback continues); NOT a stop. */
     onMinimize: () -> Unit = {},
-    /**
-     * Posisi gulir halaman, dimiliki pemanggil: tetap hidup saat
-     * halaman dilipat ke pemutar mini, jadi membuka lagi tidak
-     * mengulang gulir dari atas. Berganti video = pemanggil memberi
-     * ScrollState baru.
-     */
-    scrollState: ScrollState,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val diagnostics by viewModel.diagnostics.collectAsState()
     val controller by viewModel.controllerPlayer.collectAsState()
     val related by viewModel.related.collectAsState()
     val comments by viewModel.comments.collectAsState()
     val download by remember(videoId) { viewModel.downloadState(videoId) }
         .collectAsState(null)
     // Scroll kembali ke atas setiap kali pindah ke video lain.
+    val scrollState = remember(videoId) { ScrollState(0) }
 
     // Izin notifikasi diminta sekali saat Bunny pertama kali dibuka
     // (MainActivity); halaman pemutar tidak meminta izin.
@@ -227,6 +211,13 @@ fun PlayerScreen(
         }
     }
 
+    // Fase 4 telemetry: terminal playback failures persist on-device
+    // across restarts; read once when this screen opens.
+    var pastFailures by remember { mutableStateOf(PlaybackFailureLog.read(context)) }
+
+    // Fase 7-A: the metadata surfaces' failure notebook, same deal.
+    var pastDataFailures by remember { mutableStateOf(MetadataFailureLog.read(context)) }
+
     // Player controls (S5): quality / speed dialogs over the options
     // state; PiP is delegated to the activity via onPipClick.
     val playerOptions by viewModel.options.collectAsState()
@@ -247,64 +238,26 @@ fun PlayerScreen(
     // YouTube-style: the title clamps to two lines and the grey
     // description box expands in place.
     var infoExpanded by remember(videoId) { mutableStateOf(false) }
-    var showComments by remember(videoId) { mutableStateOf(false) }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
-
-    // Transisi ala YouTube: halaman naik saat dibuka; saat mengecil
-    // (Kembali / dua panah) halaman meluncur turun + memudar dulu,
-    // baru bar mini mengambil alih. Satu nilai 0..1 mengatur keduanya.
-    val transition = remember { Animatable(0f) }
-    val transitionScope = rememberCoroutineScope()
-    LaunchedEffect(Unit) {
-        transition.animateTo(1f, tween(AppMotion.PlayerOpen, easing = AppMotion.EmphasizedDecelerate))
+    BackHandler {
+        viewModel.stopPlayback()
+        onBack()
     }
-    fun requestMinimize() {
-        transitionScope.launch {
-            transition.animateTo(0f, tween(AppMotion.PlayerClose, easing = AppMotion.EmphasizedAccelerate))
-            onMinimize()
-        }
-    }
-
-    // Keluar dari halaman tonton: PiP bila video sedang diputar dan
-    // sistem mengizinkan; selain itu mengecil ke bar mini (perilaku
-    // lama). Belum ada yang berputar: tutup seperti biasa.
-    fun exitWatchPage() {
-        if (state is PlayerUiState.Ready) {
-            if (isPlaying && onEnterPip()) return
-            requestMinimize()
-        } else {
-            viewModel.stopPlayback()
-            onBack()
-        }
-    }
-    // Kembali di halaman tonton mengecilkan ke pemutar mini — putar
-    // berlanjut, halaman lain bisa dijelajahi. Menutup total tinggal
-    // di tombol ✕ bar mini. Belum ada yang berputar (memuat/gagal):
-    // Kembali menutup seperti biasa.
-    BackHandler { exitWatchPage() }
 
     // Di layar penuh, Back keluar dari layar penuh, bukan menutup video.
     BackHandler(enabled = isLandscape) { toggleFullscreen() }
 
-    // Panel komentar terbuka: Back menutup panel lebih dulu
-    // (BackHandler yang dideklarasikan terakhir dipanggil lebih dulu).
-    BackHandler(enabled = showComments) { showComments = false }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .graphicsLayer {
-                alpha = transition.value
-                translationY = (1f - transition.value) * size.height * 0.3f
-            },
+            .background(MaterialTheme.colorScheme.background),
     ) {
         // Video first, edge to edge; the back button floats on it
         // (no separate app bar, like the official watch page).
         Box(
             modifier = (
-                if (isLandscape || isInPip) {
+                if (isLandscape) {
                     Modifier.fillMaxSize()
                 } else {
                     Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -424,7 +377,6 @@ fun PlayerScreen(
                     // Bind the MediaController once it connects; it drives
                     // the same underlying player PlaybackManager loads.
                     if (view.player !== controller) view.player = controller
-                    view.useController = !isInPip
                     // Layar tetap menyala hanya selama video diputar.
                     view.keepScreenOn = isPlaying
                 },
@@ -468,7 +420,6 @@ fun PlayerScreen(
                     )
                 }
             }
-            if (!isInPip) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -479,7 +430,12 @@ fun PlayerScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 IconButton(onClick = {
-                    if (isLandscape) toggleFullscreen() else exitWatchPage()
+                    if (isLandscape) {
+                        toggleFullscreen()
+                    } else {
+                        viewModel.stopPlayback()
+                        onBack()
+                    }
                 }) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
@@ -489,8 +445,8 @@ fun PlayerScreen(
                 }
             }
             // Kecilkan ke pemutar mini: putar berlanjut, halaman lain
-            // bisa dijelajahi. Sama seperti tombol kembali dan panah
-            // kiri atas; menutup total lewat tombol ✕ di bar mini.
+            // bisa dijelajahi. Berbeda dari tombol kembali, yang
+            // menghentikan putar.
             if (!isLandscape) {
                 Box(
                     modifier = Modifier
@@ -501,7 +457,7 @@ fun PlayerScreen(
                         .background(Color.Black.copy(alpha = 0.45f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    IconButton(onClick = { requestMinimize() }) {
+                    IconButton(onClick = onMinimize) {
                         Icon(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = stringResource(R.string.player_minimize),
@@ -510,11 +466,9 @@ fun PlayerScreen(
                     }
                 }
             }
-            }
         }
 
-        if (!isLandscape && !isInPip) {
-        Box(Modifier.fillMaxSize()) {
+        if (!isLandscape) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -538,6 +492,19 @@ fun PlayerScreen(
                     Button(onClick = { viewModel.retry() }) {
                         Text(stringResource(R.string.retry))
                     }
+                    DiagnosticsBlock(
+                        events = diagnostics,
+                        pastFailures = pastFailures,
+                        onClearFailures = {
+                            PlaybackFailureLog.clear(context)
+                            pastFailures = null
+                        },
+                        pastDataFailures = pastDataFailures,
+                        onClearDataFailures = {
+                            MetadataFailureLog.clear(context)
+                            pastDataFailures = null
+                        },
+                    )
                 }
 
                 is PlayerUiState.Ready -> {
@@ -563,7 +530,13 @@ fun PlayerScreen(
                         },
                         // Fase 7-C: for a live video the count is
                         // current watchers, and it says so.
-                        current.details.viewCountText?.takeIf { it.isNotEmpty() },
+                        current.details.viewCount?.let {
+                            if (current.details.isLive) {
+                                formatCount(it) + " sedang menonton"
+                            } else {
+                                formatCount(it) + " x ditonton"
+                            }
+                        },
                         current.details.uploadedText,
                     ).joinToString(" • ")
                     Surface(
@@ -710,12 +683,7 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            AnimatedContent(
-                                targetState = subscribed,
-                                transitionSpec = { AppMotion.fadeSwap() },
-                                label = "subscribe",
-                            ) { isSubscribed ->
-                                if (isSubscribed) {
+                            if (subscribed) {
                                 FilledTonalButton(
                                     shape = CircleShape,
                                     onClick = {
@@ -748,7 +716,6 @@ fun PlayerScreen(
                                     },
                                 ) {
                                     Text(stringResource(R.string.player_subscribe))
-                                }
                                 }
                             }
                         }
@@ -1020,9 +987,26 @@ fun PlayerScreen(
                         }
                     }
 
-                    CommentsEntry(
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    DiagnosticsBlock(
+                        events = diagnostics,
+                        pastFailures = pastFailures,
+                        onClearFailures = {
+                            PlaybackFailureLog.clear(context)
+                            pastFailures = null
+                        },
+                        pastDataFailures = pastDataFailures,
+                        onClearDataFailures = {
+                            MetadataFailureLog.clear(context)
+                            pastDataFailures = null
+                        },
+                        onDrillFloor = { viewModel.playViaFloor() },
+                    )
+                    CommentsSection(
                         state = comments,
-                        onOpen = { showComments = true },
+                        onLoadMore = { viewModel.loadMoreComments() },
+                        onToggleReplies = { viewModel.toggleReplies(it) },
+                        onLoadMoreReplies = { viewModel.loadMoreReplies(it) },
                     )
                     RelatedSection(
                         state = related,
@@ -1033,19 +1017,159 @@ fun PlayerScreen(
                 }      // menutup `is PlayerUiState.Ready ->`
             }          // menutup `when`
         }              // menutup Column kedua
-        CommentsPanel(
-            visible = showComments,
-            state = comments,
-            onClose = { showComments = false },
-            onLoadMore = { viewModel.loadMoreComments() },
-            onToggleReplies = { viewModel.toggleReplies(it) },
-            onLoadMoreReplies = { viewModel.loadMoreReplies(it) },
-        )
-        }              // menutup Box
-        }              // menutup `if (!isLandscape && !isInPip)`
+        }              // menutup `if (!isLandscape)`
     }                  // menutup Column luar
 }                      // menutup fungsi PlayerScreen
 
+/**
+ * Komentar asli dari halaman tonton: penulis, foto, waktu, isi dan
+ * jumlah suka persis seperti diterbitkan. Balasan bisa dibuka di
+ * tempat: utas dimuat lewat token lanjutannya sendiri saat diketuk.
+ */
+@Composable
+private fun CommentsSection(
+    state: CommentsUiState,
+    onLoadMore: () -> Unit,
+    onToggleReplies: (VideoComment) -> Unit,
+    onLoadMoreReplies: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            stringResource(R.string.player_comments_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        when {
+            state.isLoading -> CircularProgressIndicator()
+            state.items.isEmpty() -> Text(
+                stringResource(R.string.player_comments_unavailable),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> {
+                state.items.forEach { comment ->
+                    CommentRow(
+                        comment = comment,
+                        replies = state.replies[comment.id],
+                        onToggleReplies = { onToggleReplies(comment) },
+                        onLoadMoreReplies = { onLoadMoreReplies(comment.id) },
+                    )
+                }
+                if (state.nextPage != null) {
+                    OutlinedButton(
+                        onClick = onLoadMore,
+                        enabled = !state.isLoadingMore,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(stringResource(R.string.player_comments_load_more))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentRow(
+    comment: VideoComment,
+    replies: RepliesUiState? = null,
+    onToggleReplies: () -> Unit = {},
+    onLoadMoreReplies: () -> Unit = {},
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primaryContainer),
+        ) {
+            comment.authorAvatarUrl?.let { url ->
+                ResilientImage(
+                    url = url,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            val head = listOfNotNull(
+                comment.authorName.takeIf { it.isNotEmpty() },
+                comment.publishedText,
+            ).joinToString(" • ")
+            if (head.isNotEmpty()) {
+                Text(
+                    head,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(comment.text, style = MaterialTheme.typography.bodyMedium)
+            val meta = listOfNotNull(
+                comment.likeCountText?.takeIf { it != "0" }?.let {
+                    stringResource(R.string.player_comment_likes, it)
+                },
+                if (comment.replyCount > 0) {
+                    stringResource(R.string.player_comment_replies, comment.replyCount)
+                } else {
+                    null
+                },
+                if (comment.isCreatorHearted) {
+                    stringResource(R.string.player_comment_hearted)
+                } else {
+                    null
+                },
+            ).joinToString(" • ")
+            if (meta.isNotEmpty()) {
+                Text(
+                    meta,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Balasan: tombol buka/tutup hanya bila server memberi
+            // pintu masuknya (token) — utas tanpa token tidak berpura-
+            // pura bisa dibuka.
+            if (comment.replyCount > 0 && comment.repliesContinuation != null) {
+                TextButton(onClick = onToggleReplies) {
+                    Text(
+                        if (replies?.expanded == true) {
+                            stringResource(R.string.player_replies_hide)
+                        } else {
+                            stringResource(R.string.player_replies_show, comment.replyCount)
+                        },
+                    )
+                }
+            }
+            if (replies?.expanded == true) {
+                when {
+                    replies.isLoading -> CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                    )
+                    replies.failed -> Text(
+                        stringResource(R.string.player_replies_unavailable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> {
+                        replies.items.forEach { reply -> CommentRow(reply) }
+                        if (replies.nextPage != null) {
+                            TextButton(
+                                onClick = onLoadMoreReplies,
+                                enabled = !replies.isLoadingMore,
+                            ) {
+                                Text(stringResource(R.string.player_replies_load_more))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** Rounded grey pill with a leading icon, like YouTube's action strip. */
 @Composable
@@ -1070,6 +1194,72 @@ private fun ActionPill(
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
             )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsBlock(
+    events: List<String>,
+    pastFailures: String? = null,
+    onClearFailures: () -> Unit = {},
+    pastDataFailures: String? = null,
+    onClearDataFailures: () -> Unit = {},
+    onDrillFloor: (() -> Unit)? = null,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    TextButton(onClick = { expanded = !expanded }) {
+        Text(
+            stringResource(R.string.player_diagnostics),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    if (expanded) {
+        Text(
+            events.takeLast(12).joinToString("\n").ifEmpty { "—" },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (onDrillFloor != null) {
+            // Bor Lantai (RANCANGAN-LANTAI-PENYELAMAT Bagian 4):
+            // prove the rescue on demand instead of waiting for
+            // every other road to fail first.
+            OutlinedButton(
+                onClick = onDrillFloor,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Text(stringResource(R.string.player_drill_floor))
+            }
+        }
+        if (pastFailures != null) {
+            Text(
+                stringResource(R.string.player_failures_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                pastFailures,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onClearFailures) {
+                Text(stringResource(R.string.player_failures_clear))
+            }
+        }
+        if (pastDataFailures != null) {
+            Text(
+                stringResource(R.string.player_data_failures_title),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            Text(
+                pastDataFailures,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = onClearDataFailures) {
+                Text(stringResource(R.string.player_failures_clear))
+            }
         }
     }
 }
@@ -1111,6 +1301,12 @@ private fun formatChapterTime(ms: Long): String {
     }
 }
 
+private fun formatCount(count: Long): String = when {
+    count >= 1_000_000_000 -> "%.1f M".format(count / 1_000_000_000.0)
+    count >= 1_000_000 -> "%.1f jt".format(count / 1_000_000.0)
+    count >= 1_000 -> "%.1f rb".format(count / 1_000.0)
+    else -> count.toString()
+}
 
 private enum class RelatedFilter { SEMUA, KANAL, TERKAIT }
 
@@ -1181,10 +1377,7 @@ private fun RelatedSection(
                     .padding(24.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    strokeWidth = 3.dp,
-                )
+                CircularProgressIndicator()
             }
 
             items.isEmpty() -> Column(

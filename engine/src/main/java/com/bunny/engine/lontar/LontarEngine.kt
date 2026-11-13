@@ -14,8 +14,6 @@ import com.bunny.core.model.GuestWarmingReport
 import com.bunny.core.model.PersonaHealthReport
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -23,11 +21,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -35,7 +30,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 
 /**
  * Lontar — Bunny's own YouTube engine, written from scratch for this project.
@@ -58,6 +52,8 @@ class LontarEngine(
     private val networkClass: NetworkClassProvider = NetworkClassProvider.UNKNOWN,
     /** Selera Tamu: the persistent guest visitor identity's shelf. */
     private val visitorStore: VisitorStore = VisitorStore.NONE,
+    /** Fase 7-A: the metadata surfaces' failure notebook. */
+    private val failureReporter: SurfaceFailureReporter = SurfaceFailureReporter.NONE,
     /**
      * Fase 8 Langkah 7, mechanism 7: the self-disabling SABR
      * governance's outcome log (a NONE shelf by default: verdicts
@@ -66,19 +62,7 @@ class LontarEngine(
      */
     private val sabrGovernance: com.bunny.engine.lontar.sabr.SabrGovernance =
         com.bunny.engine.lontar.sabr.SabrGovernance(SabrGovernanceStore.NONE),
-    /** Bahasa konten dari perangkat (hl/gl); bawaan = perilaku lama. */
-    private val locale: com.bunny.core.model.RequestLocale =
-        com.bunny.core.model.RequestLocale(),
-    /** Pencatat diagnostik. Bawaan: tidak mencatat apa pun (aman untuk unit test). */
-    private val log: (message: String, error: Throwable?) -> Unit = { _, _ -> },
 ) : ExtractionBackend {
-
-    init {
-        // Satu pemegang bahasa untuk semua konteks klien (metadata,
-        // persona putar, SABR): persona membaca LontarPersona.HL/GL.
-        LontarPersona.HL = locale.hl
-        LontarPersona.GL = locale.gl
-    }
 
     override val id: String = "lontar"
 
@@ -102,20 +86,6 @@ class LontarEngine(
 
     /** Paket Mesin B: short-window metadata answers (see [MetadataCache]). */
     private val metadataCache = MetadataCache()
-
-    /** Mesin: batasi permintaan metadata paralel agar tidak memicu 429. */
-    private val metadataGate = Semaphore(MAX_PARALLEL_METADATA)
-
-    /** Mesin: satu penukaran sesi pada satu waktu. */
-    private val swapMutex = Mutex()
-
-    /** Mesin: panggilan player serentak untuk video yang sama digabung. */
-    private val inFlightPlayer =
-        ConcurrentHashMap<String, Deferred<Pair<JSONObject, PlayerPersona>>>()
-
-    /** Pintu: dipanggil saat token Bearer ditolak (401); app meminta token baru. */
-    @Volatile
-    var onBearerExpired: (() -> Unit)? = null
 
     // ----------------------------------------------------- lontar hidup
 
@@ -154,22 +124,21 @@ class LontarEngine(
         return seedMixture()
     }
 
-    override suspend fun search(query: String, page: String?): Page<VideoItem> =
-        withContext(Dispatchers.Default) {
-            if (page != null) {
-                val body = baseBody().put("continuation", page)
-                return@withContext InnertubeParser.parseFeedPage(post("search", body))
-            }
-            // First pages repeat constantly (the home mixture re-asks its
-            // seed topics on every rebuild); continuations are one-time
-            // tokens and stay uncached.
-            metadataCache.get("search:$query") {
-                val body = baseBody()
-                    .put("query", query)
-                    .put("params", SEARCH_PARAMS_VIDEO_ONLY)
-                InnertubeParser.parseFeedPage(post("search", body))
-            }
+    override suspend fun search(query: String, page: String?): Page<VideoItem> {
+        if (page != null) {
+            val body = baseBody().put("continuation", page)
+            return InnertubeParser.parseFeedPage(post("search", body))
         }
+        // First pages repeat constantly (the home mixture re-asks its
+        // seed topics on every rebuild); continuations are one-time
+        // tokens and stay uncached.
+        return metadataCache.get("search:$query") {
+            val body = baseBody()
+                .put("query", query)
+                .put("params", SEARCH_PARAMS_VIDEO_ONLY)
+            InnertubeParser.parseFeedPage(post("search", body))
+        }
+    }
 
     override suspend fun search(
         query: String,
@@ -180,13 +149,11 @@ class LontarEngine(
         // dalamnya); filter default = jalur lama beserta cache-nya.
         if (page != null || filter.isDefault) return search(query, page)
         val params = SearchParamsEncoder.encode(filter)
-        return withContext(Dispatchers.Default) {
-            metadataCache.get("search:$query:$params") {
-                val body = baseBody()
-                    .put("query", query)
-                    .put("params", params)
-                InnertubeParser.parseFeedPage(post("search", body))
-            }
+        return metadataCache.get("search:$query:$params") {
+            val body = baseBody()
+                .put("query", query)
+                .put("params", params)
+            InnertubeParser.parseFeedPage(post("search", body))
         }
     }
 
@@ -201,8 +168,20 @@ class LontarEngine(
         // browse was probed too and rejected: its rows carry no badges.
         // The topic searches are independent: run them in parallel so
         // the tab costs one round trip, not five in a row.
-        val pages = gatherSeeds(LIVE_SEED_QUERIES) { query, label ->
-            searchLive(query).map { item -> item.copy(reason = "Topik: $label") }
+        val pages = coroutineScope {
+            LIVE_SEED_QUERIES.map { (query, label) ->
+                async {
+                    try {
+                        searchLive(query).map { item ->
+                            item.copy(reason = "Topik: $label")
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+            }.awaitAll()
         }
         return Page(items = roundRobin(pages, MAX_LIVE_ITEMS), nextPage = null)
     }
@@ -225,40 +204,31 @@ class LontarEngine(
         if (!channelId.startsWith("UC") || channelId.length < 4) {
             throw LontarException("ID kanal tidak dikenal: $channelId")
         }
-        return try {
-            withContext(Dispatchers.Default) {
-                metadataCache.get("channelVideos:$channelId") {
-                    channelVideosUncached(channelId)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log("video kanal gagal: $channelId", e)
-            Page(items = emptyList(), nextPage = null)
+        return metadataCache.get("channelVideos:$channelId") {
+            channelVideosUncached(channelId)
         }
     }
 
     private suspend fun channelVideosUncached(channelId: String): Page<VideoItem> {
         val uploadsPlaylist = "UU" + channelId.substring(2)
-        var lastError: Exception? = null
-        var answered = false
         for (browseId in listOf("VL$uploadsPlaylist", uploadsPlaylist)) {
             try {
                 val body = baseBody().put("browseId", browseId)
                 val page = InnertubeParser.parseFeedPage(post("browse", body))
-                answered = true
                 if (page.items.isNotEmpty()) return Page(items = page.items, nextPage = null)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                lastError = e
+                // Fall through to the other spelling.
             }
         }
-        // Tidak ada ejaan browseId yang menjawab: lempar agar hasil
-        // kosong ini TIDAK tersimpan di cache.
-        if (!answered) lastError?.let { throw it }
-        log("kanal $channelId kosong di kedua ejaan browseId", null)
+        // Fase 7-A: both spellings came back empty or refused — the
+        // channel page will read "no videos"; leave why in the log.
+        failureReporter.record(
+            SURFACE_KANAL,
+            KIND_KOSONG,
+            "daftar unggahan kosong pada kedua ejaan browseId",
+        )
         return Page(items = emptyList(), nextPage = null)
     }
 
@@ -269,23 +239,37 @@ class LontarEngine(
      */
     override suspend fun getChannelInfo(channelId: String): ChannelInfo? {
         if (!channelId.startsWith("UC") || channelId.length < 4) return null
-        return try {
-            withContext(Dispatchers.Default) {
-                metadataCache.get("channelInfo:$channelId") {
-                    channelInfoUncached(channelId)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log("info kanal gagal: $channelId", e)
-            null
+        return metadataCache.get("channelInfo:$channelId") {
+            channelInfoUncached(channelId)
         }
     }
 
     private suspend fun channelInfoUncached(channelId: String): ChannelInfo? {
-        val body = baseBody().put("browseId", channelId)
-        return InnertubeParser.parseChannelInfo(post("browse", body), channelId)
+        return try {
+            val body = baseBody().put("browseId", channelId)
+            val info = InnertubeParser.parseChannelInfo(post("browse", body), channelId)
+            // Fase 7-A: a header that parsed to nothing, or one whose
+            // real photo is missing, is evidence — not silence.
+            if (info == null) {
+                failureReporter.record(
+                    SURFACE_KANAL,
+                    KIND_URAI,
+                    "kepala kanal tidak terbaca dari jawaban browse",
+                )
+            } else if (info.avatarUrl.isNullOrBlank()) {
+                failureReporter.record(
+                    SURFACE_KANAL,
+                    KIND_URAI,
+                    "kepala kanal terbaca tanpa foto asli",
+                )
+            }
+            info
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteFailure(SURFACE_KANAL, e)
+            null
+        }
     }
 
     /**
@@ -303,39 +287,52 @@ class LontarEngine(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                log("komentar lanjutan gagal", e)
+                noteFailure(SURFACE_KOMENTAR, e)
                 CommentsPage()
             }
         }
-        return try {
-            withContext(Dispatchers.Default) {
-                metadataCache.get("comments:$videoId") {
-                    commentsFirstPage(videoId)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log("komentar gagal: $videoId", e)
-            CommentsPage()
+        // First pages repeat on every reopen of the same video;
+        // continuation pages are one-time tokens and stay uncached.
+        return metadataCache.get("comments:$videoId") {
+            commentsFirstPage(videoId)
         }
     }
 
     private suspend fun commentsFirstPage(videoId: String): CommentsPage {
-        val watch = post("next", baseBody().put("videoId", videoId))
-        val ownerAvatar = InnertubeParser.parseOwnerAvatarUrl(watch)
-        val token = InnertubeParser.findCommentsToken(watch)
-        if (token == null) {
-            log("token komentar tidak ditemukan: $videoId (komentar nonaktif atau bentuk respons berubah)", null)
-            return CommentsPage(ownerAvatarUrl = ownerAvatar)
+        return try {
+            run {
+                val watch = post("next", baseBody().put("videoId", videoId))
+                val ownerAvatar = InnertubeParser.parseOwnerAvatarUrl(watch)
+                val token = InnertubeParser.findCommentsToken(watch)
+                if (token == null) {
+                    // Fase 7-A: a missing token is a parse-shape
+                    // failure, not "this video has no comments" —
+                    // leave the evidence before going quiet.
+                    failureReporter.record(
+                        SURFACE_KOMENTAR,
+                        KIND_URAI,
+                        "token komentar tidak ditemukan di halaman tonton",
+                    )
+                    return CommentsPage(ownerAvatarUrl = ownerAvatar)
+                }
+                val body = baseBody().put("continuation", token)
+                val firstPage = InnertubeParser.parseCommentsPage(post("next", body))
+                    .copy(ownerAvatarUrl = ownerAvatar)
+                if (firstPage.items.isEmpty()) {
+                    failureReporter.record(
+                        SURFACE_KOMENTAR,
+                        KIND_KOSONG,
+                        "halaman pertama terbaca kosong",
+                    )
+                }
+                firstPage
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteFailure(SURFACE_KOMENTAR, e)
+            CommentsPage()
         }
-        val body = baseBody().put("continuation", token)
-        val firstPage = InnertubeParser.parseCommentsPage(post("next", body))
-            .copy(ownerAvatarUrl = ownerAvatar)
-        if (firstPage.items.isEmpty()) {
-            log("halaman komentar pertama kosong: $videoId", null)
-        }
-        return firstPage
     }
 
     /** One page of a thread's replies, via the thread's own token. */
@@ -347,7 +344,7 @@ class LontarEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log("balasan komentar gagal", e)
+            noteFailure(SURFACE_BALASAN, e)
             CommentsPage()
         }
     }
@@ -359,37 +356,42 @@ class LontarEngine(
      * server list" and the caller composes its local fallback instead.
      */
     override suspend fun getRelatedVideos(videoId: String): List<VideoItem> {
-        return try {
-            withContext(Dispatchers.Default) {
-                metadataCache.get("related:$videoId") {
-                    relatedUncached(videoId)
-                }
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log("video terkait gagal: $videoId", e)
-            emptyList()
+        // The next-watch chain walk re-asks this for the same videos
+        // again and again; inside the window the stored real answer
+        // is served instead (Paket Mesin B).
+        return metadataCache.get("related:$videoId") {
+            relatedUncached(videoId)
         }
     }
 
     private suspend fun relatedUncached(videoId: String): List<VideoItem> {
-        val items = InnertubeParser.parseRelatedVideos(watchResponse(videoId))
-        if (items.isEmpty()) {
-            log("daftar terkait kosong: $videoId (bentuk respons berubah?)", null)
+        return try {
+            val watch = post("next", baseBody().put("videoId", videoId))
+            val items = InnertubeParser.parseRelatedVideos(watch)
+            if (items.isEmpty()) {
+                failureReporter.record(
+                    SURFACE_TERKAIT,
+                    KIND_KOSONG,
+                    "daftar server terbaca kosong",
+                )
+            }
+            items
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteFailure(SURFACE_TERKAIT, e)
+            emptyList()
         }
-        return items
     }
 
     /** The account's own header, from its authenticated account menu. */
     override suspend fun getAccountInfo(): AccountInfo? {
-        if (!auth.isSignedIn && !auth.isBearerSignedIn) return null
+        if (!auth.isSignedIn) return null
         return try {
             InnertubeParser.parseAccountInfo(post("account/account_menu", baseBody()))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log("info akun gagal", e)
             null
         }
     }
@@ -420,33 +422,17 @@ class LontarEngine(
     }
 
     override suspend fun getVideoDetails(videoId: String): VideoDetails {
-        // Kegagalan details memang muncul sebagai galat player.
-        val details = InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
-        val watch = try {
-            watchResponse(videoId)
+        return try {
+            InnertubeParser.parseVideoDetails(playerResponse(videoId).first)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log("halaman tonton gagal: $videoId", e)
-            null
+            // Details failures DO surface as player errors; the log
+            // entry is what separates a refusal from a parse change.
+            noteFailure(SURFACE_DETAIL, e)
+            throw e
         }
-        val watchText = watch?.let { InnertubeParser.parseWatchViewCountText(it) }
-        val watchDate = watch?.let { InnertubeParser.parseWatchDateText(it) }
-        return details.copy(
-            viewCountText = watchText ?: details.viewCountText,
-            uploadedText = watchDate ?: details.uploadedText,
-        )
     }
-
-    /**
-     * Respons "next" (halaman tonton) dibagi antara teks tayang asli
-     * dan video terkait; di dalam jendela cache yang sama server hanya
-     * ditanya sekali.
-     */
-    private suspend fun watchResponse(videoId: String): JSONObject =
-        metadataCache.get("watch:$videoId") {
-            post("next", baseBody().put("videoId", videoId))
-        }
 
     /**
      * Panen Bertingkat's raw material: the winning player response's
@@ -506,26 +492,34 @@ class LontarEngine(
     // ------------------------------------------------------------ fase 8
 
     /** The SABR slice of the current configuration (remote or defaults). */
-    fun sabrSettings(): com.bunny.engine.lontar.sabr.SabrSettings {
-        val cellular = networkClass.current() == NetworkClasses.CELLULAR
-        return com.bunny.engine.lontar.sabr.SabrSettings(
+    fun sabrSettings(): com.bunny.engine.lontar.sabr.SabrSettings =
+        com.bunny.engine.lontar.sabr.SabrSettings(
             enabled = config.sabrEnabled,
             personas = config.sabrPersonas,
             spoolBudgetBytes = config.spoolBudgetMb.toLong() * 1024 * 1024,
+            // The race shortens on metered networks (design
+            // mechanism 4): cellular halves the budget.
             raceBudgetBytes = config.sabrRaceBudgetKb.toLong() *
-                (if (cellular) 512 else 1024),
-            leadCapMs = if (cellular) 40_000L else Long.MAX_VALUE,
+                (if (networkClass.current() == "SELULER") 512 else 1024),
+            // Mechanisms 3 + 22: on metered links the pump hugs the
+            // playhead at the classic player's own buffer ceiling
+            // (40 s); off-metered it may complete the spool.
+            leadCapMs = if (networkClass.current() == "SELULER") {
+                40_000L
+            } else {
+                Long.MAX_VALUE
+            },
+            // Langkah 7, mechanism 7: the governance threshold
+            // rides the same config slice as the rest of the gate.
             killThreshold = config.sabrKillThreshold,
-            adaptEnabled = config.sabrAdaptEnabled,
         )
-    }
 
     /**
      * Anti-buffering M13: whether the link is unmetered for
      * speculative media work — the same network-class signal the
      * SABR settings already steer by (cellular is the metered one).
      */
-    fun isUnmetered(): Boolean = networkClass.current() != NetworkClasses.CELLULAR
+    fun isUnmetered(): Boolean = networkClass.current() != "SELULER"
 
     /**
      * Fase 8 (Anyam), Langkah 3: offers the SABR road for [videoId],
@@ -549,6 +543,7 @@ class LontarEngine(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            noteSabrFailure("player", e.message ?: "respons player gagal")
             // Langkah 7, mechanism 7: a /player fetch that failed
             // at transport level is a verdict about the ROAD (no
             // session ever existed), so the governance hears it —
@@ -579,6 +574,7 @@ class LontarEngine(
             com.bunny.engine.lontar.sabr.DeviceCodecProbe.ceiling(),
         )
         if (open == null) {
+            noteSabrFailure("tawaran", "respons ${persona.name} tanpa SABR")
             // Mechanism 10: no SABR offer in the response is a
             // property of THIS video (a refusal category), not of
             // the road — the road memory may keep it.
@@ -622,6 +618,11 @@ class LontarEngine(
         } catch (e: Exception) {
             // Speculative work stays silent.
         }
+    }
+
+    /** Records one fact on the "sabr" failure-evidence surface (7-A). */
+    fun noteSabrFailure(kind: String, detail: String) {
+        failureReporter.record("sabr", kind, detail.take(MAX_FAILURE_DETAIL_CHARS))
     }
 
     /**
@@ -931,7 +932,7 @@ class LontarEngine(
         BearerDoor(
             contextName = "TVHTML5",
             clientNameId = "7",
-            clientVersion = config.bearerTvClientVersion,
+            clientVersion = "7.20260707.07.00",
             userAgent = "Mozilla/5.0 (Linux armeabi-v7a; Android 7.1.2; " +
                 "Fire OS 6.0) Cobalt/22.lts.3.306369-gold (unlike Gecko) " +
                 "v8/8.8.278.8-jit gles Starboard/13, " +
@@ -951,8 +952,8 @@ class LontarEngine(
         BearerDoor(
             contextName = "ANDROID",
             clientNameId = "3",
-            clientVersion = config.bearerAndroidClientVersion,
-            userAgent = "com.google.android.youtube/${config.bearerAndroidClientVersion} " +
+            clientVersion = "21.26.364",
+            userAgent = "com.google.android.youtube/21.26.364 " +
                 "(Linux; U; Android 11) gzip",
             referer = null,
             androidContext = true,
@@ -975,8 +976,8 @@ class LontarEngine(
             val client = JSONObject()
                 .put("clientName", door.contextName)
                 .put("clientVersion", door.clientVersion)
-                .put("hl", locale.hl)
-                .put("gl", locale.gl)
+                .put("hl", "id")
+                .put("gl", "ID")
                 .put("visitorData", session.visitorData)
             if (door.androidContext) {
                 client.put("androidSdkVersion", 30)
@@ -994,27 +995,30 @@ class LontarEngine(
                     accessToken = accessToken,
                 )
                 val account = InnertubeParser.parseAccountItem(response)
-                com.bunny.core.model.BearerContextVerdict(
-                    contextName = door.contextName,
-                    httpStatus = 200,
-                    accepted = account != null,
-                    accountName = account?.name,
-                    accountHandle = account?.handle,
-                    accountEmail = account?.email,
-                    avatarUrl = account?.avatarUrl,
-                )
-            } catch (e: CancellationException) {
-                throw e
+                if (account != null) {
+                    com.bunny.core.model.BearerContextVerdict(
+                        contextName = door.contextName,
+                        httpStatus = 200,
+                        accepted = true,
+                        accountName = account.name,
+                        accountHandle = account.handle,
+                        accountEmail = account.email,
+                        avatarUrl = account.avatarUrl,
+                    )
+                } else {
+                    com.bunny.core.model.BearerContextVerdict(
+                        contextName = door.contextName,
+                        httpStatus = 200,
+                        accepted = false,
+                    )
+                }
             } catch (e: LontarException) {
                 com.bunny.core.model.BearerContextVerdict(
                     contextName = door.contextName,
                     httpStatus = e.httpCode,
                     accepted = false,
                 )
-            } catch (e: Exception) {
-                // IOException (termasuk timeout), JSONException, galat parse:
-                // satu pintu rusak tidak boleh menggagalkan pintu lainnya.
-                log("pintu ${door.contextName} gagal", e)
+            } catch (e: java.io.IOException) {
                 com.bunny.core.model.BearerContextVerdict(
                     contextName = door.contextName,
                     httpStatus = null,
@@ -1051,12 +1055,7 @@ class LontarEngine(
         val request = builder
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
-        // Batas waktu total per pintu: pintu yang menggantung tidak
-        // menahan pintu sisanya. newBuilder() berbagi pool koneksi.
-        val doorClient = httpClient.newBuilder()
-            .callTimeout(DOOR_TIMEOUT_SEC, TimeUnit.SECONDS)
-            .build()
-        doorClient.newCall(request).execute().use { response ->
+        httpClient.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val detail = runCatching {
@@ -1091,37 +1090,6 @@ class LontarEngine(
 
     // -------------------------------------------------------------- internals
 
-    /**
-     * Menjalankan pencarian seed secara paralel (maksimal
-     * [MAX_PARALLEL_METADATA] sekaligus). Jika SEMUA seed gagal, galat
-     * pertama dilempar supaya UI bisa menampilkan galat, bukan beranda kosong.
-     */
-    private suspend fun gatherSeeds(
-        seeds: List<Pair<String, String>>,
-        fetch: suspend (query: String, label: String) -> List<VideoItem>,
-    ): List<List<VideoItem>> {
-        val results: List<Result<List<VideoItem>>> = coroutineScope {
-            seeds.map { (query, label) ->
-                async(Dispatchers.Default) {
-                    metadataGate.withPermit {
-                        try {
-                            Result.success(fetch(query, label))
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            log("seed '$query' gagal", e)
-                            Result.failure(e)
-                        }
-                    }
-                }
-            }.awaitAll()
-        }
-        val pages = results.map { it.getOrDefault(emptyList()) }
-        val firstFailure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
-        if (firstFailure != null && pages.all { it.isEmpty() }) throw firstFailure
-        return pages
-    }
-
     private suspend fun seedMixture(): Page<VideoItem> {
         // Every mixture item is tagged with its Chip Alasan as it enters:
         // the topic whose seed search surfaced it. The tag is a fact about
@@ -1129,10 +1097,20 @@ class LontarEngine(
         // by the UI. The seed set itself is remotely updatable (Fase 4).
         // The topic searches are independent: run them in parallel so
         // the home feed costs one round trip, not five in a row.
-        val pages = gatherSeeds(config.seedQueries) { query, label ->
-            search(query, null).items
-                .filter { !it.isLive }
-                .map { item -> item.copy(reason = "Topik: $label") }
+        val pages = coroutineScope {
+            config.seedQueries.map { (query, label) ->
+                async {
+                    try {
+                        search(query, null).items
+                            .filter { !it.isLive }
+                            .map { item -> item.copy(reason = "Topik: $label") }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+            }.awaitAll()
         }
         return Page(items = roundRobin(pages, MAX_SEED_ITEMS), nextPage = null)
     }
@@ -1182,23 +1160,16 @@ class LontarEngine(
 
     private suspend fun playerResponse(videoId: String): Pair<JSONObject, PlayerPersona> {
         playerCache.get(videoId)?.let { return it }
-        val deferred = inFlightPlayer.computeIfAbsent(videoId) {
-            engineScope.async(start = CoroutineStart.LAZY) {
-                fetchPlayerResponse(videoId)
-            }
-        }
-        deferred.invokeOnCompletion { inFlightPlayer.remove(videoId, deferred) }
-        // Membatalkan satu penunggu tidak membatalkan panggilan bersama.
-        return deferred.await()
-    }
-
-    private suspend fun fetchPlayerResponse(
-        videoId: String,
-    ): Pair<JSONObject, PlayerPersona> {
-        val before = ensureSessionOrNull()
         val firstPass = attemptPlayerChain(videoId, sessionVisitorData())
         if (firstPass.accepted != null) return firstPass.accepted
-        swapSession(failed = before)
+        // Fase 4 resilience: the bot gate is bound to the session (see
+        // PlayerPersona), so when the whole chain refuses, one FRESH
+        // session earns one more pass before the refusal reaches the
+        // user. Exactly one refresh — no retry loops against a gate
+        // that may be answering deliberately. Lontar Hidup (Fase 6):
+        // the fresh session is the warm spare when one is ready, so
+        // the swap costs no bootstrap round trip.
+        swapSession()
         val secondPass = attemptPlayerChain(videoId, sessionVisitorData())
         if (secondPass.accepted != null) return secondPass.accepted
         throw secondPass.error ?: firstPass.error
@@ -1259,31 +1230,17 @@ class LontarEngine(
         for (persona in ladder) {
             var outcome = "tidak ada respons"
             var lastStatus: String? = null
-            var transportFailed = false
-            for (attemptNo in 0 until 2) {
-                val response = try {
-                    postPlayer(persona, videoId, visitorData)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    // Persona ini gagal di jalur transport/HTTP: catat,
-                    // lalu LANJUT ke persona berikutnya, bukan
-                    // menggugurkan seluruh rantai.
-                    val code = (e as? LontarException)?.httpCode
-                    outcome = "gagal: " + (code?.let { "HTTP $it" } ?: e.javaClass.simpleName)
-                    lastError = LontarException(
-                        "Persona ${persona.name} gagal: ${e.message}",
-                        httpCode = code,
-                    )
-                    log("player/${persona.name} gagal", e)
-                    transportFailed = true
-                    break
-                }
+            repeat(2) {
+                val response = postPlayer(persona, videoId, visitorData)
                 val playability = response.optJSONObject("playabilityStatus")
                 val status = playability?.optString("status")
                 lastStatus = status
                 val reason = playability?.optString("reason")
                     ?.takeIf { it.isNotEmpty() }
+                // Playability OK alone is not acceptance: an OK with no
+                // usable stream (seen from TV personas in the probe) is
+                // a refusal wearing a smile — the next persona may hold
+                // real formats.
                 if (status == "OK" && hasPlayableStreams(response)) {
                     val accepted = response to persona
                     playerCache.put(
@@ -1304,11 +1261,10 @@ class LontarEngine(
                     "YouTube menolak memutar video ini: " +
                         (reason ?: status ?: "respons player tidak dikenal"),
                 )
-                // Ulangi hanya untuk gerbang bot yang sifatnya sesekali.
-                // Penolakan lain (ERROR, UNPLAYABLE) bersifat tetap.
-                if (status != "LOGIN_REQUIRED" && status != null) break
             }
-            if (!transportFailed && lastStatus != null && lastStatus != "OK") {
+            // A player-layer refusal is ladder evidence; an OK with no
+            // streams is not the persona's verdict to carry.
+            if (lastStatus != null && lastStatus != "OK") {
                 recordStat(persona.name, net, PersonaHealthState.DITOLAK_PLAYER)
             }
             outcomes += "${persona.name} → $outcome"
@@ -1373,70 +1329,49 @@ class LontarEngine(
             .put("contentCheckOk", true)
     }
 
-    /** Kredensial Bearer untuk satu permintaan metadata. */
-    private class BearerAuth(val token: String, val referer: String?)
+    /**
+     * Fase 7-A: writes one failure-notebook entry for a metadata
+     * surface, classifying the cause the way the Diagnostics block
+     * reads best — the HTTP code when the server refused, "jaringan"
+     * for transport trouble, "urai" for everything else (a changed
+     * response shape is the usual suspect there).
+     */
+    private fun noteFailure(surface: String, e: Exception) {
+        val kind = when (e) {
+            is LontarException -> e.httpCode?.let { "HTTP $it" } ?: "mesin"
+            is java.io.IOException -> "jaringan"
+            else -> KIND_URAI
+        }
+        failureReporter.record(
+            surface,
+            kind,
+            (e.message ?: e.javaClass.simpleName).take(MAX_FAILURE_DETAIL_CHARS),
+        )
+    }
 
     private suspend fun post(endpoint: String, body: JSONObject): JSONObject {
-        // Cookie WEB menang bila ada; Bearer dipakai hanya bila login
-        // lewat Satu Ketuk dan pintu pemenangnya sudah diketahui.
-        val token = auth.bearerToken
-        val bearerContext = auth.bearerContext
-        val useBearer = auth.cookies == null && token != null && bearerContext != null
-
-        suspend fun attempt(active: InnertubeSession): JSONObject {
-            val url = "https://www.youtube.com/youtubei/v1/$endpoint" +
-                "?key=${active.apiKey}&prettyPrint=false"
-            val door = if (useBearer) {
-                bearerDoors(active.clientVersion)
-                    .firstOrNull { it.contextName == bearerContext }
-            } else {
-                null
-            }
-            if (door != null && token != null) {
-                // Konteks di badan harus cocok dengan pintu penerima token.
-                body.optJSONObject("context")?.optJSONObject("client")?.let { client ->
-                    client.put("clientName", door.contextName)
-                        .put("clientVersion", door.clientVersion)
-                    if (door.androidContext) {
-                        client.put("androidSdkVersion", 30)
-                            .put("osName", "Android")
-                            .put("osVersion", "11")
-                    }
-                }
-                return postJson(
-                    url = url,
-                    userAgent = door.userAgent,
-                    clientNameId = door.clientNameId,
-                    clientVersion = door.clientVersion,
-                    body = body,
-                    endpointLabel = endpoint,
-                    bearer = BearerAuth(token, door.referer),
-                )
-            }
-            return postJson(
-                url = url,
+        suspend fun attempt(activeSession: InnertubeSession): JSONObject =
+            postJson(
+                url = "https://www.youtube.com/youtubei/v1/$endpoint" +
+                    "?key=${activeSession.apiKey}&prettyPrint=false",
                 userAgent = LontarPersona.USER_AGENT,
                 clientNameId = LontarPersona.CLIENT_NAME_ID,
-                clientVersion = active.clientVersion,
+                clientVersion = activeSession.clientVersion,
                 body = body,
                 endpointLabel = endpoint,
                 auth = auth.cookies,
             )
-        }
-
-        val used = ensureSession()
         return try {
-            attempt(used)
+            attempt(ensureSession())
         } catch (e: LontarException) {
-            if (useBearer && e.httpCode == 401) {
-                // Token Bearer kedaluwarsa (umur sekitar satu jam): bukan
-                // masalah sesi. Hapus dan minta app mengambil token baru.
-                auth.bearerToken = null
-                onBearerExpired?.invoke()
-                throw e
-            }
+            // Metadata self-healing (Lontar Hidup §7.3): a 401/403 that
+            // matches a session refusal earns ONE session swap and ONE
+            // retry with the body rebuilt on the new session (its only
+            // session-bound field is the context visitorData). Ordinary
+            // query errors (a bad browseId's 400, say) are NOT healed —
+            // masking them would hide the real cause.
             if (e.httpCode != 401 && e.httpCode != 403) throw e
-            swapSession(failed = used)
+            swapSession()
             val healed = ensureSession()
             body.optJSONObject("context")?.optJSONObject("client")
                 ?.put("visitorData", healed.visitorData)
@@ -1452,7 +1387,6 @@ class LontarEngine(
         body: JSONObject,
         endpointLabel: String,
         auth: AuthCookies? = null,
-        bearer: BearerAuth? = null,
     ): JSONObject {
         // Distribution hardening (2026-11-10): transient refusals —
         // HTTP 429 (rate limit), 5xx (server trouble) and network I/O
@@ -1487,13 +1421,6 @@ class LontarEngine(
                                 ),
                             )
                             .header("X-Origin", SapisidHash.ORIGIN)
-                    }
-                    if (bearer != null) {
-                        requestBuilder
-                            .header("Authorization", "Bearer ${bearer.token}")
-                            .header("X-Goog-AuthUser", "0")
-                            .header("X-YouTube-Bootstrap-Logged-In", "true")
-                        bearer.referer?.let { requestBuilder.header("Referer", it) }
                     }
                     val request = requestBuilder
                         .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
@@ -1550,16 +1477,8 @@ class LontarEngine(
                 // defaults are always serviceable.
                 val configJob = async {
                     if (!configFetched) {
-                        val fetched = withTimeoutOrNull(CONFIG_FETCH_TIMEOUT_MS) {
-                            fetchRemoteConfig()
-                        }
-                        // Tandai selesai HANYA bila benar-benar didapat;
-                        // jika gagal/terlambat, pembukaan sesi berikutnya
-                        // mencoba lagi. Bawaan tetap melayani sementara.
-                        if (fetched != null) {
-                            config = fetched
-                            configFetched = true
-                        }
+                        configFetched = true
+                        config = fetchRemoteConfig()
                     }
                 }
                 // Whatever config is already in hand (the defaults on a
@@ -1594,39 +1513,34 @@ class LontarEngine(
     }
 
     /**
-     * Menukar sesi yang ditolak. [failed] adalah sesi yang dipakai saat
-     * penolakan terjadi: jika sesi aktif sudah bukan itu, pemanggil lain
-     * sudah menukarnya dan penukaran ini dilewati (tanpa boros cadangan).
+     * Replaces the active session: the warm spare when it is still
+     * fresh (instant), a fresh bootstrap otherwise. Used by the player
+     * chain's second pass and by metadata self-healing — one swap, one
+     * retry, never a loop (Lontar Hidup §7.2).
      */
-    private suspend fun swapSession(failed: InnertubeSession?) = swapMutex.withLock {
-        if (failed != null && session !== failed) return@withLock
+    private suspend fun swapSession() {
         val spare = backupSession
         val fresh = spare != null &&
             System.currentTimeMillis() - backupHarvestedAtMs < BACKUP_TTL_MS
         if (fresh) {
-            sessionMutex.withLock { session = spare }
+            session = spare
             backupSession = null
             scheduleBackupHarvest()
         } else {
+            // A full re-bootstrap follows a refusal: if the refused
+            // session carried the shelved visitor, that identity is
+            // suspect — the next bootstrap adopts a fresh one.
             if (session?.visitorData != null &&
                 session?.visitorData == visitorStore.load()
             ) {
                 visitorSuspect = true
             }
-            sessionMutex.withLock { session = null }
+            session = null
             ensureSession()
         }
     }
 
-    private suspend fun ensureSessionOrNull(): InnertubeSession? = try {
-        ensureSession()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        null
-    }
-
-    private suspend fun fetchRemoteConfig(): EngineConfig.Values? = try {
+    private suspend fun fetchRemoteConfig(): EngineConfig.Values = try {
         withContext(Dispatchers.IO) {
             val request = Request.Builder()
                 .url(EngineConfig.REMOTE_URL)
@@ -1636,15 +1550,14 @@ class LontarEngine(
                 if (response.isSuccessful) {
                     EngineConfig.parse(JSONObject(response.body?.string().orEmpty()))
                 } else {
-                    null
+                    EngineConfig.DEFAULTS
                 }
             }
         }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        log("config jarak jauh gagal", e)
-        null
+        EngineConfig.DEFAULTS
     }
 
     /**
@@ -1655,51 +1568,18 @@ class LontarEngine(
      */
     @Volatile private var visitorSuspect = false
 
-    /**
-     * Membaca beranda YouTube bertahap (64 KB, 128 KB, 256 KB, dst.)
-     * dan berhenti begitu kunci API, versi klien, dan visitorData sudah
-     * utuh. Ukuran penuh halaman bisa ratusan KB sampai lebih dari 1 MB.
-     */
-    private fun readHomepageHead(response: okhttp3.Response): String {
-        val source = response.body?.source() ?: return ""
-        var limit = 64L * 1024
-        while (true) {
-            val more = source.request(limit)
-            val html = source.buffer.clone().readUtf8()
-            val complete =
-                InnertubeSession.fromHomepageHtml(html, "") != null &&
-                    CLIENT_VERSION_COMPLETE.containsMatchIn(html)
-            if (complete || !more || limit >= MAX_HOMEPAGE_BYTES) return html
-            limit *= 2
-        }
-    }
-
-    /** "id-ID,id;q=0.9,en;q=0.8" — bentuk lama untuk hl polos. */
-    private fun acceptLanguage(): String {
-        val primary =
-            if ('-' in locale.hl) locale.hl else "${locale.hl}-${locale.gl}"
-        return "$primary,${locale.hl};q=0.9,en;q=0.8"
-    }
-
     private suspend fun fetchSession(
         fallbackClientVersion: String,
     ): InnertubeSession = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://www.youtube.com/")
             .header("User-Agent", LontarPersona.USER_AGENT)
-            .header(
-                "Accept-Language",
-                acceptLanguage(),
-            )
+            .header("Accept-Language", "id-ID,id;q=0.9,en;q=0.8")
             .build()
         httpClient.newCall(request).execute().use { response ->
-            val head = readHomepageHead(response)
+            val html = response.body?.string().orEmpty()
             val harvested = InnertubeSession.fromHomepageHtml(
-                head,
-                fallbackClientVersion,
-            ) ?: InnertubeSession.fromHomepageHtml(
-                // Penanda belum utuh di bagian awal: baca semuanya.
-                response.body?.string().orEmpty(),
+                html,
                 fallbackClientVersion,
             ) ?: throw LontarException(
                 "Gagal memperoleh sesi InnerTube dari beranda YouTube",
@@ -1722,25 +1602,21 @@ class LontarEngine(
     }
 
     companion object {
-        private const val MAX_PARALLEL_METADATA = 3
-
-        /** Pintu: batas waktu total satu ketukan ke satu pintu. */
-        private const val DOOR_TIMEOUT_SEC = 8L
-
-        /** Batas tunggu konfigurasi jarak jauh saat sesi dibuka. */
-        private const val CONFIG_FETCH_TIMEOUT_MS = 1_500L
-
-        /** Batas atas bacaan beranda YouTube untuk mencari penanda sesi. */
-        private const val MAX_HOMEPAGE_BYTES = 2L * 1024 * 1024
-
-        /** Versi klien yang sudah utuh (nilai penuh, bukan terpotong). */
-        private val CLIENT_VERSION_COMPLETE =
-            Regex(""""INNERTUBE_CLIENT_VERSION":\s*"[^"]+"""")
-
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
+        // Fase 7-A: metadata surface names + failure classes written
+        // to the failure notebook (user-facing, hence Indonesian).
+        private const val SURFACE_KOMENTAR = "komentar"
+        private const val SURFACE_BALASAN = "balasan komentar"
+        private const val SURFACE_TERKAIT = "terkait"
+        private const val SURFACE_KANAL = "kanal"
+        private const val SURFACE_DETAIL = "detail"
         /** Persona label carried by floor streams (Lantai Penyelamat). */
         const val FLOOR_PERSONA_NAME = "ANDROID_LANTAI"
+
+        private const val KIND_URAI = "urai"
+        private const val KIND_KOSONG = "kosong"
+        private const val MAX_FAILURE_DETAIL_CHARS = 120
 
         /** InnerTube search param filter: videos only. */
         private const val SEARCH_PARAMS_VIDEO_ONLY = "EgIQAQ%3D%3D"
