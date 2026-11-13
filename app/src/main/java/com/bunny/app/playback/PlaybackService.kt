@@ -7,6 +7,8 @@ import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSessionService
+import com.bunny.app.bug.MinorCategory
+import com.bunny.app.bug.MinorIssueRecorder
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -92,6 +94,9 @@ class PlaybackService : MediaSessionService() {
             try {
                 context.startService(Intent(context, PlaybackService::class.java))
             } catch (e: IllegalStateException) {
+                MinorIssueRecorder.report(
+                    MinorCategory.CAUGHT, "PlaybackService", "Layanan gagal dimulai", e,
+                )
             }
         }
     }

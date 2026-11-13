@@ -59,6 +59,8 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -104,6 +106,11 @@ import javax.inject.Inject
 
 @UnstableApi
 @AndroidEntryPoint
+private val PasanganSaver = Saver<Pair<String, String>?, List<String>>(
+    save = { p -> p?.let { listOf(it.first, it.second) } ?: emptyList() },
+    restore = { l -> if (l.size == 2) l[0] to l[1] else null },
+)
+
 class MainActivity : ComponentActivity() {
 
     @Inject
@@ -128,7 +135,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // A cold start can BE the OAuth redirect (the browser sheet
         // returns to a fresh process); hand it to the same door.
-        intent?.data?.let { desktopAuth.handleRedirect(it) }
+        if (savedInstanceState == null) {
+            intent?.data?.let { desktopAuth.handleRedirect(it) }
+        }
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
@@ -163,21 +172,29 @@ class MainActivity : ComponentActivity() {
                 // one optional open video. Still a plain state machine — the
                 // screens own their scaffolds, this one only owns the tab
                 // bar and the player overlay.
-                var openVideoId by remember { mutableStateOf<String?>(null) }
-                var openSearch by remember { mutableStateOf(false) }
-                var openNotifications by remember { mutableStateOf(false) }
-                var openDownloads by remember { mutableStateOf(false) }
-                var openPersonal by remember { mutableStateOf<String?>(null) }
+                var openVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+                var openSearch by rememberSaveable { mutableStateOf(false) }
+                var openNotifications by rememberSaveable { mutableStateOf(false) }
+                var openDownloads by rememberSaveable { mutableStateOf(false) }
+                var openPersonal by rememberSaveable { mutableStateOf<String?>(null) }
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
-                var playerMinimized by remember { mutableStateOf(false) }
+                var playerMinimized by rememberSaveable { mutableStateOf(false) }
+
+                // Membuka video selalu membesarkan pemutar — termasuk
+                // ketukan pada video yang sedang dilipat (nilainya
+                // sama, jadi tanpa ini tidak ada yang berubah).
+                val openVideo: (String) -> Unit = { id ->
+                    openVideoId = id
+                    playerMinimized = false
+                }
                 val playerViewModel: PlayerViewModel = hiltViewModel()
                 val playerUiState by playerViewModel.uiState.collectAsState()
                 val playerController by playerViewModel.controllerPlayer.collectAsState()
-                var openChannel by remember {
+                var openChannel by rememberSaveable(stateSaver = PasanganSaver) {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
-                var selectedTab by remember { mutableStateOf(0) }
+                var selectedTab by rememberSaveable { mutableStateOf(0) }
                 // Isi feed Beranda yang dilaporkan HomeScreen; Live dan Kanal
                 // memakainya untuk daftar tab dan (di Kanal) untuk isi video.
                 var feedItems by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
@@ -207,11 +224,11 @@ class MainActivity : ComponentActivity() {
                 // komposisi saat sumbernya terisi, jauh sebelum
                 // cabangnya bisa ada, jadi !! pada jepretan aman
                 // menurut konstruksi.
-                var lastVideoId by remember { mutableStateOf<String?>(null) }
-                var lastChannel by remember {
+                var lastVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+                var lastChannel by rememberSaveable(stateSaver = PasanganSaver) {
                     mutableStateOf<Pair<String, String>?>(null)
                 }
-                var lastPersonal by remember { mutableStateOf<String?>(null) }
+                var lastPersonal by rememberSaveable { mutableStateOf<String?>(null) }
                 if (videoId != null) lastVideoId = videoId
                 if (openChannel != null) lastChannel = openChannel
                 if (openPersonal != null) lastPersonal = openPersonal
@@ -237,8 +254,10 @@ class MainActivity : ComponentActivity() {
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
-                val canGoBack = videoId == null &&
-                    (openChannel != null || openSearch || openNotifications || openDownloads || openPersonal != null || selectedTab != 0)
+                val playerExpanded = videoId != null && !playerMinimized
+                val canGoBack = !playerExpanded &&
+                    (openChannel != null || openSearch || openNotifications ||
+                        openDownloads || openPersonal != null || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
                         openPersonal != null -> openPersonal = null
@@ -302,7 +321,7 @@ class MainActivity : ComponentActivity() {
                                         openChannel = id to name
                                     },
                                     onPipClick = { enterPip() },
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                     onMinimize = { playerMinimized = true },
                                 )
                                                                 }
@@ -312,25 +331,25 @@ class MainActivity : ComponentActivity() {
                                     channelId = channelId,
                                     channelName = channelName,
                                     onBack = { openChannel = null },
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                 )
                                                                 }
                                     "search" -> {
                                 SearchScreen(
                                     onBack = { openSearch = false },
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                 )
                                                                 }
                                     "notifications" -> {
                                 NotificationsScreen(
                                     onBack = { openNotifications = false },
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                 )
                                                                 }
                                     "downloads" -> {
                                 DownloadsScreen(
                                     onBack = { openDownloads = false },
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                 )
                                                                 }
                                     "personal" -> {
@@ -344,13 +363,13 @@ class MainActivity : ComponentActivity() {
                                     else -> PersonalFeedScreen(
                                         mode = (openPersonal ?: lastPersonal)!!,
                                         onBack = { openPersonal = null },
-                                        onVideoClick = { openVideoId = it },
+                                        onVideoClick = openVideo,
                                     )
                                 }
                                                                 }
                                     "tab0" -> {
                                 HomeScreen(
-                                    onVideoClick = { openVideoId = it },
+                                    onVideoClick = openVideo,
                                     onSearchClick = { openSearch = true },
                                     onNotificationsClick = { openNotifications = true },
                                     notificationsUnread = notifUnread,
@@ -368,7 +387,7 @@ class MainActivity : ComponentActivity() {
                                                 .padding(bottom = barHeightDp),
                                         ) {
                                             ShortsScreen(
-                                                onVideoClick = { openVideoId = it },
+                                                onVideoClick = openVideo,
                                                 onSearchClick = { openSearch = true },
                                             )
                                         }
@@ -380,7 +399,7 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     LiveScreen(
-                                        onVideoClick = { openVideoId = it },
+                                        onVideoClick = openVideo,
                                         onSearchClick = { openSearch = true },
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,
@@ -399,7 +418,7 @@ class MainActivity : ComponentActivity() {
                                         onChannelClick = { id, name ->
                                             openChannel = id to name
                                         },
-                                        onVideoClick = { openVideoId = it },
+                                        onVideoClick = openVideo,
                                         onSearchClick = { openSearch = true },
                                         onNotificationsClick = { openNotifications = true },
                                         topics = topics,

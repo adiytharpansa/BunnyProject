@@ -8,6 +8,7 @@ import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.DownloadFormat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +16,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,14 +79,19 @@ class DownloadManager @Inject constructor(
 
     /** Starts (or restarts) the staged download of one video. */
     fun enqueue(videoId: String) {
-        if (activeJobs.containsKey(videoId)) return
-        activeJobs[videoId] = scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 runStages(videoId)
             } finally {
-                activeJobs.remove(videoId)
+                // hanya hapus entri milik job ini sendiri
+                activeJobs.remove(videoId, coroutineContext.job)
             }
         }
+        if (activeJobs.putIfAbsent(videoId, job) != null) {
+            job.cancel() // sudah ada job aktif
+            return
+        }
+        job.start()
     }
 
     /** Deletes a download: job, files, and record. */

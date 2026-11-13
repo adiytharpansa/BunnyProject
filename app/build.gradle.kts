@@ -9,6 +9,9 @@ plugins {
 }
 
 android {
+    // Sandi kunci rilis dibaca sekali: null/ kosong berarti varian
+    // rilis dibangun TANPA tanda tangan, bukan gagal misterius.
+    val releasePassword: String? = System.getenv("BUNNY_RELEASE_PASSWORD")
     namespace = "com.bunny.app"
     compileSdk = 36
 
@@ -78,9 +81,9 @@ android {
         // terbangun tanpa tanda tangan (bukti R8 dapur kedua).
         create("release") {
             storeFile = rootProject.file("bunny-release.keystore")
-            storePassword = System.getenv("BUNNY_RELEASE_PASSWORD")
+            storePassword = releasePassword
             keyAlias = "bunny-release"
-            keyPassword = System.getenv("BUNNY_RELEASE_PASSWORD")
+            keyPassword = releasePassword
         }
     }
 
@@ -92,7 +95,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            if (rootProject.file("bunny-release.keystore").exists()) {
+            if (rootProject.file("bunny-release.keystore").exists() &&
+                !releasePassword.isNullOrEmpty()
+            ) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
