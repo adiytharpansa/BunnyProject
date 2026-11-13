@@ -69,6 +69,19 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
         }
+        // Rilis (persiapan rilis 2026-11-13): kunci khusus rilis,
+        // RSA 4096, alias bunny-release, sidik SHA-1
+        // 73:8C:B8:60:48:F0:B0:77:3E:BB:E6:F6:E1:A1:56:49:C8:68:0F:95.
+        // Berkasnya dipulihkan dapur build dari rahasia repo dan
+        // sandinya datang dari variabel lingkungan — tidak ada nilai
+        // rahasia yang tertulis di repo. Tanpa berkas, varian rilis
+        // terbangun tanpa tanda tangan (bukti R8 dapur kedua).
+        create("release") {
+            storeFile = rootProject.file("bunny-release.keystore")
+            storePassword = System.getenv("BUNNY_RELEASE_PASSWORD")
+            keyAlias = "bunny-release"
+            keyPassword = System.getenv("BUNNY_RELEASE_PASSWORD")
+        }
     }
 
     buildTypes {
@@ -79,6 +92,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (rootProject.file("bunny-release.keystore").exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isMinifyEnabled = false
