@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -99,6 +101,10 @@ fun VideoCard(
     onPreviewSoundToggle: (() -> Unit)? = null,
     /** Hide the Chip Alasan pill when the caller already shows it (active topic filter). */
     showReason: Boolean = true,
+    /** ⋮ → "Tidak tertarik". Null menyembunyikan menu itu (layar selain Beranda). */
+    onNotInterested: (() -> Unit)? = null,
+    /** ⋮ → "Jangan rekomendasikan channel". Null menyembunyikan menu itu. */
+    onDontRecommendChannel: (() -> Unit)? = null,
 ) {
     val surfaceActive = isPreviewing && previewPlayer != null
     val context = LocalContext.current
@@ -318,7 +324,11 @@ fun VideoCard(
                         )
                     }
                 }
-                CardMenu(videoId = item.id)
+                CardMenu(
+                    videoId = item.id,
+                    onNotInterested = onNotInterested,
+                    onDontRecommendChannel = onDontRecommendChannel,
+                )
             }
             // Chip Alasan: why this video is on the list, stated plainly.
             // Aligned with the channel text, not the avatar.
@@ -426,11 +436,16 @@ private fun ThumbBadge(text: String, modifier: Modifier = Modifier) {
 
 /**
  * The card's ⋮ menu (the official feed has one on every card): share
- * the canonical watch URL or copy it. Both are pure Android intents —
- * no engine involvement.
+ * the canonical watch URL or copy it, plus the two feedback entries the
+ * official feed has — "Tidak tertarik" and "Jangan rekomendasikan
+ * channel" — when the host screen wires them.
  */
 @Composable
-private fun CardMenu(videoId: String) {
+private fun CardMenu(
+    videoId: String,
+    onNotInterested: (() -> Unit)? = null,
+    onDontRecommendChannel: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var expanded by remember { mutableStateOf(false) }
@@ -472,10 +487,33 @@ private fun CardMenu(videoId: String) {
                     clipboard.setText(AnnotatedString(url))
                 },
             )
+            if (onNotInterested != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_not_interested)) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.VisibilityOff, contentDescription = null)
+                    },
+                    onClick = {
+                        expanded = false
+                        onNotInterested()
+                    },
+                )
+            }
+            if (onDontRecommendChannel != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.menu_dont_recommend_channel)) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Block, contentDescription = null)
+                    },
+                    onClick = {
+                        expanded = false
+                        onDontRecommendChannel()
+                    },
+                )
+            }
         }
     }
 }
-
 // Avatar tile colors: a stable per-channel pick from warm tones taken
 // from the app icon's browns, so the feed reads as many channels
 // instead of one repeated brand block. The letter stays near-white

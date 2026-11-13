@@ -151,6 +151,88 @@ interface PersonaStatDao {
     suspend fun upsert(entity: PersonaStatEntity)
 }
 
+/**
+ * Mesin Selera: satu baris per video yang pernah dibuka. [watchedMs] adalah
+ * waktu putar kumulatif (bukan posisi), jadi melompat ke akhir video tidak
+ * menggelembungkan kepuasan. Tidak pernah meninggalkan perangkat.
+ */
+@Entity(tableName = "watch_engagement")
+data class WatchEngagementEntity(
+    @PrimaryKey val videoId: String,
+    val channelId: String?,
+    val channelName: String,
+    val title: String,
+    val durationMs: Long,
+    val watchedMs: Long,
+    val opens: Int,
+    val completed: Boolean,
+    val firstOpenedAtEpochMs: Long,
+    val lastOpenedAtEpochMs: Long,
+)
+
+/**
+ * Umpan balik eksplisit pemirsa. [kind] salah satu konstanta FeedbackKind:
+ * NOT_INTERESTED, DONT_RECOMMEND_CHANNEL, LIKE, DISLIKE, SURVEY_YES, SURVEY_NO.
+ */
+@Entity(tableName = "feed_feedback")
+data class FeedFeedbackEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val kind: String,
+    val videoId: String?,
+    val channelId: String?,
+    val channelName: String,
+    val title: String,
+    val createdAtEpochMs: Long,
+)
+
+@Dao
+interface WatchEngagementDao {
+
+    @Query("SELECT * FROM watch_engagement WHERE videoId = :videoId")
+    suspend fun get(videoId: String): WatchEngagementEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: WatchEngagementEntity)
+
+    @Query("SELECT * FROM watch_engagement ORDER BY lastOpenedAtEpochMs DESC LIMIT :limit")
+    suspend fun recent(limit: Int): List<WatchEngagementEntity>
+
+    @Query("DELETE FROM watch_engagement WHERE lastOpenedAtEpochMs < :olderThanEpochMs")
+    suspend fun prune(olderThanEpochMs: Long)
+
+    @Query("DELETE FROM watch_engagement")
+    suspend fun clear()
+}
+
+@Dao
+interface FeedFeedbackDao {
+
+    @Insert
+    suspend fun insert(entity: FeedFeedbackEntity)
+
+    @Query("SELECT * FROM feed_feedback ORDER BY createdAtEpochMs DESC LIMIT :limit")
+    suspend fun recent(limit: Int): List<FeedFeedbackEntity>
+
+    @Query("SELECT * FROM feed_feedback WHERE kind = :kind ORDER BY createdAtEpochMs DESC")
+    suspend fun byKind(kind: String): List<FeedFeedbackEntity>
+
+    /** Baris lama dibuang, kecuali jenis [keepKind] (blokir channel berlaku sampai dicabut). */
+    @Query(
+        "DELETE FROM feed_feedback WHERE createdAtEpochMs < :olderThanEpochMs " +
+            "AND kind != :keepKind",
+    )
+    suspend fun prune(olderThanEpochMs: Long, keepKind: String)
+
+    @Query(
+        "DELETE FROM feed_feedback WHERE kind = :kind AND " +
+            "(channelName = :channelName OR (channelId IS NOT NULL AND channelId = :channelId))",
+    )
+    suspend fun deleteChannelBlock(kind: String, channelName: String, channelId: String?)
+
+    @Query("DELETE FROM feed_feedback")
+    suspend fun clear()
+}
+
 @Dao
 interface DownloadDao {
 
@@ -215,8 +297,10 @@ interface SettingDao {
         ChannelGroupEntity::class,
         DownloadEntity::class,
         PersonaStatEntity::class,
+        WatchEngagementEntity::class,
+        FeedFeedbackEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class BunnyDatabase : RoomDatabase() {
@@ -226,4 +310,6 @@ abstract class BunnyDatabase : RoomDatabase() {
     abstract fun channelGroupDao(): ChannelGroupDao
     abstract fun downloadDao(): DownloadDao
     abstract fun personaStatDao(): PersonaStatDao
+    abstract fun watchEngagementDao(): WatchEngagementDao
+    abstract fun feedFeedbackDao(): FeedFeedbackDao
 }

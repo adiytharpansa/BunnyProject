@@ -191,4 +191,11 @@
     <string name="kanal_empty_topic">Belum ada video topik %1$s dari kanal langgananmu.</string>
     <string name="card_preview_sound_on">Matikan suara pratinjau</string>
     <string name="card_preview_sound_off">Nyalakan suara pratinjau</string>
+    <string name="menu_not_interested">Tidak tertarik</string>
+    <string name="menu_dont_recommend_channel">Jangan rekomendasikan channel ini</string>
+    <string name="survey_title">Sepadan dengan waktu Anda?</string>
+    <string name="survey_subtitle">Tadi Anda menonton “%1$s”</string>
+    <string name="survey_yes">Sepadan</string>
+    <string name="survey_no">Kurang</string>
+    <string name="survey_skip">Lewati</string>
 </resources>

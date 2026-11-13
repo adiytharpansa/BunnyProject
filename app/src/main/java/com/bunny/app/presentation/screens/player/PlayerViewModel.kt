@@ -16,6 +16,7 @@ import com.bunny.app.data.DownloadManager
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.data.RoadMemoryStore
 import com.bunny.app.data.WatchPositionStore
+import com.bunny.app.data.TasteRepository
 import java.io.File
 import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlaybackFailureLog
@@ -122,6 +123,7 @@ class PlayerViewModel @Inject constructor(
     private val sabrCoordinator: SabrPlaybackCoordinator,
     private val engine: LontarEngine,
     private val roadMemory: RoadMemoryStore,
+    private val taste: TasteRepository,
 ) : ViewModel() {
 
     init {
@@ -174,6 +176,14 @@ class PlayerViewModel @Inject constructor(
             ) {
                 // A finished video has no resume position.
                 videoId?.let { positions.clear(it) }
+                // Mesin Selera: menonton sampai habis adalah sinyal terkuat,
+                // dan tontonan yang selesai layak ditanyai (bila kebijakan survei mengizinkan).
+                videoId?.let { finishedId ->
+                    viewModelScope.launch {
+                        taste.markCompleted(finishedId)
+                        taste.maybeQueueSurvey(finishedId)
+                    }
+                }
                 PlaybackDiagnostics.log("Video selesai: putar otomatis berikutnya")
                 skipToNext(auto = true)
             }
@@ -193,6 +203,7 @@ class PlayerViewModel @Inject constructor(
             while (true) {
                 delay(5_000)
                 saveCurrentPosition()
+                trackWatchTime(5_000)
             }
         }
     }
@@ -206,6 +217,31 @@ class PlayerViewModel @Inject constructor(
         val duration = player.duration
         if (duration <= 0) return
         positions.save(id, player.currentPosition, duration)
+    }
+
+    /**
+     * Mesin Selera: setiap detak lima detik yang benar-benar sedang memutar
+     * ditambahkan ke waktu tonton video ini. Waktu putar kumulatif (bukan
+     * posisi) dipakai supaya melompat ke akhir tidak menggelembungkan
+     * kepuasan. Durasi tak diketahui (siaran langsung) dicatat sebagai 0.
+     */
+    private fun trackWatchTime(elapsedMs: Long) {
+        val id = videoId ?: return
+        val player = playbackManager.player
+        if (!player.isPlaying) return
+        val details = (_uiState.value as? PlayerUiState.Ready)?.details ?: return
+        if (details.id != id) return
+        val duration = player.duration.takeIf { it > 0L } ?: 0L
+        viewModelScope.launch {
+            taste.addWatchTime(
+                videoId = id,
+                channelId = details.channelId,
+                channelName = details.channelName,
+                title = details.title,
+                elapsedMs = elapsedMs,
+                durationMs = duration,
+            )
+        }
     }
 
     /**
@@ -462,6 +498,7 @@ class PlayerViewModel @Inject constructor(
             library.charge(id, details.title, estimate)
         }
         library.recordChannelWatch(details.channelName)
+        taste.recordOpen(id, details.channelId, details.channelName, details.title)
         val quota = library.quotaBytes.first()
         val used = library.monthUsageBytes().first()
         _uiState.value = PlayerUiState.Ready(
@@ -571,6 +608,10 @@ class PlayerViewModel @Inject constructor(
 
     fun stopPlayback() {
         saveCurrentPosition()
+        // Pemirsa meninggalkan video: tontonan bermakna boleh ditanyai di Beranda.
+        videoId?.let { leftId ->
+            viewModelScope.launch { taste.maybeQueueSurvey(leftId) }
+        }
         setSleepTimer(null)
         requestedId = null
         playbackManager.stop()
@@ -955,6 +996,7 @@ class PlayerViewModel @Inject constructor(
                         channelName = local.channelName,
                     )
                     library.recordChannelWatch(local.channelName)
+                    taste.recordOpen(id, local.channelId, local.channelName, local.title)
                     val localDetails = VideoDetails(
                         id = id,
                         title = local.title,
@@ -1129,6 +1171,7 @@ class PlayerViewModel @Inject constructor(
                 // Mesin Selera: an open is the strongest local signal
                 // Bunny gets — record which channel earned it.
                 library.recordChannelWatch(details.channelName)
+                taste.recordOpen(id, details.channelId, details.channelName, details.title)
                 val quota = library.quotaBytes.first()
                 val used = library.monthUsageBytes().first()
                 val exceeded = quota != null && used > quota

@@ -81,6 +81,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
@@ -90,6 +91,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.bunny.app.R
+import com.bunny.app.data.SurveyPrompt
 import com.bunny.app.presentation.components.BunnyHeader
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.core.model.DataCost
@@ -129,6 +131,7 @@ fun HomeScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val jatah by viewModel.jatah.collectAsState()
+    val survey by viewModel.survey.collectAsState()
     var showQuotaDialog by remember { mutableStateOf(false) }
     // Topic chips: they filter the mixture already on screen — Bunny's
     // Chip Alasan reasons ARE the topics, so no extra fetch is needed.
@@ -356,6 +359,17 @@ fun HomeScreen(
                             modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
                         )
                     }
+                    // Kartu survei kepuasan. SENGAJA tanpa key String: kandidat
+                    // pratinjau membaca key bertipe String sebagai id video.
+                    survey?.let { prompt ->
+                        item {
+                            SatisfactionCard(
+                                prompt = prompt,
+                                onAnswer = { viewModel.answerSurvey(it) },
+                                modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
+                            )
+                        }
+                    }
                     items(visibleItems, key = { it.id }) { item ->
                         val isPreviewingThis = previewingId == item.id
                         VideoCard(
@@ -386,6 +400,8 @@ fun HomeScreen(
                             // The active topic's pill would repeat
                             // the filter the user already picked.
                             showReason = item.reason != topicFilter,
+                            onNotInterested = { viewModel.notInterested(item) },
+                            onDontRecommendChannel = { viewModel.dontRecommendChannel(item) },
                         )
                     }
                 }
@@ -778,4 +794,66 @@ private fun JatahQuotaDialog(
             }
         },
     )
+}
+
+/**
+ * Pengganti lokal untuk survei kepuasan YouTube: satu pertanyaan singkat
+ * tentang tontonan terakhir. Jawabannya menjadi sinyal untuk Mesin Selera
+ * dan tidak pernah meninggalkan perangkat.
+ */
+@Composable
+private fun SatisfactionCard(
+    prompt: SurveyPrompt,
+    onAnswer: (Boolean?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                shape = shape,
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.survey_title),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = stringResource(R.string.survey_subtitle, prompt.title),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilledTonalButton(
+                onClick = { onAnswer(true) },
+                modifier = Modifier.height(36.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+            ) {
+                Text(stringResource(R.string.survey_yes))
+            }
+            FilledTonalButton(
+                onClick = { onAnswer(false) },
+                modifier = Modifier.height(36.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+            ) {
+                Text(stringResource(R.string.survey_no))
+            }
+            TextButton(onClick = { onAnswer(null) }) {
+                Text(stringResource(R.string.survey_skip))
+            }
+        }
+    }
 }

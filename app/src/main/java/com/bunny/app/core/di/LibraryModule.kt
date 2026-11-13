@@ -7,10 +7,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.bunny.app.data.BunnyDatabase
 import com.bunny.app.data.ChannelGroupDao
 import com.bunny.app.data.DownloadDao
+import com.bunny.app.data.FeedFeedbackDao
 import com.bunny.app.data.PersonaStatDao
 import com.bunny.app.data.SettingDao
 import com.bunny.app.data.SubscriptionDao
 import com.bunny.app.data.WatchChargeDao
+import com.bunny.app.data.WatchEngagementDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,7 +29,7 @@ object LibraryModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): BunnyDatabase =
         Room.databaseBuilder(context, BunnyDatabase::class.java, "bunny.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
             .build()
 
     @Provides
@@ -53,6 +55,14 @@ object LibraryModule {
     @Provides
     fun provideSettingDao(database: BunnyDatabase): SettingDao =
         database.settingDao()
+
+    @Provides
+    fun provideWatchEngagementDao(database: BunnyDatabase): WatchEngagementDao =
+        database.watchEngagementDao()
+
+    @Provides
+    fun provideFeedFeedbackDao(database: BunnyDatabase): FeedFeedbackDao =
+        database.feedFeedbackDao()
 
     /**
      * v1 -> v2 (Fase 6): subscriptions gain the channel's real avatar
@@ -117,6 +127,39 @@ object LibraryModule {
                     "lastCheckEpochMs INTEGER NOT NULL, " +
                     "lastSuccessEpochMs INTEGER NOT NULL, " +
                     "PRIMARY KEY(persona, networkClass))",
+            )
+        }
+    }
+
+    /**
+     * v4 -> v5 (Mesin Selera): dua tabel baru, waktu tonton per video dan
+     * umpan balik eksplisit. Murni aditif — semua baris lama selamat.
+     */
+    private val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS watch_engagement (" +
+                    "videoId TEXT NOT NULL, " +
+                    "channelId TEXT, " +
+                    "channelName TEXT NOT NULL, " +
+                    "title TEXT NOT NULL, " +
+                    "durationMs INTEGER NOT NULL, " +
+                    "watchedMs INTEGER NOT NULL, " +
+                    "opens INTEGER NOT NULL, " +
+                    "completed INTEGER NOT NULL, " +
+                    "firstOpenedAtEpochMs INTEGER NOT NULL, " +
+                    "lastOpenedAtEpochMs INTEGER NOT NULL, " +
+                    "PRIMARY KEY(videoId))",
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS feed_feedback (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                    "kind TEXT NOT NULL, " +
+                    "videoId TEXT, " +
+                    "channelId TEXT, " +
+                    "channelName TEXT NOT NULL, " +
+                    "title TEXT NOT NULL, " +
+                    "createdAtEpochMs INTEGER NOT NULL)",
             )
         }
     }

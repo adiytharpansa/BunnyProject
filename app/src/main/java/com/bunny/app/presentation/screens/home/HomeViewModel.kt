@@ -10,6 +10,9 @@ import com.bunny.app.data.DesktopAuth
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.data.PersonalDataRepository
 import com.bunny.app.data.YouTubeDataApi
+import com.bunny.app.data.FeedbackKind
+import com.bunny.app.data.SurveyPrompt
+import com.bunny.app.data.TasteRepository
 import com.bunny.app.playback.FeedPreviewManager
 import com.bunny.app.playback.PreviewStatus
 import com.bunny.app.presentation.components.ThumbnailPreloader
@@ -46,6 +49,7 @@ class HomeViewModel @Inject constructor(
     private val dataApi: YouTubeDataApi,
     private val personal: PersonalDataRepository,
     private val accountTasteRepo: AccountTasteRepository,
+    private val tasteRepo: TasteRepository,
     private val sabrCoordinator: com.bunny.engine.lontar.sabr.SabrPlaybackCoordinator,
 ) : ViewModel() {
 
@@ -61,6 +65,45 @@ class HomeViewModel @Inject constructor(
 
     fun setQuota(bytes: Long?) {
         viewModelScope.launch { library.setQuotaBytes(bytes) }
+    }
+
+    // ------------------------------------------------ survei kepuasan
+
+    private val _survey = MutableStateFlow<SurveyPrompt?>(null)
+
+    /** "Sepadan dengan waktu Anda?" tentang tontonan terakhir; null bila tak ada. */
+    val survey: StateFlow<SurveyPrompt?> = _survey.asStateFlow()
+
+    /** [worthIt]: true = sepadan, false = kurang, null = dilewati. */
+    fun answerSurvey(worthIt: Boolean?) {
+        val prompt = _survey.value ?: return
+        _survey.value = null
+        viewModelScope.launch { tasteRepo.answerSurvey(prompt, worthIt) }
+    }
+
+    // ------------------------------------------------ umpan balik kartu
+
+    /** ⋮ → "Tidak tertarik": kartu hilang seketika dan tak akan muncul lagi. */
+    fun notInterested(item: VideoItem) {
+        removeFromFeed { it.id == item.id }
+        viewModelScope.launch {
+            tasteRepo.recordFeedback(FeedbackKind.NOT_INTERESTED, item)
+        }
+    }
+
+    /** ⋮ → "Jangan rekomendasikan channel": semua video channel itu hilang. */
+    fun dontRecommendChannel(item: VideoItem) {
+        removeFromFeed { candidate ->
+            (item.channelId != null && candidate.channelId == item.channelId) ||
+                (item.channelName.isNotEmpty() && candidate.channelName == item.channelName)
+        }
+        viewModelScope.launch {
+            tasteRepo.recordFeedback(FeedbackKind.DONT_RECOMMEND_CHANNEL, item)
+        }
+    }
+
+    private fun removeFromFeed(predicate: (VideoItem) -> Boolean) {
+        _uiState.update { it.copy(items = it.items.filterNot(predicate)) }
     }
 
     // ------------------------------------------------------ pratinjau
@@ -151,6 +194,7 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
             try {
+                _survey.value = tasteRepo.pendingSurvey()
                 val status = backend.healthCheck()
                 _uiState.update { it.copy(backendStatus = status) }
                 // Home is ALWAYS the locally composed mixture,
@@ -280,7 +324,16 @@ class HomeViewModel @Inject constructor(
                     demotedIds = library.feedImpressions.first().toSet() -
                         library.openedVideoIds.first().toSet(),
                 )
-                val ranked = FeedRanker.rank(candidates, taste)
+                // Mesin Selera tahap 2: sinyal waktu tonton, umpan balik, dan
+                // peluruhan waktu dari TasteRepository melengkapi profil dasar.
+                // Benih eksplorasi berbeda tiap muatan, jadi Tarik-untuk-segarkan
+                // memberi sedikit kejutan seperti beranda YouTube.
+                val enriched = tasteRepo.enrich(taste)
+                val ranked = FeedRanker.rank(
+                    candidates,
+                    enriched,
+                    explorationSeed = System.currentTimeMillis(),
+                )
                 // Chip Alasan for the account's hand in the order: a
                 // title matching one of the account's own interest
                 // words says so. Subscription-pool items already
