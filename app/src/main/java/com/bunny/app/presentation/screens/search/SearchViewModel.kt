@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.bunny.app.data.LibraryRepository
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.SearchFilter
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -22,18 +23,24 @@ data class SearchUiState(
     val query: String = "",
     val suggestions: List<String> = emptyList(),
     val submittedQuery: String? = null,
+    val filter: SearchFilter = SearchFilter.DEFAULT,
     val results: List<VideoItem> = emptyList(),
     val nextPage: String? = null,
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
-)
+    /** Gagal memuat halaman lanjutan (hasil yang ada tetap tampil). */
+    val loadMoreFailed: Boolean = false,
+    /** True = sedang mengetik (saran); false = melihat hasil. */
+    val isEditing: Boolean = true,
+) {
+    val showResults: Boolean get() = submittedQuery != null && !isEditing
+}
 
 /**
- * Two-stage search, mirroring the official app's structure (REA
- * dissection 2026-11-10): the typing stage offers local recent
- * searches plus live suggestions, and submit loads a results page
- * that can page further with the engine's continuation token.
+ * Dua tahap seperti YouTube: mengetik (riwayat + saran langsung) lalu
+ * hasil berhalaman dengan filter. Mengetik ulang setelah hasil tampil
+ * kembali membuka saran; tombol kembali dari saran membawa ke hasil.
  */
 @HiltViewModel
 class SearchViewModel @Inject constructor(
@@ -49,9 +56,36 @@ class SearchViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var suggestionJob: Job? = null
+    private var searchJob: Job? = null
+    private var moreJob: Job? = null
+
+    // ------------------------------------------------------------ mengetik
 
     fun onQueryChange(value: String) {
-        _uiState.update { it.copy(query = value) }
+        _uiState.update { it.copy(query = value, isEditing = true) }
+        fetchSuggestions(value)
+    }
+
+    /** Kolom cari disentuh saat hasil tampil: kembali ke mode saran. */
+    fun onSearchFieldFocused() {
+        val state = _uiState.value
+        if (state.isEditing) return
+        _uiState.update { it.copy(isEditing = true) }
+        fetchSuggestions(state.query)
+    }
+
+    /** Tombol kembali dari mode saran: pulihkan hasil yang tadi. */
+    fun backToResults() {
+        _uiState.update {
+            it.copy(
+                isEditing = false,
+                query = it.submittedQuery ?: it.query,
+                suggestions = emptyList(),
+            )
+        }
+    }
+
+    private fun fetchSuggestions(value: String) {
         suggestionJob?.cancel()
         if (value.isBlank()) {
             _uiState.update { it.copy(suggestions = emptyList()) }
@@ -60,32 +94,56 @@ class SearchViewModel @Inject constructor(
         suggestionJob = viewModelScope.launch {
             delay(SUGGESTION_DEBOUNCE_MS)
             val found = backend.getSearchSuggestions(value.trim())
-            // Suggestions for a query the user has already edited away
-            // from would be noise — apply only while it still matches.
+            // Saran untuk teks yang sudah diubah lagi hanya jadi noise.
             _uiState.update { state ->
                 if (state.query == value) state.copy(suggestions = found) else state
             }
         }
     }
 
+    // ------------------------------------------------------------- mencari
+
     fun submit(raw: String = _uiState.value.query) {
-        val query = raw.trim()
+        runSearch(raw.trim(), _uiState.value.filter, record = true)
+    }
+
+    fun applyFilter(filter: SearchFilter) {
+        val state = _uiState.value
+        val query = state.submittedQuery ?: return
+        if (filter == state.filter) return
+        runSearch(query, filter, record = false)
+    }
+
+    fun retry() {
+        val state = _uiState.value
+        val query = state.submittedQuery ?: return
+        runSearch(query, state.filter, record = false)
+    }
+
+    private fun runSearch(query: String, filter: SearchFilter, record: Boolean) {
         if (query.isEmpty()) return
+        suggestionJob?.cancel()
+        searchJob?.cancel()
+        moreJob?.cancel()
         _uiState.update {
             it.copy(
                 query = query,
                 submittedQuery = query,
+                filter = filter,
                 suggestions = emptyList(),
                 results = emptyList(),
                 nextPage = null,
                 isLoading = true,
+                isLoadingMore = false,
                 error = null,
+                loadMoreFailed = false,
+                isEditing = false,
             )
         }
-        viewModelScope.launch {
-            library.recordSearch(query)
+        searchJob = viewModelScope.launch {
+            if (record) library.recordSearch(query)
             try {
-                val page = backend.search(query, null)
+                val page = backend.search(query, null, filter)
                 thumbnails.preload(page.items)
                 _uiState.update {
                     it.copy(isLoading = false, results = page.items, nextPage = page.nextPage)
@@ -93,7 +151,7 @@ class SearchViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, error = e.message) }
+                _uiState.update { it.copy(isLoading = false, error = e.message ?: "") }
             }
         }
     }
@@ -103,24 +161,34 @@ class SearchViewModel @Inject constructor(
         val token = state.nextPage ?: return
         val query = state.submittedQuery ?: return
         if (state.isLoading || state.isLoadingMore) return
-        _uiState.update { it.copy(isLoadingMore = true) }
-        viewModelScope.launch {
+        _uiState.update { it.copy(isLoadingMore = true, loadMoreFailed = false) }
+        moreJob = viewModelScope.launch {
             try {
-                val page = backend.search(query, token)
+                val page = backend.search(query, token, state.filter)
                 thumbnails.preload(page.items)
                 _uiState.update {
+                    val merged = (it.results + page.items).distinctBy { item -> item.id }
+                    val added = merged.size - it.results.size
                     it.copy(
                         isLoadingMore = false,
-                        results = (it.results + page.items).distinctBy { item -> item.id },
-                        nextPage = page.nextPage,
+                        results = merged,
+                        // Halaman tanpa tambahan baru = akhir daftar; cegah
+                        // gulir tak terbatas berputar tanpa henti.
+                        nextPage = if (added == 0) null else page.nextPage,
                     )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoadingMore = false, error = e.message) }
+                _uiState.update { it.copy(isLoadingMore = false, loadMoreFailed = true) }
             }
         }
+    }
+
+    // ------------------------------------------------------------- riwayat
+
+    fun removeRecent(term: String) {
+        viewModelScope.launch { library.removeRecentSearch(term) }
     }
 
     fun clearHistory() {

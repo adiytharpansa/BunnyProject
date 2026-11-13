@@ -149,6 +149,14 @@ class LibraryRepository @Inject constructor(
         settingDao.upsert(SettingEntity(KEY_RECENT_SEARCHES, ""))
     }
 
+    /** Menghapus satu pencarian dari riwayat (tahan lama di daftar). */
+    suspend fun removeRecentSearch(query: String) {
+        val target = query.trim()
+        val updated = recentSearches.first()
+            .filterNot { it.equals(target, ignoreCase = true) }
+        settingDao.upsert(SettingEntity(KEY_RECENT_SEARCHES, updated.joinToString("\n")))
+    }
+
     // ------------------------------------------------------ mesin selera
 
     /**

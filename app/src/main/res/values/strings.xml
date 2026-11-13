@@ -198,4 +198,45 @@
     <string name="survey_yes">Sepadan</string>
     <string name="survey_no">Kurang</string>
     <string name="survey_skip">Lewati</string>
+    <!-- Pencarian: tambahan -->
+    <string name="search_voice">Pencarian suara</string>
+    <string name="search_voice_prompt">Ucapkan yang ingin dicari</string>
+    <string name="search_fill">Isi kolom dengan saran ini</string>
+    <string name="search_idle">Ketik untuk mencari video</string>
+    <string name="search_clear_all">Hapus semua</string>
+    <string name="search_load_more_failed">Gagal memuat lagi. Ketuk untuk coba lagi.</string>
+    <string name="search_remove_history_title">Hapus dari riwayat?</string>
+    <string name="search_remove_history_message">“%1$s” akan dihapus dari riwayat pencarian.</string>
+    <string name="action_delete">Hapus</string>
+    <string name="action_cancel">Batal</string>
+    <!-- Filter pencarian -->
+    <string name="filter_title">Filter</string>
+    <string name="filter_apply">Terapkan</string>
+    <string name="filter_reset">Reset</string>
+    <string name="filter_all">Semua</string>
+    <string name="filter_any">Kapan saja</string>
+    <string name="filter_sort">Urutkan berdasarkan</string>
+    <string name="filter_sort_relevance">Relevansi</string>
+    <string name="filter_sort_rating">Rating</string>
+    <string name="filter_sort_date">Tanggal unggah</string>
+    <string name="filter_sort_views">Jumlah tayangan</string>
+    <string name="filter_sort_date_short">Terbaru</string>
+    <string name="filter_sort_views_short">Terpopuler</string>
+    <string name="filter_upload_date">Waktu unggah</string>
+    <string name="filter_hour">1 jam terakhir</string>
+    <string name="filter_today">Hari ini</string>
+    <string name="filter_week">Minggu ini</string>
+    <string name="filter_month">Bulan ini</string>
+    <string name="filter_year">Tahun ini</string>
+    <string name="filter_duration">Durasi</string>
+    <string name="filter_duration_short">Kurang dari 4 menit</string>
+    <string name="filter_duration_medium">4–20 menit</string>
+    <string name="filter_duration_long">Lebih dari 20 menit</string>
+    <string name="filter_duration_short_chip">&lt; 4 menit</string>
+    <string name="filter_duration_long_chip">&gt; 20 menit</string>
+    <string name="filter_features">Fitur</string>
+    <string name="filter_live">Live</string>
+    <string name="filter_hd">HD</string>
+    <string name="filter_4k">4K</string>
+    <string name="filter_subtitles">Subtitel/CC</string>
 </resources>

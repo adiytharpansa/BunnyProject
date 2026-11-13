@@ -7,6 +7,7 @@ import com.bunny.core.model.CommentsPage
 import com.bunny.core.model.DownloadFormats
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.core.model.SearchFilter
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 import com.bunny.core.model.GuestWarmingReport
@@ -135,6 +136,23 @@ class LontarEngine(
             val body = baseBody()
                 .put("query", query)
                 .put("params", SEARCH_PARAMS_VIDEO_ONLY)
+            InnertubeParser.parseFeedPage(post("search", body))
+        }
+    }
+
+    override suspend fun search(
+        query: String,
+        page: String?,
+        filter: SearchFilter,
+    ): Page<VideoItem> {
+        // Lanjutan halaman = token sekali pakai (filter sudah ada di
+        // dalamnya); filter default = jalur lama beserta cache-nya.
+        if (page != null || filter.isDefault) return search(query, page)
+        val params = SearchParamsEncoder.encode(filter)
+        return metadataCache.get("search:$query:$params") {
+            val body = baseBody()
+                .put("query", query)
+                .put("params", params)
             InnertubeParser.parseFeedPage(post("search", body))
         }
     }

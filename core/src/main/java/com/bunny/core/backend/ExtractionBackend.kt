@@ -7,6 +7,7 @@ import com.bunny.core.model.DownloadFormats
 import com.bunny.core.model.PersonaHealthReport
 import com.bunny.core.model.Page
 import com.bunny.core.model.PlaybackStreams
+import com.bunny.core.model.SearchFilter
 import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
 
@@ -34,6 +35,17 @@ interface ExtractionBackend {
     suspend fun getHomeFeed(page: String?): Page<VideoItem>
 
     suspend fun search(query: String, page: String?): Page<VideoItem>
+
+    /**
+     * Pencarian dengan filter (waktu unggah, durasi, fitur, urutan).
+     * Halaman lanjutan memakai token yang sama; filter sudah tertanam
+     * di token itu. Backend tanpa dukungan filter cukup mengabaikannya.
+     */
+    suspend fun search(
+        query: String,
+        page: String?,
+        filter: SearchFilter,
+    ): Page<VideoItem> = search(query, page)
 
     /**
      * Live search suggestions for the search box — the official app

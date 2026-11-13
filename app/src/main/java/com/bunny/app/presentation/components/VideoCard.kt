@@ -441,7 +441,7 @@ private fun ThumbBadge(text: String, modifier: Modifier = Modifier) {
  * channel" — when the host screen wires them.
  */
 @Composable
-private fun CardMenu(
+internal fun CardMenu(
     videoId: String,
     onNotInterested: (() -> Unit)? = null,
     onDontRecommendChannel: (() -> Unit)? = null,
