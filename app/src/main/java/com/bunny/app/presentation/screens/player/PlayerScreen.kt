@@ -246,6 +246,7 @@ fun PlayerScreen(
     // YouTube-style: the title clamps to two lines and the grey
     // description box expands in place.
     var infoExpanded by remember(videoId) { mutableStateOf(false) }
+    var showComments by remember(videoId) { mutableStateOf(false) }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
 
@@ -284,6 +285,10 @@ fun PlayerScreen(
 
     // Di layar penuh, Back keluar dari layar penuh, bukan menutup video.
     BackHandler(enabled = isLandscape) { toggleFullscreen() }
+
+    // Panel komentar terbuka: Back menutup panel lebih dulu
+    // (BackHandler yang dideklarasikan terakhir dipanggil lebih dulu).
+    BackHandler(enabled = showComments) { showComments = false }
 
     Column(
         modifier = Modifier
@@ -508,6 +513,7 @@ fun PlayerScreen(
         }
 
         if (!isLandscape && !isInPip) {
+        Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -1016,11 +1022,9 @@ fun PlayerScreen(
                         }
                     }
 
-                    CommentsSection(
+                    CommentsEntry(
                         state = comments,
-                        onLoadMore = { viewModel.loadMoreComments() },
-                        onToggleReplies = { viewModel.toggleReplies(it) },
-                        onLoadMoreReplies = { viewModel.loadMoreReplies(it) },
+                        onOpen = { showComments = true },
                     )
                     RelatedSection(
                         state = related,
@@ -1031,162 +1035,19 @@ fun PlayerScreen(
                 }      // menutup `is PlayerUiState.Ready ->`
             }          // menutup `when`
         }              // menutup Column kedua
-        }              // menutup `if (!isLandscape)`
+        CommentsPanel(
+            visible = showComments,
+            state = comments,
+            onClose = { showComments = false },
+            onLoadMore = { viewModel.loadMoreComments() },
+            onToggleReplies = { viewModel.toggleReplies(it) },
+            onLoadMoreReplies = { viewModel.loadMoreReplies(it) },
+        )
+        }              // menutup Box
+        }              // menutup `if (!isLandscape && !isInPip)`
     }                  // menutup Column luar
 }                      // menutup fungsi PlayerScreen
 
-/**
- * Komentar asli dari halaman tonton: penulis, foto, waktu, isi dan
- * jumlah suka persis seperti diterbitkan. Balasan bisa dibuka di
- * tempat: utas dimuat lewat token lanjutannya sendiri saat diketuk.
- */
-@Composable
-private fun CommentsSection(
-    state: CommentsUiState,
-    onLoadMore: () -> Unit,
-    onToggleReplies: (VideoComment) -> Unit,
-    onLoadMoreReplies: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(
-            stringResource(R.string.player_comments_title),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        when {
-            state.isLoading -> CircularProgressIndicator(
-                modifier = Modifier.size(32.dp),
-                strokeWidth = 3.dp,
-            )
-            state.items.isEmpty() -> Text(
-                stringResource(R.string.player_comments_unavailable),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            else -> {
-                state.items.forEach { comment ->
-                    CommentRow(
-                        comment = comment,
-                        replies = state.replies[comment.id],
-                        onToggleReplies = { onToggleReplies(comment) },
-                        onLoadMoreReplies = { onLoadMoreReplies(comment.id) },
-                    )
-                }
-                if (state.nextPage != null) {
-                    OutlinedButton(
-                        onClick = onLoadMore,
-                        enabled = !state.isLoadingMore,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.player_comments_load_more))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CommentRow(
-    comment: VideoComment,
-    replies: RepliesUiState? = null,
-    onToggleReplies: () -> Unit = {},
-    onLoadMoreReplies: () -> Unit = {},
-) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-        ) {
-            comment.authorAvatarUrl?.let { url ->
-                ResilientImage(
-                    url = url,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            }
-        }
-        Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.weight(1f),
-        ) {
-            val head = listOfNotNull(
-                comment.authorName.takeIf { it.isNotEmpty() },
-                comment.publishedText,
-            ).joinToString(" • ")
-            if (head.isNotEmpty()) {
-                Text(
-                    head,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Text(comment.text, style = MaterialTheme.typography.bodyMedium)
-            val meta = listOfNotNull(
-                comment.likeCountText?.takeIf { it != "0" }?.let {
-                    stringResource(R.string.player_comment_likes, it)
-                },
-                if (comment.replyCount > 0) {
-                    stringResource(R.string.player_comment_replies, comment.replyCount)
-                } else {
-                    null
-                },
-                if (comment.isCreatorHearted) {
-                    stringResource(R.string.player_comment_hearted)
-                } else {
-                    null
-                },
-            ).joinToString(" • ")
-            if (meta.isNotEmpty()) {
-                Text(
-                    meta,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            // Balasan: tombol buka/tutup hanya bila server memberi
-            // pintu masuknya (token) — utas tanpa token tidak berpura-
-            // pura bisa dibuka.
-            if (comment.replyCount > 0 && comment.repliesContinuation != null) {
-                TextButton(onClick = onToggleReplies) {
-                    Text(
-                        if (replies?.expanded == true) {
-                            stringResource(R.string.player_replies_hide)
-                        } else {
-                            stringResource(R.string.player_replies_show, comment.replyCount)
-                        },
-                    )
-                }
-            }
-            if (replies?.expanded == true) {
-                when {
-                    replies.isLoading -> CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                    )
-                    replies.failed -> Text(
-                        stringResource(R.string.player_replies_unavailable),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    else -> {
-                        replies.items.forEach { reply -> CommentRow(reply) }
-                        if (replies.nextPage != null) {
-                            TextButton(
-                                onClick = onLoadMoreReplies,
-                                enabled = !replies.isLoadingMore,
-                            ) {
-                                Text(stringResource(R.string.player_replies_load_more))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** Rounded grey pill with a leading icon, like YouTube's action strip. */
 @Composable
