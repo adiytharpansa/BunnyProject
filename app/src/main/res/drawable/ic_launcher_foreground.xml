@@ -1,19 +1,29 @@
-<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Youready?: tombol hitam membulat + segitiga putih (dari SVG ikon baru).
-         Geometri diskalakan dari kanvas 1024 ke 108 dan berada di dalam zona aman
-         adaptive-icon (66dp). Warna ubin ada di ic_launcher_colors.xml. -->
+    <!-- Bunny mark from the project's design document: orange ears (the
+         right one dimmed), cream face, dark eyes, orange nose. Geometry is
+         the document's 52-unit mark scaled into the adaptive-icon safe zone
+         on the tile color declared in ic_launcher_colors.xml. -->
     <path
-        android:fillColor="#0E0E11"
-        android:pathData="M36.07,31.85 L71.93,31.85 A13.71,13.71 0 0 1 85.64,45.56 L85.64,62.44 A13.71,13.71 0 0 1 71.93,76.15 L36.07,76.15 A13.71,13.71 0 0 1 22.36,62.44 L22.36,45.56 A13.71,13.71 0 0 1 36.07,31.85 Z" />
+        android:fillColor="#FF7A29"
+        android:pathData="M51.41,34.16 C52.60,40.96 50.82,46.96 47.42,47.56 C44.02,48.16 40.29,43.13 39.09,36.34 C37.90,29.54 39.68,23.54 43.08,22.94 C46.48,22.34 50.21,27.37 51.41,34.16 Z" />
     <path
-        android:fillColor="#FFFFFF"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="3.8"
-        android:strokeLineJoin="round"
-        android:pathData="M47.67,44.09 L47.67,63.92 L65.18,54.0 Z" />
+        android:fillColor="#FF7A29"
+        android:fillAlpha="0.55"
+        android:pathData="M68.91,36.34 C67.71,43.13 63.98,48.16 60.58,47.56 C57.18,46.96 55.40,40.96 56.59,34.16 C57.79,27.37 61.52,22.34 64.92,22.94 C68.32,23.54 70.10,29.54 68.91,36.34 Z" />
+    <path
+        android:fillColor="#F0F0EA"
+        android:pathData="M71.50,62.75 C71.50,72.41 63.66,80.25 54.00,80.25 C44.34,80.25 36.50,72.41 36.50,62.75 C36.50,53.09 44.34,45.25 54.00,45.25 C63.66,45.25 71.50,53.09 71.50,62.75 Z" />
+    <path
+        android:fillColor="#101214"
+        android:pathData="M50.50,60.25 C50.50,61.77 49.27,63.00 47.75,63.00 C46.23,63.00 45.00,61.77 45.00,60.25 C45.00,58.73 46.23,57.50 47.75,57.50 C49.27,57.50 50.50,58.73 50.50,60.25 Z" />
+    <path
+        android:fillColor="#101214"
+        android:pathData="M63.00,60.25 C63.00,61.77 61.77,63.00 60.25,63.00 C58.73,63.00 57.50,61.77 57.50,60.25 C57.50,58.73 58.73,57.50 60.25,57.50 C61.77,57.50 63.00,58.73 63.00,60.25 Z" />
+    <path
+        android:fillColor="#FF7A29"
+        android:pathData="M57.75,68.38 C57.75,69.76 56.07,70.88 54.00,70.88 C51.93,70.88 50.25,69.76 50.25,68.38 C50.25,66.99 51.93,65.88 54.00,65.88 C56.07,65.88 57.75,66.99 57.75,68.38 Z" />
 </vector>

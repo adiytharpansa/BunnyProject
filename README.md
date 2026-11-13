@@ -1,7 +1,4 @@
-# Youready?
-
-> Nama aplikasi: **Youready?** (sebelumnya "Bunny"). Nama kode repo `BunnyProject`,
-> package `com.bunny.*`, dan kelas `Bunny*` sengaja tidak diubah.
+# Bunny
 
 Klien YouTube untuk Android yang dirancang dan dibangun **dari nol** — bukan
 fork, dan tanpa library ekstraktor YouTube pihak ketiga. Mesinnya, **Lontar**,
@@ -12,7 +9,7 @@ adalah klien InnerTube yang ditulis sendiri untuk proyek ini.
 
 ## Fitur khas
 
-Fitur yang dirancang khusus untuk Youready? (tidak ada di klien sejenis):
+Fitur yang dirancang khusus untuk Bunny (tidak ada di klien sejenis):
 
 - **Timbangan** — setiap video menampilkan perkiraan biaya datanya (≈ MB)
   sebelum diketuk, plus **Jatah**: anggaran kuota bulanan dengan peringatan
@@ -42,7 +39,7 @@ Fitur yang dirancang khusus untuk Youready? (tidak ada di klien sejenis):
 | Modul     | Isi                                                        |
 |-----------|------------------------------------------------------------|
 | `:app`    | UI Compose/Material 3, ViewModel, Hilt, Room, Media3       |
-| `:core`   | Model domain Youready? + kontrak `ExtractionBackend` (Kotlin) |
+| `:core`   | Model domain Bunny + kontrak `ExtractionBackend` (Kotlin)  |
 | `:engine` | Lontar — klien InnerTube orisinal (OkHttp + org.json)      |
 
 UI tidak pernah menyentuh JSON InnerTube; mesin tidak pernah menyentuh

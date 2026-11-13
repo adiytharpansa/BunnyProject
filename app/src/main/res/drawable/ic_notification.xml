@@ -4,9 +4,16 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Siluet Youready?: tombol membulat dengan segitiga putar berlubang. -->
+    <!-- telinga kiri -->
     <path
         android:fillColor="#FFFFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="M6.33,5.00 L17.67,5.00 A4.33,4.33 0 0 1 22.00,9.33 L22.00,14.67 A4.33,4.33 0 0 1 17.67,19.00 L6.33,19.00 A4.33,4.33 0 0 1 2.00,14.67 L2.00,9.33 A4.33,4.33 0 0 1 6.33,5.00 Z M9.9,8.6 L9.9,15.4 L16.0,12.0 Z" />
+        android:pathData="M6.9,6a1.6,4 0 1,0 3.2,0a1.6,4 0 1,0 -3.2,0z" />
+    <!-- telinga kanan -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M13.9,6a1.6,4 0 1,0 3.2,0a1.6,4 0 1,0 -3.2,0z" />
+    <!-- kepala -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,15a6,6 0 1,0 12,0a6,6 0 1,0 -12,0z" />
 </vector>
