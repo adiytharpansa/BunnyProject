@@ -767,7 +767,7 @@ class PlaybackManager @Inject constructor(
                 ?.memoryClass ?: 128
         val targetBufferBytes = (memoryClassMb / 4).coerceIn(24, 64) * 1024 * 1024
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, 1_000, 2_000)
+            .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, 1_000, 5_000)
             .setTargetBufferBytes(targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(BACK_BUFFER_MS, true)
@@ -780,6 +780,17 @@ class PlaybackManager @Inject constructor(
         )
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
+            .setTrackSelector(
+                androidx.media3.exoplayer.trackselection.DefaultTrackSelector(
+                    context,
+                    androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
+                        15_000, // naik kualitas hanya jika penyangga >= 15 dtk
+                        25_000, // turun kualitas hanya jika penyangga < 25 dtk
+                        25_000, // pertahankan data kualitas lama yang sudah terunduh
+                        0.65f,  // pakai 65% bandwidth terukur, sisanya pengaman
+                    ),
+                ),
+            )
             // Lompat 10 detik ke dua arah, seperti YouTube (bawaan Media3
             // 5 dan 15). Dipakai tombol mundur/maju di halaman pemutar.
             .setSeekBackIncrementMs(10_000)
@@ -850,11 +861,29 @@ class PlaybackManager @Inject constructor(
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        if (isPlaying) releaseTransitionHold()
+                        if (isPlaying) {
+                            networkRetries = 0
+                            releaseTransitionHold()
+                        }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
                         PlaybackDiagnostics.log("Player error: ${error.errorCodeName} — ${error.message}")
+                        if (isTransientNetworkError(error) &&
+                            !currentSourceIsLocal &&
+                            !playerOnSabrSource() &&
+                            networkRetries < MAX_NETWORK_RETRIES
+                        ) {
+                            networkRetries++
+                            val gen = chainGeneration
+                            PlaybackDiagnostics.log(
+                                "Jaringan putus sesaat, coba ulang ke-$networkRetries",
+                            )
+                            mainHandler.postDelayed({
+                                if (gen == chainGeneration) exo.prepare()
+                            }, 1_000L * networkRetries)
+                            return
+                        }
                         val step = fallback
                         if (step != null) {
                             step.invoke()
@@ -1013,6 +1042,13 @@ class PlaybackManager @Inject constructor(
 
     private var fallback: (() -> Unit)? = null
     private var chainGeneration = 0
+
+    /** Percobaan ulang berturut-turut untuk error jaringan sesaat. */
+    private var networkRetries = 0
+
+    private fun isTransientNetworkError(e: PlaybackException): Boolean =
+        e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+            e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
     private var currentTitle: String = ""
 
     // ----------------------------------------------------- lontar hidup
@@ -1064,6 +1100,7 @@ class PlaybackManager @Inject constructor(
         startPositionMs: Long = 0L,
     ) {
         cancelSabrWatchdog()
+        networkRetries = 0
         currentTitle = title
         val (label, source) = sources.first()
         val rest = sources.drop(1)
@@ -1109,6 +1146,8 @@ class PlaybackManager @Inject constructor(
         val httpFactory = OkHttpDataSource.Factory(playbackHttpClient)
             .setUserAgent(userAgent)
         val chain = mutableListOf<Pair<String, MediaSource>>()
+        val loadPolicy =
+            androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(6)
         fun item(uri: Uri): MediaItem = MediaItem.Builder()
             .setUri(uri)
             .setMediaMetadata(metadata)
@@ -1164,21 +1203,25 @@ class PlaybackManager @Inject constructor(
                 }
             }
             val source = DashMediaSource.Factory(delegatingFactory)
+                .setLoadErrorHandlingPolicy(loadPolicy)
                 .createMediaSource(item(manifestUri))
             chain += "DASH (manifest buatan Lontar)" to source
         }
         streams.dashManifestUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = DashMediaSource.Factory(httpFactory)
+                .setLoadErrorHandlingPolicy(loadPolicy)
                 .createMediaSource(item(Uri.parse(url)))
             chain += "DASH" to source
         }
         streams.hlsUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = HlsMediaSource.Factory(httpFactory)
+                .setLoadErrorHandlingPolicy(loadPolicy)
                 .createMediaSource(item(Uri.parse(url)))
             chain += "HLS" to source
         }
         streams.progressiveUrl?.takeIf { it.isNotBlank() }?.let { url ->
             val source = DefaultMediaSourceFactory(httpFactory)
+                .setLoadErrorHandlingPolicy(loadPolicy)
                 .createMediaSource(item(Uri.parse(url)))
             chain += "progresif" to source
         }
@@ -1224,10 +1267,13 @@ class PlaybackManager @Inject constructor(
         private const val MAX_BUFFER_MS = 90_000
 
         /** Penyangga belakang: tombol mundur 10 dtk tidak mengunduh ulang. */
-        private const val BACK_BUFFER_MS = 30_000
+        private const val BACK_BUFFER_MS = 15_000
 
         /** Batas waktu wake lock peralihan video. */
         private const val TRANSITION_WAKELOCK_MS = 30_000L
+
+        /** Batas percobaan ulang error jaringan sesaat sebelum pindah sumber. */
+        private const val MAX_NETWORK_RETRIES = 4
     }
 }
 
