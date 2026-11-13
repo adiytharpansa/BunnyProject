@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,7 +70,7 @@ import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoItem
 import kotlin.math.roundToInt
 
-private val CardShape = RoundedCornerShape(20.dp)
+private val CardShape = RoundedCornerShape(14.dp)
 private val AvatarSize = 40.dp
 private val AvatarGap = 12.dp
 private val LiveRed = Color(0xFFD32F2F)
@@ -248,6 +249,10 @@ fun VideoCard(
                 )
             }
         }
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant,
+            thickness = 0.5.dp,
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()

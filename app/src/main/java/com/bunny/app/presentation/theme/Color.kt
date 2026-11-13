@@ -15,7 +15,9 @@ val BunnyOnOrangeContainerLight = Color(0xFF4A2005)
 
 val BunnyBackgroundLight = Color(0xFFFFFAF6)
 val BunnyOnBackgroundLight = Color(0xFF2D1A0D)
-val BunnySurfaceLight = Color(0xFFF7ECE3)
+// Permukaan kartu putih murni (modernisasi 2026-11-13): kartu terpisah
+// jelas dari latar krem; peran warna lain tetap turunan ikon.
+val BunnySurfaceLight = Color(0xFFFFFFFF)
 val BunnySurfaceVariantLight = Color(0xFFF1E2D6)
 val BunnyOnSurfaceVariantLight = Color(0xFF6E5646)
 val BunnyNeutralContainerLight = Color(0xFFF1E2D6)
