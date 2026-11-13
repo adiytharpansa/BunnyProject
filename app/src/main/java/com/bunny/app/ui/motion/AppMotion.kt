@@ -18,6 +18,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import com.bunny.app.data.AppSettings
 
 /**
  * Pusat pengaturan gerak: satu tempat durasi, kurva, dan spring supaya
@@ -112,7 +113,18 @@ object AppMotion {
      * sizeTransform dimatikan: semua layar memenuhi ruang, tidak perlu
      * animasi ukuran (lebih ringan, tanpa pemotongan aneh).
      */
-    fun screenTransition(initial: String, target: String): ContentTransform = when {
+    fun screenTransition(initial: String, target: String): ContentTransform =
+        if (AppSettings.pageAnimations) {
+            animatedScreenTransition(initial, target)
+        } else {
+            ContentTransform(
+                targetContentEnter = EnterTransition.None,
+                initialContentExit = ExitTransition.None,
+                sizeTransform = null,
+            )
+        }
+
+    private fun animatedScreenTransition(initial: String, target: String): ContentTransform = when {
         target == "player" -> ContentTransform(
             targetContentEnter = EnterTransition.None,
             // alpha 0.999 menjaga isi lama tetap hidup selama animasi

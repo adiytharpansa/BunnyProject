@@ -1,6 +1,7 @@
 package com.bunny.app.ui.motion
 
 import androidx.compose.animation.core.animateFloatAsState
+import com.bunny.app.data.AppSettings
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
@@ -51,7 +52,9 @@ fun Modifier.tappable(
             enabled = enabled,
             onLongClick = onLongClick?.let { callback ->
                 {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (AppSettings.haptics) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    }
                     callback()
                 }
             },

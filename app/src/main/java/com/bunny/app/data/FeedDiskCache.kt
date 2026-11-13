@@ -97,6 +97,18 @@ class FeedDiskCache @Inject constructor(
         }
     }
 
+    /** Menghapus salinan Beranda di disk (dipakai dari Pengaturan). */
+    suspend fun clear() {
+        withContext(Dispatchers.IO) {
+            try {
+                file.delete()
+            } catch (e: Exception) {
+                // Gagal menghapus cache tidak berbahaya.
+            }
+        }
+    }
+
+
     private companion object {
         const val MAX_ITEMS = 40
     }

@@ -20,7 +20,11 @@ class WatchPositionStore @Inject constructor(
 ) {
 
     fun get(videoId: String): Long =
-        prefs().getLong(posKey(videoId), 0L)
+        if (AppSettings.resumePlayback) {
+            prefs().getLong(posKey(videoId), 0L)
+        } else {
+            0L
+        }
 
     fun save(videoId: String, positionMs: Long, durationMs: Long) {
         val nearEnd = durationMs > 0 && positionMs >= durationMs - 10_000
@@ -41,6 +45,17 @@ class WatchPositionStore @Inject constructor(
             .remove(timeKey(videoId))
             .apply()
     }
+
+    /** Menghapus semua posisi tersimpan (dipakai dari Pengaturan). */
+    fun clearAll() {
+        val p = prefs()
+        val editor = p.edit()
+        p.all.keys
+            .filter { it.startsWith(PREFIX_POS) || it.startsWith(PREFIX_TIME) }
+            .forEach { editor.remove(it) }
+        editor.apply()
+    }
+
 
     private fun prune() {
         val all = prefs().all

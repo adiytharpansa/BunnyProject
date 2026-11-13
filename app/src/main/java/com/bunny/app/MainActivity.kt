@@ -15,6 +15,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.AnimatedVisibility
+import com.bunny.app.data.AppSettings
+import com.bunny.app.presentation.screens.settings.SettingsScreen
 import com.bunny.app.ui.motion.AppMotion
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
@@ -144,6 +146,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             intent?.data?.let { desktopAuth.handleRedirect(it) }
         }
+        AppSettings.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
@@ -182,6 +185,7 @@ class MainActivity : ComponentActivity() {
                 var openSearch by rememberSaveable { mutableStateOf(false) }
                 var openNotifications by rememberSaveable { mutableStateOf(false) }
                 var openDownloads by rememberSaveable { mutableStateOf(false) }
+                var openSettings by rememberSaveable { mutableStateOf(false) }
                 var openPersonal by rememberSaveable { mutableStateOf<String?>(null) }
                 // Pemutar mini (Fase 6): sesi video tetap hidup, halaman
                 // penuhnya dilipat jadi bilah di atas bar bawah.
@@ -256,16 +260,17 @@ class MainActivity : ComponentActivity() {
                 // di bar bawah), jadi jalur video tetap menyala selama
                 // dilipat; hanya latar aplikasi yang mematikannya.
                 val barVisible =
-                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
+                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null && !openSettings
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
                 val playerExpanded = videoId != null && !playerMinimized
                 val canGoBack = !playerExpanded &&
                     (openChannel != null || openSearch || openNotifications ||
-                        openDownloads || openPersonal != null || selectedTab != 0)
+                        openDownloads || openSettings || openPersonal != null || selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
+                        openSettings -> openSettings = false
                         openPersonal != null -> openPersonal = null
                         openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
@@ -307,6 +312,7 @@ class MainActivity : ComponentActivity() {
                                 openSearch -> "search"
                                 openNotifications -> "notifications"
                                 openDownloads -> "downloads"
+                                openSettings -> "settings"
                                 openPersonal != null -> "personal"
                                 else -> "tab$selectedTab"
                             }
@@ -360,6 +366,9 @@ class MainActivity : ComponentActivity() {
                                     onVideoClick = openVideo,
                                 )
                                                                 }
+                                    "settings" -> {
+                                        SettingsScreen(onBack = { openSettings = false })
+                                    }
                                     "personal" -> {
                                 when (openPersonal ?: lastPersonal) {
                                     "subs" -> SubscriptionsScreen(
@@ -442,6 +451,7 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = barHeightDp),
                                 ) {
                                     ProfileScreen(
+                                        onSettingsClick = { openSettings = true },
                                         onDownloadsClick = { openDownloads = true },
                                         onPersonalClick = { openPersonal = it },
                                     )
@@ -483,10 +493,12 @@ class MainActivity : ComponentActivity() {
 
                         // Perekam masalah ringan: tidak menggambar apa pun bila
                         // tidak ada yang terdeteksi. Alat pengembangan; dihapus saat rilis.
-                        MinorIssueHost(
-                            bottomPadding = (if (barVisible) barHeightDp else 0.dp) +
-                                (if (videoId != null && playerMinimized) 72.dp else 0.dp),
-                        )
+                        if (AppSettings.developerTools) {
+                            MinorIssueHost(
+                                bottomPadding = (if (barVisible) barHeightDp else 0.dp) +
+                                    (if (videoId != null && playerMinimized) 72.dp else 0.dp),
+                            )
+                        }
 
                         AnimatedVisibility(
                             visible = barVisible,
