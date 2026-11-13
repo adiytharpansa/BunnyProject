@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.PowerManager
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
@@ -91,9 +92,16 @@ class PlaybackManager @Inject constructor(
     @Volatile
     private var playerBuilt = false
 
-    /** Aplikasi sedang di latar: jalur video dimatikan, suara tetap jalan. */
+    /** Activity berhenti (latar / layar mati): jalur video dimatikan, suara tetap jalan. */
     @Volatile
-    private var backgroundMode = false
+    private var activityInBackground = false
+
+    /** Tidak ada PlayerView yang memegang permukaan video (pemutar mini). */
+    @Volatile
+    private var videoSurfaceHidden = false
+
+    private val videoTrackDisabled: Boolean
+        get() = activityInBackground || videoSurfaceHidden
 
     private var _session: MediaSession? = null
 
@@ -191,10 +199,33 @@ class PlaybackManager @Inject constructor(
 
     fun stop() {
         closeSabr()
+        releaseTransitionHold()
         watchReporter.stop()
         player.stop()
         player.clearMediaItems()
         PlaybackDiagnostics.log("Pemutaran dihentikan")
+    }
+
+    /**
+     * Menahan CPU selama peralihan video (autoplay / ⏭ saat layar mati).
+     * Dilepas begitu pemutaran dimulai, atau otomatis lewat batas waktu.
+     */
+    private val transitionWakeLock: PowerManager.WakeLock by lazy {
+        (context.getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Bunny:pindah-video")
+            .apply { setReferenceCounted(false) }
+    }
+
+    fun holdForTransition() {
+        try {
+            transitionWakeLock.acquire(TRANSITION_WAKELOCK_MS)
+        } catch (e: SecurityException) {
+            PlaybackDiagnostics.log("Wake lock peralihan ditolak: ${e.message}")
+        }
+    }
+
+    private fun releaseTransitionHold() {
+        if (transitionWakeLock.isHeld) transitionWakeLock.release()
     }
 
     /** The SABR playback currently feeding the player, if any. */
@@ -672,30 +703,47 @@ class PlaybackManager @Inject constructor(
     /**
      * Dipanggil MainActivity saat aplikasi masuk/keluar latar (layar mati
      * juga dihitung). Di latar, jalur video dimatikan: tanpa layar yang
-     * menampilkannya, video tetap diunduh dan didekode kalau dibiarkan, dan
-     * itu membuang data (Jatah) dan baterai. Suara tidak terpengaruh.
+     * menampilkannya, video tetap didekode kalau dibiarkan, dan itu membuang
+     * baterai. Suara tidak terpengaruh. Pilihan kualitas pengguna tidak hilang.
      *
-     * Pilihan kualitas yang dipilih pengguna tidak hilang: matinya jalur
-     * video tidak menyentuh override kualitas.
-     *
-     * Efek hemat data nyata hanya pada sumber DASH/HLS yang memisahkan audio
-     * dan video (sumber utama Bunny). File progresif menyatukan keduanya
-     * sehingga tetap terunduh utuh.
+     * Penghematan data bergantung pada sumbernya: DASH/HLS dan file video
+     * terpisah berhenti dimuat ExoPlayer saat tidak ada jalur yang aktif.
+     * Pump SABR berada di :engine dan tidak diatur dari sini.
      */
     fun setBackgroundMode(inBackground: Boolean) {
-        if (backgroundMode == inBackground) return
-        backgroundMode = inBackground
+        if (activityInBackground == inBackground) return
+        activityInBackground = inBackground
+        refreshVideoTrackState(
+            if (inBackground) "Mode latar: jalur video dimatikan"
+            else "Mode latar selesai: jalur video dinyalakan",
+        )
+    }
+
+    /**
+     * Dipanggil MainActivity saat halaman tonton penuh tampil (true) atau
+     * dilipat menjadi pemutar mini (false). Tanpa permukaan video, ExoPlayer
+     * tetap mendekode ke permukaan pengganti.
+     */
+    fun setVideoSurfaceVisible(visible: Boolean) {
+        val hidden = !visible
+        if (videoSurfaceHidden == hidden) return
+        videoSurfaceHidden = hidden
+        refreshVideoTrackState(
+            if (hidden) "Pemutar mini: jalur video dimatikan"
+            else "Halaman tonton: jalur video dinyalakan",
+        )
+    }
+
+    private fun refreshVideoTrackState(reason: String) {
         if (!playerBuilt) return
         applyVideoTrackState(player)
-        PlaybackDiagnostics.log(
-            if (inBackground) "Mode latar: jalur video dimatikan" else "Mode latar selesai: jalur video dinyalakan",
-        )
+        PlaybackDiagnostics.log(reason)
     }
 
     private fun applyVideoTrackState(exo: ExoPlayer) {
         exo.trackSelectionParameters = exo.trackSelectionParameters
             .buildUpon()
-            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, backgroundMode)
+            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, videoTrackDisabled)
             .build()
     }
 
@@ -799,6 +847,10 @@ class PlaybackManager @Inject constructor(
                         // instead of rolling sequentially from
                         // zero and racing the rescue clock.
                         currentSabr?.onSeekObserved(newPosition.positionMs)
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying) releaseTransitionHold()
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
@@ -955,7 +1007,7 @@ class PlaybackManager @Inject constructor(
                     }
                 })
                 playerBuilt = true
-                if (backgroundMode) applyVideoTrackState(exo)
+                if (videoTrackDisabled) applyVideoTrackState(exo)
             }
     }
 
@@ -1173,6 +1225,9 @@ class PlaybackManager @Inject constructor(
 
         /** Penyangga belakang: tombol mundur 10 dtk tidak mengunduh ulang. */
         private const val BACK_BUFFER_MS = 30_000
+
+        /** Batas waktu wake lock peralihan video. */
+        private const val TRANSITION_WAKELOCK_MS = 30_000L
     }
 }
 

@@ -652,6 +652,7 @@ class PlayerViewModel @Inject constructor(
         history.addLast(current)
         if (history.size > MAX_HISTORY) history.removeFirst()
         PlaybackDiagnostics.log("Berikutnya: $next")
+        playbackManager.holdForTransition()
         videoId = next
         load()
     }
@@ -664,6 +665,7 @@ class PlayerViewModel @Inject constructor(
             return
         }
         PlaybackDiagnostics.log("Sebelumnya: $previous")
+        playbackManager.holdForTransition()
         videoId = previous
         load()
     }

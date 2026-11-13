@@ -32,6 +32,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.bunny.app.R
@@ -59,14 +62,18 @@ fun MiniPlayerBar(
     var isPlaying by remember(player) { mutableStateOf(player?.isPlaying == true) }
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var durationMs by remember(player) { mutableLongStateOf(0L) }
-    LaunchedEffect(player) {
-        while (true) {
-            player?.let {
-                isPlaying = it.isPlaying
-                positionMs = it.currentPosition.coerceAtLeast(0L)
-                durationMs = it.duration.coerceAtLeast(0L)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(player, lifecycleOwner) {
+        // Polling hanya selama layar benar-benar tampil; di latar tidak perlu.
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                player?.let {
+                    isPlaying = it.isPlaying
+                    positionMs = it.currentPosition.coerceAtLeast(0L)
+                    durationMs = it.duration.coerceAtLeast(0L)
+                }
+                delay(500)
             }
-            delay(500)
         }
     }
     Column(

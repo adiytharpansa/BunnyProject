@@ -3,6 +3,7 @@ package com.bunny.app
 import android.Manifest
 import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
@@ -12,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
+import androidx.lifecycle.Lifecycle
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -203,6 +205,12 @@ class MainActivity : ComponentActivity() {
                 SideEffect { pipEligible = videoId != null && !playerMinimized }
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
+
+                // Pemutar mini tidak memegang permukaan video: matikan jalur video
+                // selama dilipat, nyalakan lagi saat halaman tonton dibuka.
+                LaunchedEffect(playerMinimized) {
+                    playbackManager.setVideoSurfaceVisible(!playerMinimized)
+                }
                 val barVisible =
                     (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
                 // System Back walks the page stack back to Beranda
@@ -448,6 +456,20 @@ class MainActivity : ComponentActivity() {
             playbackManager.setBackgroundMode(true)
         }
         super.onStop()
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        // Jendela PiP ditutup: Activity sudah berhenti (CREATED), tetapi onStop
+        // mungkin lebih dulu melihat mode PiP aktif. Pastikan jalur video mati.
+        if (!isInPictureInPictureMode &&
+            lifecycle.currentState == Lifecycle.State.CREATED
+        ) {
+            playbackManager.setBackgroundMode(true)
+        }
     }
 
     override fun onUserLeaveHint() {
