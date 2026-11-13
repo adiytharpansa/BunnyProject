@@ -289,6 +289,14 @@ class PlayerViewModel @Inject constructor(
         _options.update { it.copy(loop = enabled) }
     }
 
+    /** Loop dipasang/dilepas pemanggil (tab Shorts memasang, sisanya melepas). */
+    fun setLoop(enabled: Boolean) {
+        val player = playbackManager.player
+        player.repeatMode =
+            if (enabled) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        _options.update { it.copy(loop = enabled) }
+    }
+
     /** Timer tidur dengan redup suara di 10 detik terakhir (paket §10). */
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
@@ -669,6 +677,12 @@ class PlayerViewModel @Inject constructor(
         videoId = previous
         load()
     }
+
+    /** Geser ke atas di panggung putar: sama persis dengan tombol ⏭. */
+    fun swipeNext() = skipToNext(auto = false)
+
+    /** Geser ke bawah di panggung putar: sama persis dengan tombol ⏮. */
+    fun swipePrevious() = skipToPrevious()
 
     /** Terbit's source: local subscriptions, toggled from this screen. */
     fun subscriptionState(channelId: String): Flow<Boolean> =

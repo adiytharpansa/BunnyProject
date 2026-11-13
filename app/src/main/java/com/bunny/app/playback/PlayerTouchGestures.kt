@@ -31,12 +31,26 @@ class PlayerTouchGestures(
         fun onVolumeDelta(fraction: Float)
         fun onBrightnessDelta(fraction: Float)
         fun onGestureEnd()
+
+        /**
+         * Sapuan vertikal CEPAT dan jauh (bukan seretan memutar
+         * kenop): pindah video — ke atas = berikutnya, ke bawah =
+         * sebelumnya. Perubahan volume/kecerahan yang sempat
+         * diterapkan selama sapuan ini sudah dibatalkan listener
+         * sebelum callback ini dipanggil.
+         */
+        fun onVideoSwipe(next: Boolean)
     }
 
     private var holding = false
     private var scrollMode = MODE_UNDECIDED
     private var cumulativeX = 0f
     private var cumulativeY = 0f
+
+    // Yang sempat diterapkan kenop selama gestur berjalan; dipakai
+    // untuk membatalkan bila gestur ternyata sapuan ganti video.
+    private var appliedVolumeFraction = 0f
+    private var appliedBrightnessFraction = 0f
 
     private val detector = GestureDetector(
         context,
@@ -82,15 +96,47 @@ class PlayerTouchGestures(
                 val fraction = distanceY / lastHeight.coerceAtLeast(1f)
                 return when (scrollMode) {
                     MODE_VOLUME -> {
+                        appliedVolumeFraction += fraction
                         callbacks.onVolumeDelta(fraction)
                         true
                     }
                     MODE_BRIGHTNESS -> {
+                        appliedBrightnessFraction += fraction
                         callbacks.onBrightnessDelta(fraction)
                         true
                     }
                     else -> false
                 }
+            }
+
+            override fun onFling(
+                down: MotionEvent?,
+                current: MotionEvent,
+                velocityX: Float,
+                velocityY: Float,
+            ): Boolean {
+                if (down == null || holding) return false
+                val dy = current.y - down.y
+                // Sapuan ganti video harus jauh DAN cepat; seretan
+                // kenop yang cepat tapi pendek tetap milik kenop.
+                if (abs(dy) < lastHeight * FLING_MIN_DISTANCE_FRACTION ||
+                    abs(velocityY) < FLING_MIN_VELOCITY_PX_S ||
+                    abs(velocityY) < abs(velocityX) * 2f
+                ) {
+                    return false
+                }
+                // Ini bukan memutar kenop: kembalikan volume dan
+                // kecerahan ke titik awal gestur, baru pindah video.
+                if (appliedVolumeFraction != 0f) {
+                    callbacks.onVolumeDelta(-appliedVolumeFraction)
+                }
+                if (appliedBrightnessFraction != 0f) {
+                    callbacks.onBrightnessDelta(-appliedBrightnessFraction)
+                }
+                appliedVolumeFraction = 0f
+                appliedBrightnessFraction = 0f
+                callbacks.onVideoSwipe(next = dy < 0f)
+                return true
             }
         },
     )
@@ -106,6 +152,8 @@ class PlayerTouchGestures(
             cumulativeX = 0f
             cumulativeY = 0f
             scrollMode = MODE_UNDECIDED
+            appliedVolumeFraction = 0f
+            appliedBrightnessFraction = 0f
         }
         if (event.actionMasked == MotionEvent.ACTION_UP ||
             event.actionMasked == MotionEvent.ACTION_CANCEL
@@ -130,5 +178,7 @@ class PlayerTouchGestures(
         private const val MODE_BRIGHTNESS = 2
         private const val MODE_IGNORE = 3
         private const val CLASSIFY_PX = 48f
+        private const val FLING_MIN_DISTANCE_FRACTION = 0.30f
+        private const val FLING_MIN_VELOCITY_PX_S = 1800f
     }
 }

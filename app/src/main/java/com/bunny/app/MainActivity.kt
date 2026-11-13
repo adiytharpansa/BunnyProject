@@ -171,6 +171,10 @@ class MainActivity : ComponentActivity() {
                 var openVideoId by remember { mutableStateOf<String?>(null) }
     // Video yang dibuka dari tab Shorts: halaman putarnya vertikal.
     var playerVerticalFor by remember { mutableStateOf<String?>(null) }
+    // Video yang sedang DIPUTAR DI TEMPAT oleh tab Shorts: selama
+    // nilainya sama dengan videoId, halaman pemutar penuh tidak
+    // mengambil alih layar — tab Shorts yang memegang permukaannya.
+    var shortsInlineId by remember { mutableStateOf<String?>(null) }
                 var openSearch by remember { mutableStateOf(false) }
                 var openNotifications by remember { mutableStateOf(false) }
                 var openDownloads by remember { mutableStateOf(false) }
@@ -218,6 +222,32 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(playerMinimized) {
                     playbackManager.setVideoSurfaceVisible(!playerMinimized)
                 }
+
+                // Video yang dibuka dari LUAR tab Shorts mengakhiri
+                // hosting inline: penanda Shorts dibersihkan dan loop
+                // dilepas (video biasa lanjut ke antrean berikutnya,
+                // bukan berputar di tempat).
+                LaunchedEffect(videoId) {
+                    if (videoId != null && videoId != shortsInlineId) {
+                        if (shortsInlineId != null) shortsInlineId = null
+                        playerViewModel.setLoop(false)
+                    }
+                }
+
+                // Meninggalkan tab Shorts: video inline dijeda lalu
+                // dilipat jadi pemutar mini. Kembali ke tab Shorts:
+                // video dilanjutkan lagi di tempat.
+                LaunchedEffect(selectedTab) {
+                    if (videoId != null && videoId == shortsInlineId) {
+                        if (selectedTab == 1) {
+                            playerMinimized = false
+                            playerController?.play()
+                        } else {
+                            playerController?.pause()
+                            playerMinimized = true
+                        }
+                    }
+                }
                 val barVisible =
                     (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
 
@@ -243,10 +273,13 @@ class MainActivity : ComponentActivity() {
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
-                val canGoBack = videoId == null &&
-                    (openChannel != null || openSearch || openNotifications || openDownloads || openPersonal != null || selectedTab != 0)
+                val canGoBack = (videoId == null &&
+                    (openChannel != null || openSearch || openNotifications || openDownloads || openPersonal != null || selectedTab != 0)) ||
+                    (videoId != null && videoId == shortsInlineId && selectedTab != 0)
                 BackHandler(enabled = canGoBack) {
                     when {
+                        videoId != null && videoId == shortsInlineId ->
+                            selectedTab = 0
                         openPersonal != null -> openPersonal = null
                         openDownloads -> openDownloads = false
                         openChannel != null -> openChannel = null
@@ -273,7 +306,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                 ),
                         ) {
-                            if (videoId != null && !playerMinimized) {
+                            if (videoId != null && !playerMinimized && videoId != shortsInlineId) {
                                 PlayerScreen(
                                     videoId = videoId,
                                     verticalStage = playerVerticalFor == videoId,
@@ -357,9 +390,18 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = contentBottomPadding),
                                 ) {
                                     ShortsScreen(
-                                        onVideoClick = {
-                                            playerVerticalFor = it
-                                            openVideoId = it
+                                        player = playerController,
+                                        playerUiState = playerUiState,
+                                        activeShortId = shortsInlineId
+                                            ?.takeIf { it == videoId },
+                                        onShortActive = { id ->
+                                            openVideoId = id
+                                            shortsInlineId = id
+                                            playerViewModel.open(id)
+                                            playerViewModel.setLoop(true)
+                                        },
+                                        onRetryPlayback = {
+                                            playerViewModel.retry()
                                         },
                                         onSearchClick = { openSearch = true },
                                     )
@@ -404,10 +446,23 @@ class MainActivity : ComponentActivity() {
                                     channelName = ready.details.channelName,
                                     thumbnailUrl = ready.details.thumbnailUrl,
                                     player = playerController,
-                                    onExpand = { playerMinimized = false },
+                                    onExpand = {
+                                        // Video Shorts dibesarkan kembali
+                                        // ke tab Shorts, tempat permukaan
+                                        // videonya tinggal — bukan ke
+                                        // halaman pemutar penuh.
+                                        if (videoId != null &&
+                                            videoId == shortsInlineId
+                                        ) {
+                                            selectedTab = 1
+                                        }
+                                        playerMinimized = false
+                                    },
                                     onClose = {
                                         playerViewModel.stopPlayback()
                                         openVideoId = null
+                                        shortsInlineId = null
+                                        playerViewModel.setLoop(false)
                                         playerMinimized = false
                                     },
                                     modifier = Modifier

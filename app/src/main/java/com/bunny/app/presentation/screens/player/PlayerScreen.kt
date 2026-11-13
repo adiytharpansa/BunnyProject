@@ -361,6 +361,24 @@ fun PlayerScreen(
                                         )
                                     }
 
+                                    override fun onVideoSwipe(next: Boolean) {
+                                        // Sapuan vertikal cepat di panggung:
+                                        // jalur yang sama persis dengan
+                                        // tombol ⏮ ⏭ bawaan pemutar.
+                                        if (next) {
+                                            viewModel.swipeNext()
+                                        } else {
+                                            viewModel.swipePrevious()
+                                        }
+                                        gestureHud.value = ctx.getString(
+                                            if (next) {
+                                                R.string.gesture_next_video
+                                            } else {
+                                                R.string.gesture_prev_video
+                                            },
+                                        )
+                                    }
+
                                     override fun onGestureEnd() = Unit
                                 },
                             ),
