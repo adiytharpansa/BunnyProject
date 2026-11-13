@@ -20,7 +20,15 @@ import org.json.JSONObject
 class FeedDiskCache @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val file = File(context.filesDir, "feed-cache-v1.json")
+    // Nama berkas membawa bahasa konten: cache berbahasa lama tidak
+    // ikut tampil sesudah bahasa perangkat berganti.
+    private val file = File(
+        context.filesDir,
+        "feed-cache-v1-" +
+            com.bunny.app.i18n.ContentLocale.fromDevice().hl
+                .replace(Regex("[^A-Za-z0-9]"), "_") +
+            ".json",
+    )
 
     suspend fun load(): List<VideoItem> = withContext(Dispatchers.IO) {
         try {

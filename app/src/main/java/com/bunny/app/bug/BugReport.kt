@@ -1,15 +1,18 @@
 package com.bunny.app.bug
 
+import androidx.annotation.StringRes
+import com.bunny.app.R
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-enum class BugSeverity(val label: String) {
-    FATAL("Crash: aplikasi tertutup paksa"),
-    ANR("ANR: aplikasi tidak merespons"),
-    CRITICAL("Kritis: fitur inti gagal"),
+enum class BugSeverity(@StringRes val labelRes: Int) {
+    FATAL(R.string.bug_fatal),
+    ANR(R.string.bug_anr),
+    CRITICAL(R.string.bug_critical),
 }
 
 data class BugReport(

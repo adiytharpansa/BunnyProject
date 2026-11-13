@@ -103,6 +103,10 @@ object BackendModule {
         networkClass,
         visitorStore,
         sabrGovernance = SabrGovernance(governanceStore),
+        locale = com.bunny.core.model.RequestLocale(
+            hl = com.bunny.app.i18n.ContentLocale.fromDevice().hl,
+            gl = com.bunny.app.i18n.ContentLocale.fromDevice().gl,
+        ),
     )
 
     @Provides

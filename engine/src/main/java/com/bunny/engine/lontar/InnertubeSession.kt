@@ -65,8 +65,16 @@ object LontarPersona {
     const val USER_AGENT =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-    const val HL = "id"
-    const val GL = "ID"
+    /**
+     * Bahasa konten (hl/gl). Bawaan Indonesia; LontarEngine menimpanya
+     * sekali saat dibuat, dari bahasa perangkat yang diteruskan :app
+     * lewat RequestLocale — semua konteks klien membaca dari sini.
+     */
+    @Volatile
+    var HL = "id"
+
+    @Volatile
+    var GL = "ID"
 }
 
 class LontarException(

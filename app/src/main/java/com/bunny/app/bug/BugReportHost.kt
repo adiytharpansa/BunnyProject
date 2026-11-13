@@ -41,7 +41,7 @@ fun BugReportHost() {
     AlertDialog(
         onDismissRequest = { /* sengaja kosong: pengguna harus memilih tombol */ },
         icon = { Icon(Icons.Default.Warning, contentDescription = null) },
-        title = { Text(current.severity.label) },
+        title = { Text(stringResource(current.severity.labelRes)) },
         text = {
             Column {
                 Text(
@@ -49,7 +49,11 @@ fun BugReportHost() {
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                 )
-                val more = if (reports.size > 1) " · +${reports.size - 1} laporan lain" else ""
+                val more = if (reports.size > 1) {
+                    " · " + stringResource(R.string.bug_more_reports, reports.size - 1)
+                } else {
+                    ""
+                }
                 Text(
                     "${current.formatTime()} · ${current.source}$more",
                     style = MaterialTheme.typography.labelSmall,
@@ -68,9 +72,15 @@ fun BugReportHost() {
         },
         confirmButton = {
             Row {
-                TextButton(onClick = { copy(context, current) }) { Text("Salin") }
-                TextButton(onClick = { share(context, current) }) { Text("Bagikan") }
-                TextButton(onClick = { BugRecorder.dismiss(current.id) }) { Text("Tutup") }
+                TextButton(onClick = { copy(context, current) }) {
+                    Text(stringResource(R.string.bug_copy))
+                }
+                TextButton(onClick = { share(context, current) }) {
+                    Text(stringResource(R.string.bug_share))
+                }
+                TextButton(onClick = { BugRecorder.dismiss(current.id) }) {
+                    Text(stringResource(R.string.bug_close))
+                }
             }
         },
     )
@@ -78,15 +88,20 @@ fun BugReportHost() {
 
 private fun copy(context: Context, r: BugReport) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    cm.setPrimaryClip(ClipData.newPlainText("Laporan bug Bunny", r.toText()))
-    Toast.makeText(context, "Laporan disalin", Toast.LENGTH_SHORT).show()
+    cm.setPrimaryClip(ClipData.newPlainText("Bunny bug report", r.toText()))
+    Toast.makeText(context, R.string.bug_copied, Toast.LENGTH_SHORT).show()
 }
 
 private fun share(context: Context, r: BugReport) {
     val send = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "Laporan bug Bunny: ${r.severity.name}")
+        putExtra(
+            Intent.EXTRA_SUBJECT,
+            context.getString(R.string.bug_subject, r.severity.name),
+        )
         putExtra(Intent.EXTRA_TEXT, r.toText())
     }
-    context.startActivity(Intent.createChooser(send, "Bagikan laporan"))
+    context.startActivity(
+        Intent.createChooser(send, context.getString(R.string.bug_share_title)),
+    )
 }

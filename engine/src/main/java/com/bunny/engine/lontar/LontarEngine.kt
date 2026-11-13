@@ -61,7 +61,17 @@ class LontarEngine(
      */
     private val sabrGovernance: com.bunny.engine.lontar.sabr.SabrGovernance =
         com.bunny.engine.lontar.sabr.SabrGovernance(SabrGovernanceStore.NONE),
+    /** Bahasa konten dari perangkat (hl/gl); bawaan = perilaku lama. */
+    private val locale: com.bunny.core.model.RequestLocale =
+        com.bunny.core.model.RequestLocale(),
 ) : ExtractionBackend {
+
+    init {
+        // Satu pemegang bahasa untuk semua konteks klien (metadata,
+        // persona putar, SABR): persona membaca LontarPersona.HL/GL.
+        LontarPersona.HL = locale.hl
+        LontarPersona.GL = locale.gl
+    }
 
     override val id: String = "lontar"
 
@@ -938,8 +948,8 @@ class LontarEngine(
             val client = JSONObject()
                 .put("clientName", door.contextName)
                 .put("clientVersion", door.clientVersion)
-                .put("hl", "id")
-                .put("gl", "ID")
+                .put("hl", locale.hl)
+                .put("gl", locale.gl)
                 .put("visitorData", session.visitorData)
             if (door.androidContext) {
                 client.put("androidSdkVersion", 30)
@@ -1534,13 +1544,23 @@ class LontarEngine(
         }
     }
 
+    /** "id-ID,id;q=0.9,en;q=0.8" — bentuk lama untuk hl polos. */
+    private fun acceptLanguage(): String {
+        val primary =
+            if ('-' in locale.hl) locale.hl else "${locale.hl}-${locale.gl}"
+        return "$primary,${locale.hl};q=0.9,en;q=0.8"
+    }
+
     private suspend fun fetchSession(
         fallbackClientVersion: String,
     ): InnertubeSession = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url("https://www.youtube.com/")
             .header("User-Agent", LontarPersona.USER_AGENT)
-            .header("Accept-Language", "id-ID,id;q=0.9,en;q=0.8")
+            .header(
+                "Accept-Language",
+                acceptLanguage(),
+            )
             .build()
         httpClient.newCall(request).execute().use { response ->
             val head = readHomepageHead(response)
