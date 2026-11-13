@@ -45,6 +45,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Paket pip_24 (apa adanya): activity PiP mandiri dari paket.
+             Tema diganti Theme.Bunny (induknya Theme.Material.NoActionBar)
+             karena AppCompat bukan dependensi aplikasi ini; atribut lain
+             persis seperti paket. -->
+        <activity
+            android:name=".pip.PipPlayerActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden"
+            android:theme="@style/Theme.Bunny" />
+
         <!-- Media3 session service: background playback + media notification.
              The foreground contract (mediaPlayback type + the permissions
              above) is what Android 14+ requires for this to start at all. -->

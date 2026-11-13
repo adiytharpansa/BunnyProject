@@ -1,4 +1,4 @@
-package com.bunny.app.pip
+package com.bunny.app.pip // TODO: sesuaikan dengan package proyek Anda
 
 import android.app.Activity
 import android.app.PendingIntent
@@ -18,7 +18,7 @@ import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
-import com.bunny.app.R
+import com.bunny.app.R // TODO: sesuaikan
 
 /**
  * Mengelola Picture-in-Picture ala YouTube:
@@ -31,23 +31,12 @@ import com.bunny.app.R
  * Catatan: pastikan ExoPlayer dibuat dengan
  *   .setSeekBackIncrementMs(10_000).setSeekForwardIncrementMs(10_000)
  * agar seekBack()/seekForward() = 10 detik.
- *
- * Kabel Bunny (paket pip_24, 2026-11-13): controller ini dipasang
- * pada MainActivity dengan player milik PlaybackManager — BUKAN
- * activity pemutar tersendiri. Satu penyesuaian dari paket asal:
- * gerbang [enabled] (eligibilitas PiP milik MainActivity: video
- * sedang terbuka penuh), supaya auto-enter tidak menyala saat
- * hanya audio latar yang berjalan. sourceView diisi null —
- * PlayerView tinggal di dalam PlayerScreen dan tidak terjangkau
- * dari activity; sourceRectHint memang opsional.
  */
 class PipController(
     private val activity: Activity,
     private val player: () -> Player?,
     private val sourceView: () -> View?,
     private val lockTo16x9: Boolean = true,
-    /** Gerbang eligibilitas pemilik (lihat catatan kabel di atas). */
-    private val enabled: () -> Boolean = { true },
 ) {
 
     private var attachedPlayer: Player? = null
@@ -120,11 +109,7 @@ class PipController(
 
     /** Masuk PiP manual (mis. dari tombol "PiP" di UI). */
     fun enter() {
-        if (!isSupported || !enabled() ||
-            activity.isInPictureInPictureMode
-        ) {
-            return
-        }
+        if (!isSupported || activity.isInPictureInPictureMode) return
         try {
             activity.enterPictureInPictureMode(buildParams())
         } catch (_: IllegalStateException) {
@@ -144,7 +129,6 @@ class PipController(
     // ------------------------------------------------------------------
 
     private fun shouldAutoEnter(): Boolean {
-        if (!enabled()) return false
         val p = player() ?: return false
         return p.playWhenReady &&
             p.playbackState != Player.STATE_IDLE &&
