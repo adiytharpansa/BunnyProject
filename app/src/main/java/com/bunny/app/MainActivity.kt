@@ -11,6 +11,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import com.bunny.app.ui.motion.AppMotion
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.Lifecycle
@@ -240,9 +242,26 @@ class MainActivity : ComponentActivity() {
                                     },
                                 ),
                         ) {
-                            if (videoId != null && !playerMinimized) {
+                            val screenKey = when {
+                                videoId != null && !playerMinimized -> "player"
+                                openChannel != null -> "channel"
+                                openSearch -> "search"
+                                openNotifications -> "notifications"
+                                openDownloads -> "downloads"
+                                openPersonal != null -> "personal"
+                                else -> "tab$selectedTab"
+                            }
+                            AnimatedContent(
+                                targetState = screenKey,
+                                transitionSpec = {
+                                    AppMotion.screenTransition(initialState, targetState)
+                                },
+                                label = "screen",
+                            ) { key ->
+                                when (key) {
+                                    "player" -> {
                                 PlayerScreen(
-                                    videoId = videoId,
+                                    videoId = videoId!!,
                                     scrollState = playerScrollState,
                                     onBack = { openVideoId = null },
                                     onChannelClick = { id, name ->
@@ -252,7 +271,8 @@ class MainActivity : ComponentActivity() {
                                     onVideoClick = { openVideoId = it },
                                     onMinimize = { playerMinimized = true },
                                 )
-                            } else if (openChannel != null) {
+                                                                }
+                                    "channel" -> {
                                 val (channelId, channelName) = openChannel!!
                                 ChannelScreen(
                                     channelId = channelId,
@@ -260,22 +280,26 @@ class MainActivity : ComponentActivity() {
                                     onBack = { openChannel = null },
                                     onVideoClick = { openVideoId = it },
                                 )
-                            } else if (openSearch) {
+                                                                }
+                                    "search" -> {
                                 SearchScreen(
                                     onBack = { openSearch = false },
                                     onVideoClick = { openVideoId = it },
                                 )
-                            } else if (openNotifications) {
+                                                                }
+                                    "notifications" -> {
                                 NotificationsScreen(
                                     onBack = { openNotifications = false },
                                     onVideoClick = { openVideoId = it },
                                 )
-                            } else if (openDownloads) {
+                                                                }
+                                    "downloads" -> {
                                 DownloadsScreen(
                                     onBack = { openDownloads = false },
                                     onVideoClick = { openVideoId = it },
                                 )
-                            } else if (openPersonal != null) {
+                                                                }
+                                    "personal" -> {
                                 when (openPersonal) {
                                     "subs" -> SubscriptionsScreen(
                                         onBack = { openPersonal = null },
@@ -289,7 +313,8 @@ class MainActivity : ComponentActivity() {
                                         onVideoClick = { openVideoId = it },
                                     )
                                 }
-                            } else if (selectedTab == 0) {
+                                                                }
+                                    "tab0" -> {
                                 HomeScreen(
                                     onVideoClick = { openVideoId = it },
                                     onSearchClick = { openSearch = true },
@@ -301,7 +326,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     bottomPadding = barHeightDp,
                                 )
-                            } else if (selectedTab == 1) {
+                                                                }
+                                    "tab1" -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -315,7 +341,8 @@ class MainActivity : ComponentActivity() {
                                         notificationsUnread = notifUnread,
                                     )
                                 }
-                            } else if (selectedTab == 2) {
+                                                                }
+                                    "tab2" -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -333,7 +360,8 @@ class MainActivity : ComponentActivity() {
                                         notificationsUnread = notifUnread,
                                     )
                                 }
-                            } else {
+                                                                }
+                                    else -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -344,7 +372,10 @@ class MainActivity : ComponentActivity() {
                                         onPersonalClick = { openPersonal = it },
                                     )
                                 }
+                                                                }
+                                }
                             }
+
                         }
 
                         if (videoId != null && playerMinimized) {

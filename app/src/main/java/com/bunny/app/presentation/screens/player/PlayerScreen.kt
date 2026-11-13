@@ -11,6 +11,10 @@ import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -693,7 +697,15 @@ fun PlayerScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            if (subscribed) {
+                            AnimatedContent(
+                                targetState = subscribed,
+                                transitionSpec = {
+                                    fadeIn(tween(150, delayMillis = 90)) togetherWith
+                                        fadeOut(tween(90))
+                                },
+                                label = "subscribe",
+                            ) { isSubscribed ->
+                                if (isSubscribed) {
                                 FilledTonalButton(
                                     shape = CircleShape,
                                     onClick = {
@@ -726,6 +738,7 @@ fun PlayerScreen(
                                     },
                                 ) {
                                     Text(stringResource(R.string.player_subscribe))
+                                }
                                 }
                             }
                         }

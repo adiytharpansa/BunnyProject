@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.animateItem
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -378,7 +379,8 @@ fun HomeScreen(
                         val isPreviewingThis = previewingId == item.id
                         VideoCard(
                             item = item,
-                            modifier = Modifier.padding(horizontal = FeedHorizontalPadding),
+                            modifier = Modifier.animateItem()
+                                .padding(horizontal = FeedHorizontalPadding),
                             onClick = { onVideoClick(item.id) },
                             previewPlayer = if (isPreviewingThis) {
                                 viewModel.previewPlayer

@@ -2,6 +2,7 @@ package com.bunny.app.presentation.screens.search
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.bunny.app.ui.motion.tappable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +53,7 @@ fun SearchResultItem(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .tappable(onClick = onClick),
     ) {
         Box(
             modifier = Modifier
