@@ -440,6 +440,37 @@ class LontarEngine(
         )
     }
 
+    /**
+     * Lantai Penyelamat (RANCANGAN-LANTAI-PENYELAMAT Bagian 3.1): one
+     * player knock as the ANDROID persona alone, outside the ladder,
+     * for the muxed progressive file the 2026-11-13 gate research
+     * found wall-free (itag 18, pulled in full 7 of 7 times). Never
+     * throws and never touches the player cache: a floor refusal is
+     * a fact the caller maps back to the original failure, not an
+     * error of its own. Null when the floor is switched off remotely,
+     * the knock itself fails, or the answer holds no floor (refused,
+     * live, no progressive file).
+     */
+    override suspend fun getFloorStreams(videoId: String): PlaybackStreams? {
+        if (!config.floorEnabled) return null
+        val persona = PlayerPersonas.android(config.androidClientVersion)
+        val response = try {
+            postPlayer(persona, videoId, sessionVisitorData())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return null
+        }
+        val streams = InnertubeParser.parseFloorStreams(
+            response,
+            System.currentTimeMillis(),
+        ) ?: return null
+        return streams.copy(
+            playbackUserAgent = persona.userAgent,
+            personaName = FLOOR_PERSONA_NAME,
+        )
+    }
+
     // ------------------------------------------------------------ fase 8
 
     /** The SABR slice of the current configuration (remote or defaults). */
@@ -1499,6 +1530,9 @@ class LontarEngine(
         private const val SURFACE_TERKAIT = "terkait"
         private const val SURFACE_KANAL = "kanal"
         private const val SURFACE_DETAIL = "detail"
+        /** Persona label carried by floor streams (Lantai Penyelamat). */
+        const val FLOOR_PERSONA_NAME = "ANDROID_LANTAI"
+
         private const val KIND_URAI = "urai"
         private const val KIND_KOSONG = "kosong"
         private const val MAX_FAILURE_DETAIL_CHARS = 120

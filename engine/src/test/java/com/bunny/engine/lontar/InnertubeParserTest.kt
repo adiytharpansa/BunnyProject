@@ -638,6 +638,49 @@ class InnertubeParserTest {
     }
 
     @Test
+    fun parseFloorStreams_picksHighestBitrateProgressive_withDeclaredSize() {
+        val player = JSONObject(
+            """
+            {"playabilityStatus":{"status":"OK"},
+             "videoDetails":{"isLive":false},
+             "streamingData":{"expiresInSeconds":"21540",
+               "formats":[
+                 {"itag":18,"url":"https://rr.example/itag18","bitrate":512000,"contentLength":"36700000"},
+                 {"itag":59,"url":"https://rr.example/itag59","bitrate":900000,"contentLength":"64000000"}],
+               "adaptiveFormats":[{"itag":137,"url":"https://rr.example/itag137","bitrate":4000000}]}}
+            """.trimIndent(),
+        )
+        val floor = InnertubeParser.parseFloorStreams(player, nowEpochMs = 1_000)
+        assertNotNull(floor)
+        floor!!
+        // The adaptive giant is not the floor: only the muxed file is.
+        assertEquals("https://rr.example/itag59", floor.progressiveUrl)
+        assertEquals(64_000_000L, floor.estimatedSizeBytes)
+        assertEquals(null, floor.dashManifestContent)
+        assertEquals(null, floor.hlsUrl)
+        assertEquals(1_000L + 21_540_000L, floor.expiresAtEpochMs)
+    }
+
+    @Test
+    fun parseFloorStreams_refusedLiveOrFileless_yieldsNull() {
+        val refused = JSONObject(
+            """{"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"Sign in"},
+                "streamingData":{"formats":[{"itag":18,"url":"https://rr.example/x","bitrate":1}]}}""",
+        )
+        assertEquals(null, InnertubeParser.parseFloorStreams(refused, nowEpochMs = 0))
+        val live = JSONObject(
+            """{"playabilityStatus":{"status":"OK"},"videoDetails":{"isLive":true},
+                "streamingData":{"formats":[{"itag":18,"url":"https://rr.example/x","bitrate":1}]}}""",
+        )
+        assertEquals(null, InnertubeParser.parseFloorStreams(live, nowEpochMs = 0))
+        val adaptiveOnly = JSONObject(
+            """{"playabilityStatus":{"status":"OK"},
+                "streamingData":{"adaptiveFormats":[{"itag":137,"url":"https://rr.example/v","bitrate":9}]}}""",
+        )
+        assertEquals(null, InnertubeParser.parseFloorStreams(adaptiveOnly, nowEpochMs = 0))
+    }
+
+    @Test
     fun session_fromHomepageHtml_extractsMarkers() {
         val html = """<script>ytcfg.set({"INNERTUBE_API_KEY":"AIzaTEST",
             "INNERTUBE_CONTEXT":{"client":{"visitorData":"CgtTEST123"}}});</script>"""

@@ -56,6 +56,17 @@ class PlayerPersonaTest {
     }
 
     @Test
+    fun chain_floorPersonaName_neverEntersLadder() {
+        // Lantai Penyelamat isolation: the floor's label is not a
+        // ladder name — a config carrying it (by typo or by hand)
+        // degrades to the shipped ladder, never to a floor rung.
+        val floorOnly = EngineConfig.DEFAULTS.copy(
+            playerPersonas = listOf(LontarEngine.FLOOR_PERSONA_NAME),
+        )
+        assertEquals(PlayerPersonas.CHAIN, PlayerPersonas.chain(floorOnly))
+    }
+
+    @Test
     fun visionOs_probedShape_headsDefaultChain() {
         // Re-persona 2026-11-11: VISIONOS (1.04 / RealityDevice17,1,
         // re-probed that day) heads the shipped ladder; ANDROID_VR is

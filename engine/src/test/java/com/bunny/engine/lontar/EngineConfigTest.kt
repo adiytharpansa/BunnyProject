@@ -30,6 +30,15 @@ class EngineConfigTest {
     }
 
     @Test
+    fun parse_floorEnabled_remoteSwitch() {
+        // Absent key keeps the shipped default (on); an explicit
+        // false silences the floor remotely.
+        assertTrue(EngineConfig.parse(JSONObject("{}")).floorEnabled)
+        assertTrue(EngineConfig.parse(JSONObject("""{"floorEnabled":true}""")).floorEnabled)
+        assertTrue(!EngineConfig.parse(JSONObject("""{"floorEnabled":false}""")).floorEnabled)
+    }
+
+    @Test
     fun parse_personaListWithoutUsableNames_keepsDefaultLadder() {
         val values = EngineConfig.parse(
             JSONObject("""{"playerPersonas":["","  "]}"""),

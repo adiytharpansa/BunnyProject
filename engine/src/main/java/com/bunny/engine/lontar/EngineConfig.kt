@@ -77,6 +77,15 @@ object EngineConfig {
          * back to them field by field.
          */
         val sabrKillThreshold: SabrKillThreshold = SabrKillThreshold.DEFAULT,
+        /**
+         * Lantai Penyelamat (RANCANGAN-LANTAI-PENYELAMAT): the rescue
+         * floor's remote switch. The shipped default is ON — the floor
+         * only ever runs after every other road has failed, so it
+         * cannot degrade a healthy open; the switch exists so a floor
+         * that misbehaves in the field can be silenced without an app
+         * update.
+         */
+        val floorEnabled: Boolean = true,
     )
 
     val DEFAULTS = Values(
@@ -178,6 +187,11 @@ object EngineConfig {
                 // threshold that silently means "never".
                 minAttempts = minOf(killMin, killWindow),
             ),
+            floorEnabled = if (json.has("floorEnabled")) {
+                json.optBoolean("floorEnabled")
+            } else {
+                DEFAULTS.floorEnabled
+            },
         )
     }
 }

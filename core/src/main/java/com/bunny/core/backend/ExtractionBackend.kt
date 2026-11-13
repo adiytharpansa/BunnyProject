@@ -138,6 +138,17 @@ interface ExtractionBackend {
         failedPersonaName: String?,
     ): PlaybackStreams = getPlaybackStreams(videoId)
 
+    /**
+     * Lantai Penyelamat (the rescue floor): the last-resort streams
+     * for a video every other road failed — a single muxed progressive
+     * file, nothing adaptive. Null when the backend has no floor or
+     * the floor holds nothing for this video (refused, live, no
+     * progressive file); the caller then surfaces the original
+     * failure. Never a substitute on a healthy open: callers may only
+     * ask after the normal roads have failed.
+     */
+    suspend fun getFloorStreams(videoId: String): PlaybackStreams? = null
+
     /** Human-readable active ladder + why, for the Diagnostics block. */
     fun ladderDescription(): String = ""
 

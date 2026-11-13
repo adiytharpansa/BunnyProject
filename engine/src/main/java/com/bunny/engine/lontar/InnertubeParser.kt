@@ -668,6 +668,51 @@ object InnertubeParser {
         )
     }
 
+    /**
+     * Lantai Penyelamat: the floor reading of an ANDROID player
+     * response — only the muxed progressive file, nothing else. Null
+     * (never a throw) when the response holds no floor: playability
+     * refused, a live stream (the floor is a file, not a broadcast),
+     * or no progressive format with a direct URL. The highest-bitrate
+     * progressive wins — on the modern ANDROID answer that is itag 18,
+     * the one format the 2026-11-13 gate research found wall-free.
+     * [PlaybackStreams.estimatedSizeBytes] carries the chosen format's
+     * own declared length: the floor's size is a fact, not an estimate.
+     */
+    fun parseFloorStreams(player: JSONObject, nowEpochMs: Long): PlaybackStreams? {
+        val playability = player.optJSONObject("playabilityStatus")
+        if (playability == null || playability.optString("status") != "OK") return null
+        val details = player.optJSONObject("videoDetails")
+        if (details?.optBoolean("isLive") == true) return null
+        val streaming = player.optJSONObject("streamingData") ?: return null
+        val expiresAt = streaming.opt("expiresInSeconds")?.toString()?.toLongOrNull()
+            ?.takeIf { it > 0 }
+            ?.let { nowEpochMs + it * 1000 }
+        var bestUrl: String? = null
+        var bestBitrate = -1L
+        var bestSize: Long? = null
+        val formats = streaming.optJSONArray("formats") ?: JSONArray()
+        for (i in 0 until formats.length()) {
+            val format = formats.optJSONObject(i) ?: continue
+            val url = format.optString("url").takeIf { it.isNotEmpty() } ?: continue
+            val bitrate = format.optLong("bitrate", 0)
+            if (bitrate > bestBitrate) {
+                bestBitrate = bitrate
+                bestUrl = url
+                bestSize = format.opt("contentLength")?.toString()?.toLongOrNull()
+                    ?.takeIf { it > 0 }
+            }
+        }
+        val url = bestUrl ?: return null
+        return PlaybackStreams(
+            dashManifestUrl = null,
+            hlsUrl = null,
+            progressiveUrl = url,
+            expiresAtEpochMs = expiresAt,
+            estimatedSizeBytes = bestSize,
+        )
+    }
+
     fun parsePlaybackStreams(player: JSONObject, nowEpochMs: Long): PlaybackStreams {
         val playability = player.optJSONObject("playabilityStatus")
         if (playability != null && playability.optString("status") != "OK") {
