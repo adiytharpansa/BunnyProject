@@ -28,4 +28,11 @@ data class VideoItem(
      * locally by whoever composed the list; null means no claim is made.
      */
     val reason: String? = null,
+    /**
+     * True bila baris sumbernya memang video pendek vertikal
+     * (perender reel/shorts di jawaban YouTube). Video begini tidak
+     * membawa teks durasi, jadi aturan durasi saja tidak bisa
+     * mengenalinya.
+     */
+    val isShort: Boolean = false,
 )

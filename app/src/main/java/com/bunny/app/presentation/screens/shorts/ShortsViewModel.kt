@@ -113,6 +113,10 @@ class ShortsViewModel @Inject constructor(
 
     private fun isShort(item: VideoItem): Boolean {
         if (item.isLive) return false
+        // Baris yang ditandai parser sebagai video pendek vertikal
+        // diterima apa adanya: perendernya tidak membawa durasi,
+        // jadi aturan durasi akan membuang justru yang asli.
+        if (item.isShort) return true
         val seconds = item.durationSeconds ?: return false
         return seconds in 1..MAX_SHORT_SECONDS
     }
