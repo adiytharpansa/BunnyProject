@@ -677,6 +677,26 @@ object InnertubeParser {
         return null
     }
 
+    /**
+     * Teks tanggal asli dari halaman tonton (renderer yang sama):
+     * kalimat tanggal persis yang YouTube tampilkan, menggantikan
+     * tanggal mentah ISO dari microformat player.
+     */
+    fun parseWatchDateText(watch: JSONObject): String? {
+        val contents = watch.optJSONObject("contents")
+            ?.optJSONObject("twoColumnWatchNextResults")
+            ?.optJSONObject("results")
+            ?.optJSONObject("results")
+            ?.optJSONArray("contents") ?: return null
+        for (i in 0 until contents.length()) {
+            val primary = contents.optJSONObject(i)
+                ?.optJSONObject("videoPrimaryInfoRenderer") ?: continue
+            return textOf(primary.optJSONObject("dateText"))
+                .takeIf { it.isNotEmpty() }
+        }
+        return null
+    }
+
     fun parseVideoDetails(player: JSONObject): VideoDetails {
         val details = player.optJSONObject("videoDetails")
             ?: throw LontarException("Respons player tidak memuat videoDetails")

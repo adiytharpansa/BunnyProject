@@ -408,14 +408,19 @@ class LontarEngine(
             // (respons "next"), bukan di respons player. Ambil apa
             // adanya, upaya terbaik: gagal berarti tanpa teks, bukan
             // teks susunan sendiri.
-            val watchText = try {
-                InnertubeParser.parseWatchViewCountText(watchResponse(videoId))
+            val watch = try {
+                watchResponse(videoId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 null
             }
-            if (watchText != null) details.copy(viewCountText = watchText) else details
+            val watchText = watch?.let { InnertubeParser.parseWatchViewCountText(it) }
+            val watchDate = watch?.let { InnertubeParser.parseWatchDateText(it) }
+            details.copy(
+                viewCountText = watchText ?: details.viewCountText,
+                uploadedText = watchDate ?: details.uploadedText,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
