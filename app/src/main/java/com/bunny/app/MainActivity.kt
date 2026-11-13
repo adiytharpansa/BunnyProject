@@ -562,11 +562,16 @@ class MainActivity : ComponentActivity() {
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPip = isInPictureInPictureMode
-        // Jendela PiP ditutup: Activity sudah berhenti (CREATED), tetapi onStop
-        // mungkin lebih dulu melihat mode PiP aktif. Pastikan jalur video mati.
+        // Jendela PiP ditutup dengan ✕: putar berhenti total, sama
+        // seperti YouTube (keputusan pengguna 2026-11-13; memperbesar
+        // kembali jendela TIDAK masuk kondisi ini karena Activity
+        // tidak berhenti di CREATED). Activity sudah berhenti, tetapi
+        // onStop mungkin lebih dulu melihat mode PiP aktif, jadi
+        // jalur video juga dipastikan mati di sini.
         if (!isInPictureInPictureMode &&
             lifecycle.currentState == Lifecycle.State.CREATED
         ) {
+            playbackManager.player.pause()
             playbackManager.setBackgroundMode(true)
         }
     }
