@@ -54,6 +54,13 @@ object EngineConfig {
          * per network class, on device evidence).
          */
         val sabrEnabled: Boolean = false,
+        /** Mechanism 24 (SABR Mandiri): Bunny stepping its own
+         *  SABR video pin from measured evidence. Default ON —
+         *  unlike the road itself, adaptation only ever moves
+         *  inside the fence the open already allowed; the switch
+         *  exists so a misbehaving stepper can be silenced
+         *  remotely without an app update. */
+        val sabrAdaptEnabled: Boolean = true,
         /** Personas allowed to speak SABR, by [PlayerPersona.name]. */
         val sabrPersonas: List<String> = listOf("VISIONOS"),
         /** Total on-disk budget for all spools, in megabytes. */
@@ -187,6 +194,11 @@ object EngineConfig {
                 // threshold that silently means "never".
                 minAttempts = minOf(killMin, killWindow),
             ),
+            sabrAdaptEnabled = if (json.has("sabrAdaptEnabled")) {
+                json.optBoolean("sabrAdaptEnabled")
+            } else {
+                DEFAULTS.sabrAdaptEnabled
+            },
             floorEnabled = if (json.has("floorEnabled")) {
                 json.optBoolean("floorEnabled")
             } else {

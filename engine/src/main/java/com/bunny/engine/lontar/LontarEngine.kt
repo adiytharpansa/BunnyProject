@@ -518,6 +518,7 @@ class LontarEngine(
             // Langkah 7, mechanism 7: the governance threshold
             // rides the same config slice as the rest of the gate.
             killThreshold = config.sabrKillThreshold,
+            adaptEnabled = config.sabrAdaptEnabled,
         )
 
     /**
