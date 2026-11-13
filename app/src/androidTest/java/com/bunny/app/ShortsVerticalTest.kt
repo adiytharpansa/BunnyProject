@@ -47,6 +47,30 @@ class ShortsVerticalTest {
         device.wait(Until.hasObject(By.desc("Shorts")), 30_000)
         device.takeScreenshot(File(shotsDir, "home.png"))
 
+        // NAVIGASI BARU (2026-11-13): Live bukan tab lagi — chip
+        // "Siaran Langsung" adalah chip kedua di Beranda. Ketuk,
+        // tunggu daftar live ATAU keadaan kosong/galatnya yang jujur,
+        // foto, lalu kembali ke chip Beranda sebelum lanjut ke Shorts.
+        val liveChip = device.findObject(By.text("Siaran Langsung"))
+            ?: throw AssertionError("Chip 'Siaran Langsung' tidak ditemukan di Beranda")
+        liveChip.click()
+        val liveDeadline = System.currentTimeMillis() + 90_000
+        var liveShown = false
+        while (System.currentTimeMillis() < liveDeadline) {
+            if (device.hasObject(By.textContains("sedang menonton")) ||
+                device.hasObject(By.textContains("Belum ada siaran langsung")) ||
+                device.hasObject(By.textContains("Coba lagi"))
+            ) {
+                liveShown = true
+                break
+            }
+            Thread.sleep(2_000)
+        }
+        device.takeScreenshot(File(shotsDir, "live-chip.png"))
+        assertTrue("Kategori Siaran Langsung tidak menampilkan apa pun", liveShown)
+        device.findObject(By.text("Beranda"))?.click()
+        Thread.sleep(2_000)
+
         val shortsTab = device.findObject(By.desc("Shorts"))
             ?: throw AssertionError("Tab Shorts tidak ditemukan di bilah bawah")
         shortsTab.click()
