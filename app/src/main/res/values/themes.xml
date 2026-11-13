@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Bunny" parent="android:Theme.Material.NoActionBar">
-        <item name="android:statusBarColor">#0F0F0F</item>
-        <item name="android:navigationBarColor">#0F0F0F</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#FFFAF6</item>
+        <item name="android:navigationBarColor">#FFFAF6</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
