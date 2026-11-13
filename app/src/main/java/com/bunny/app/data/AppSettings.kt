@@ -2,9 +2,7 @@ package com.bunny.app.data
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 
 /**
  * Pengaturan pengguna, disimpan di berkas "bunny_prefs" (berkas yang
@@ -21,50 +19,56 @@ object AppSettings {
 
     private var prefs: SharedPreferences? = null
 
+    // Keadaan disimpan di pemegang privat dan properti publiknya
+    // bacaan-saja: penulisan lewat fungsi setX di bawah (yang juga
+    // menyimpan ke berkas). Properti `var` bernama sama dengan fungsi
+    // setX akan bentrok tanda tangan di tingkat JVM, jadi bentuk
+    // inilah yang dipakai.
+    private val pageAnimationsState = mutableStateOf(true)
+    private val hapticsState = mutableStateOf(true)
+    private val resumePlaybackState = mutableStateOf(true)
+    private val developerToolsState = mutableStateOf(true)
+
     /** Transisi antar halaman. Mati = perpindahan instan. */
-    var pageAnimations by mutableStateOf(true)
-        private set
+    val pageAnimations: Boolean get() = pageAnimationsState.value
 
     /** Getar singkat saat menahan kartu/baris. */
-    var haptics by mutableStateOf(true)
-        private set
+    val haptics: Boolean get() = hapticsState.value
 
     /** Lanjutkan video dari posisi terakhir ditonton. */
-    var resumePlayback by mutableStateOf(true)
-        private set
+    val resumePlayback: Boolean get() = resumePlaybackState.value
 
     /** Lencana perekam masalah (alat pengembang) di layar. */
-    var developerTools by mutableStateOf(true)
-        private set
+    val developerTools: Boolean get() = developerToolsState.value
 
     fun init(context: Context) {
         if (prefs != null) return
         val p = context.applicationContext
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = p
-        pageAnimations = p.getBoolean(KEY_ANIMATIONS, true)
-        haptics = p.getBoolean(KEY_HAPTICS, true)
-        resumePlayback = p.getBoolean(KEY_RESUME, true)
-        developerTools = p.getBoolean(KEY_DEV_TOOLS, true)
+        pageAnimationsState.value = p.getBoolean(KEY_ANIMATIONS, true)
+        hapticsState.value = p.getBoolean(KEY_HAPTICS, true)
+        resumePlaybackState.value = p.getBoolean(KEY_RESUME, true)
+        developerToolsState.value = p.getBoolean(KEY_DEV_TOOLS, true)
     }
 
     fun setPageAnimations(value: Boolean) {
-        pageAnimations = value
+        pageAnimationsState.value = value
         prefs?.edit()?.putBoolean(KEY_ANIMATIONS, value)?.apply()
     }
 
     fun setHaptics(value: Boolean) {
-        haptics = value
+        hapticsState.value = value
         prefs?.edit()?.putBoolean(KEY_HAPTICS, value)?.apply()
     }
 
     fun setResumePlayback(value: Boolean) {
-        resumePlayback = value
+        resumePlaybackState.value = value
         prefs?.edit()?.putBoolean(KEY_RESUME, value)?.apply()
     }
 
     fun setDeveloperTools(value: Boolean) {
-        developerTools = value
+        developerToolsState.value = value
         prefs?.edit()?.putBoolean(KEY_DEV_TOOLS, value)?.apply()
     }
 }
