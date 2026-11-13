@@ -109,5 +109,31 @@ class ShortsVerticalTest {
             "Setelah geser, kartu vertikal hilang (terukur: $afterSwipe)",
             afterSwipe.isNotEmpty(),
         )
+
+        // TES TONTON: ketuk kartu pertama -> pemutar Bunny membuka
+        // videonya. Panggung pemutar berbingkai 16:9, jadi orientasi
+        // ASLI video terbaca dari gambarnya: video vertikal tampil
+        // tegak di tengah dengan sisi hitam, video 16:9 memenuhi
+        // panggung. Tangkapan "tonton.png" adalah buktinya — vonis
+        // vertikal tidak lagi berhenti di bingkai kartu.
+        val card = device.findObjects(By.clickable(true)).firstOrNull { obj ->
+            val b = obj.visibleBounds
+            b.width() > 0 && b.height() > b.width() * 3 / 2 && b.height() > 800
+        } ?: throw AssertionError("Kartu vertikal tidak ditemukan untuk tes tonton")
+        card.click()
+        val watchDeadline = System.currentTimeMillis() + 60_000
+        var playerOpen = false
+        while (System.currentTimeMillis() < watchDeadline) {
+            // Halaman pemutar memuat bagian komentar di bawah video.
+            if (device.hasObject(By.textContains("Komentar"))) {
+                playerOpen = true
+                break
+            }
+            Thread.sleep(2_000)
+        }
+        assertTrue("Pemutar tidak terbuka setelah kartu diketuk", playerOpen)
+        // Beri waktu aliran mulai (SABR/klasik) lalu ambil buktinya.
+        Thread.sleep(12_000)
+        device.takeScreenshot(File(shotsDir, "tonton.png"))
     }
 }

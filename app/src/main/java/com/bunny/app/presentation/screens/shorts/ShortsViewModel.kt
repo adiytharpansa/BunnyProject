@@ -27,10 +27,10 @@ data class ShortsUiState(
 )
 
 /**
- * Tab Shorts: video pendek (<= 3 menit, bukan siaran langsung),
- * disusun dari beberapa pencarian topik lewat [ExtractionBackend.search]
- * yang sudah ada — tanpa mengubah kontrak mesin. Daftar terbatas,
- * disegarkan dengan memuat ulang.
+ * Tab Shorts: HANYA video pendek vertikal asli (baris reel/lockup
+ * yang ditandai parser), disusun dari beberapa pencarian topik lewat
+ * [ExtractionBackend.search] yang sudah ada — tanpa mengubah kontrak
+ * mesin. Daftar terbatas, disegarkan dengan memuat ulang.
  */
 @HiltViewModel
 class ShortsViewModel @Inject constructor(
@@ -113,12 +113,14 @@ class ShortsViewModel @Inject constructor(
 
     private fun isShort(item: VideoItem): Boolean {
         if (item.isLive) return false
-        // Baris yang ditandai parser sebagai video pendek vertikal
-        // diterima apa adanya: perendernya tidak membawa durasi,
-        // jadi aturan durasi akan membuang justru yang asli.
-        if (item.isShort) return true
-        val seconds = item.durationSeconds ?: return false
-        return seconds in 1..MAX_SHORT_SECONDS
+        // HANYA baris yang ditandai parser sebagai video pendek
+        // vertikal (perender reel/lockup Shorts). Aturan durasi saja
+        // terbukti menjaring video 16:9 biasa berdurasi pendek —
+        // bingkai kartunya memang vertikal, tetapi videonya melebar
+        // (bukti perangkat virtual 2026-11-13: "2:50" dan "0:59"
+        // sama-sama 16:9). Durasi bukan bukti vertikal; bentuk
+        // perendernya yang menentukan.
+        return item.isShort
     }
 
     /** Round-robin antar topik, duplikat dibuang. */
@@ -140,7 +142,6 @@ class ShortsViewModel @Inject constructor(
     }
 
     private companion object {
-        const val MAX_SHORT_SECONDS = 180L
         const val MAX_ITEMS = 40
         val SHORTS_QUERIES = listOf(
             "#shorts",
