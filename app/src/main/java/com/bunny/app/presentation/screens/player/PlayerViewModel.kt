@@ -443,12 +443,13 @@ class PlayerViewModel @Inject constructor(
         }
         PlaybackService.start(application)
         playbackManager.configure(floor.playbackUserAgent)
-        playbackManager.play(
+        val floorStarted = playbackManager.play(
             floor,
             details.title,
             details.channelName,
             details.thumbnailUrl,
         )
+        if (!floorStarted) return null
         if (positionMs > 0) {
             playbackManager.player.seekTo(positionMs)
         }
@@ -1089,13 +1090,32 @@ class PlayerViewModel @Inject constructor(
                     )
                     if (classicRecorder != null) {
                     }
-                    playbackManager.play(
+                    val started = playbackManager.play(
                         streams,
                         details.title,
                         details.channelName,
                         details.thumbnailUrl,
                         classicRecorder,
                     )
+                    if (!started) {
+                        // Tidak ada sumber yang bisa diputar: lantai
+                        // mendapat satu percobaannya, lalu kegagalan
+                        // asli tampil sebagai error — bukan Ready
+                        // yang berbohong.
+                        val floor = attemptFloor(id, details, 0L)
+                        if (floor != null) {
+                            finishOpenWithFloor(id, details, floor)
+                            return@launch
+                        }
+                        BugRecorder.reportCritical(
+                            source = "Pemutaran",
+                            title = "Semua sumber gagal diputar (videoId=$id)",
+                        )
+                        _uiState.value = PlayerUiState.Error(
+                            "Video ini tidak menyediakan aliran yang dapat diputar.",
+                        )
+                        return@launch
+                    }
                 }
 
                 // Jatah: charge the estimate once playback starts, then

@@ -113,7 +113,17 @@ class PlaybackManager @Inject constructor(
     }
 
     @Volatile
-    var queueHandler: QueueHandler? = null
+    private var _queueHandler: QueueHandler? = null
+
+    var queueHandler: QueueHandler?
+        get() = _queueHandler
+        set(value) {
+            _queueHandler = value
+            // Session membaca perintah yang tersedia saat pemutar
+            // dipasang; pasang ulang pembungkus agar tombol
+            // next/previous ikut berubah.
+            mainHandler.post { _session?.setPlayer(QueueSkipPlayer(player, this)) }
+        }
 
     /** The session for [PlaybackService]; built once, with the player. */
     fun session(): MediaSession {
@@ -154,13 +164,14 @@ class PlaybackManager @Inject constructor(
      * there — the same information the official app's playback
      * notification shows (REA dissection 2026-11-10).
      */
+    /** @return false bila [streams] tidak punya sumber yang bisa diputar. */
     fun play(
         streams: PlaybackStreams,
         title: String,
         channelName: String = "",
         artworkUrl: String? = null,
         classicRecorder: ClassicSpoolRecorder? = null,
-    ) {
+    ): Boolean {
         closeSabr()
         currentClassicRecorder = classicRecorder
         currentPersonaName = streams.personaName
@@ -173,7 +184,7 @@ class PlaybackManager @Inject constructor(
             .build()
         val sources = buildSourceChain(streams, metadata, classicRecorder)
         if (sources.isEmpty()) {
-            return
+            return false
         }
         playChain(sources, title)
         // Selera Tamu: report this view to the addresses the
@@ -190,9 +201,14 @@ class PlaybackManager @Inject constructor(
         } else {
             watchReporter.stop()
         }
+        return true
     }
 
     fun stop() {
+        // Batalkan retry/fallback tertunda supaya video yang sudah
+        // ditutup tidak menyala lagi.
+        chainGeneration++
+        fallback = null
         closeSabr()
         releaseTransitionHold()
         watchReporter.stop()
@@ -674,10 +690,7 @@ class PlaybackManager @Inject constructor(
     fun setBackgroundMode(inBackground: Boolean) {
         if (activityInBackground == inBackground) return
         activityInBackground = inBackground
-        refreshVideoTrackState(
-            if (inBackground) "Mode latar: jalur video dimatikan"
-            else "Mode latar selesai: jalur video dinyalakan",
-        )
+        refreshVideoTrackState()
     }
 
     /**
@@ -685,7 +698,7 @@ class PlaybackManager @Inject constructor(
      * dilipat menjadi pemutar mini (false). Tanpa permukaan video, ExoPlayer
      * tetap mendekode ke permukaan pengganti.
      */
-    private fun refreshVideoTrackState(reason: String) {
+    private fun refreshVideoTrackState() {
         if (!playerBuilt) return
         applyVideoTrackState(player)
     }
@@ -716,25 +729,41 @@ class PlaybackManager @Inject constructor(
             (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
                 ?.memoryClass ?: 128
         val targetBufferBytes = (memoryClassMb / 4).coerceIn(24, 64) * 1024 * 1024
+        // RAM kecil: penyangga lebih pendek (buffer ExoPlayer hidup
+        // di heap Java) dan resolusi dibatasi 1080p agar bitrate
+        // tinggi tidak menggembungkan memori.
+        val lowRam = memoryClassMb <= 192
+        val minBufferMs = if (lowRam) 20_000 else MIN_BUFFER_MS
+        val maxBufferMs = if (lowRam) 45_000 else MAX_BUFFER_MS
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, 1_000, 5_000)
+            .setBufferDurationsMs(minBufferMs, maxBufferMs, 1_000, 5_000)
             .setTargetBufferBytes(targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(true)
             .setBackBuffer(BACK_BUFFER_MS, true)
             .build()
-        return ExoPlayer.Builder(context)
-            .setLoadControl(loadControl)
-            .setTrackSelector(
-                androidx.media3.exoplayer.trackselection.DefaultTrackSelector(
-                    context,
-                    androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
-                        15_000, // naik kualitas hanya jika penyangga >= 15 dtk
-                        25_000, // turun kualitas hanya jika penyangga < 25 dtk
-                        25_000, // pertahankan data kualitas lama yang sudah terunduh
-                        0.65f,  // pakai 65% bandwidth terukur, sisanya pengaman
-                    ),
-                ),
+        val trackSelector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(
+            context,
+            androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
+                15_000, // naik kualitas hanya jika penyangga >= 15 dtk
+                25_000, // turun kualitas hanya jika penyangga < 25 dtk
+                25_000, // pertahankan data kualitas lama yang sudah terunduh
+                0.65f,  // pakai 65% bandwidth terukur, sisanya pengaman
+            ),
+        )
+        if (lowRam) {
+            trackSelector.setParameters(
+                trackSelector.buildUponParameters().setMaxVideoSize(1920, 1080).build(),
             )
+        }
+        return ExoPlayer.Builder(context)
+            // Jika decoder utama gagal init (VP9/AV1 hardware), coba
+            // decoder lain.
+            .setRenderersFactory(
+                androidx.media3.exoplayer.DefaultRenderersFactory(context)
+                    .setEnableDecoderFallback(true),
+            )
+            .setLoadControl(loadControl)
+            .setTrackSelector(trackSelector)
             // Lompat 10 detik ke dua arah, seperti YouTube (bawaan Media3
             // 5 dan 15). Dipakai tombol mundur/maju di halaman pemutar.
             .setSeekBackIncrementMs(10_000)
@@ -805,6 +834,15 @@ class PlaybackManager @Inject constructor(
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        // Live HLS yang tertinggal dari jendela
+                        // siaran: lompat ke posisi live, bukan error.
+                        if (error.errorCode ==
+                            PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                        ) {
+                            exo.seekToDefaultPosition()
+                            exo.prepare()
+                            return
+                        }
                         if (isTransientNetworkError(error) &&
                             !currentSourceIsLocal &&
                             !playerOnSabrSource() &&
@@ -895,8 +933,17 @@ override fun onPlaybackStateChanged(
     private var networkRetries = 0
 
     private fun isTransientNetworkError(e: PlaybackException): Boolean =
-        e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-            e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        when (e.errorCode) {
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+            PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> true
+            // 429 dan 5xx = cuaca server, bukan jawaban. 403 sengaja
+            // TIDAK masuk: itu tanda gerbang GVS yang ditangani
+            // jalur pemulihan.
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+                httpStatusOf(e).let { it == 429 || (it != null && it in 500..599) }
+            else -> false
+        }
     private var currentTitle: String = ""
 
     // ----------------------------------------------------- lontar hidup

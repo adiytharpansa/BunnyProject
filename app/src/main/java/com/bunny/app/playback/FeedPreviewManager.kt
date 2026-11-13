@@ -12,8 +12,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -27,6 +28,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
 
 /**
  * What the UI needs to know about the running preview.
@@ -67,6 +70,15 @@ class FeedPreviewManager @Inject constructor(
 
     private val playerLazy = lazy { buildPlayer() }
 
+    /** Sama dengan klien pemutar utama: HTTP/2, timeout eksplisit, tanpa redirect https->http. */
+    private val previewHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .followSslRedirects(false)
+            .build()
+    }
+
     /** The shared preview player; attach it to one card at a time. */
     val player: ExoPlayer get() = playerLazy.value
 
@@ -85,11 +97,11 @@ class FeedPreviewManager @Inject constructor(
      * preview that does not exist.
      */
     fun start(streams: PlaybackStreams): Boolean {
-        val sources = buildSources(streams)
+        generation++
+        val sources = buildSources(streams, generation)
         if (sources.isEmpty()) {
             return false
         }
-        generation++
         chain = sources
         chainIndex = 0
         _status.value = PreviewStatus()
@@ -140,7 +152,6 @@ class FeedPreviewManager @Inject constructor(
 
     private fun playCurrent() {
         val source = chain.getOrNull(chainIndex) ?: return
-        val gen = generation
         val exo = player
         exo.setMediaSource(source)
         exo.prepare()
@@ -159,6 +170,9 @@ class FeedPreviewManager @Inject constructor(
             )
             .build()
         return ExoPlayer.Builder(context)
+            .setRenderersFactory(
+                DefaultRenderersFactory(context).setEnableDecoderFallback(true),
+            )
             .setLoadControl(loadControl)
             .build()
             .also { exo ->
@@ -193,6 +207,10 @@ class FeedPreviewManager @Inject constructor(
 
                     override fun onPlayerError(error: PlaybackException) {
                         if (chain.isEmpty()) return
+                        // Error dari sumber generasi lama tidak
+                        // boleh memajukan rantai yang baru.
+                        val tag = exo.currentMediaItem?.localConfiguration?.tag
+                        if (tag != generation) return
                         if (chainIndex + 1 < chain.size) {
                             // A failed preview source quietly tries the
                             // next one; a failed preview is never user-facing.
@@ -208,15 +226,15 @@ class FeedPreviewManager @Inject constructor(
             }
     }
 
-    private fun buildSources(streams: PlaybackStreams): List<MediaSource> {
-        val httpFactory = DefaultHttpDataSource.Factory()
+    private fun item(uri: Uri, gen: Int): MediaItem =
+        MediaItem.Builder().setUri(uri).setTag(gen).build()
+
+    private fun buildSources(streams: PlaybackStreams, gen: Int): List<MediaSource> {
+        val httpFactory = OkHttpDataSource.Factory(previewHttpClient)
             .setUserAgent(streams.playbackUserAgent ?: DEFAULT_USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
         val out = mutableListOf<MediaSource>()
 
         streams.dashManifestContent?.takeIf { it.isNotBlank() }?.let { manifest ->
-            // Same in-memory manifest serving as the real player: the
-            // manifest URI resolves from bytes, segments from network.
             val manifestBytes = manifest.toByteArray(Charsets.UTF_8)
             val manifestUri = Uri.parse(MANIFEST_URI)
             val delegatingFactory = DataSource.Factory {
@@ -251,19 +269,19 @@ class FeedPreviewManager @Inject constructor(
                 }
             }
             out += DashMediaSource.Factory(delegatingFactory)
-                .createMediaSource(MediaItem.fromUri(manifestUri))
+                .createMediaSource(item(manifestUri, gen))
         }
         streams.dashManifestUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += DashMediaSource.Factory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url), gen))
         }
         streams.hlsUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += HlsMediaSource.Factory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url), gen))
         }
         streams.progressiveUrl?.takeIf { it.isNotBlank() }?.let { url ->
             out += DefaultMediaSourceFactory(httpFactory)
-                .createMediaSource(MediaItem.fromUri(url))
+                .createMediaSource(item(Uri.parse(url), gen))
         }
         return out
     }
