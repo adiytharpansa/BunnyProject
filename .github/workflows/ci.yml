@@ -78,4 +78,3 @@ jobs:
             **/build/reports/
             **/build/outputs/apk/debug/*.apk
             **/build/outputs/apk/androidTest/**/*.apk
-            **/build/outputs/apk/release/*.apk
