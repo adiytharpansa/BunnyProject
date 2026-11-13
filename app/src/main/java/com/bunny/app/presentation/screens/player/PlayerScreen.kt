@@ -11,6 +11,9 @@ import android.view.OrientationEventListener
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,6 +60,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -88,6 +93,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.launch
 import com.bunny.app.R
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
@@ -109,6 +115,13 @@ fun PlayerScreen(
     onVideoClick: (videoId: String) -> Unit = {},
     /** Shrink to the mini player (playback continues); NOT a stop. */
     onMinimize: () -> Unit = {},
+    /**
+     * Posisi gulir halaman, dimiliki pemanggil: tetap hidup saat
+     * halaman dilipat ke pemutar mini, jadi membuka lagi tidak
+     * mengulang gulir dari atas. Berganti video = pemanggil memberi
+     * ScrollState baru.
+     */
+    scrollState: ScrollState,
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -118,7 +131,6 @@ fun PlayerScreen(
     val download by remember(videoId) { viewModel.downloadState(videoId) }
         .collectAsState(null)
     // Scroll kembali ke atas setiap kali pindah ke video lain.
-    val scrollState = remember(videoId) { ScrollState(0) }
 
     // Izin notifikasi diminta sekali saat Bunny pertama kali dibuka
     // (MainActivity); halaman pemutar tidak meminta izin.
@@ -228,13 +240,28 @@ fun PlayerScreen(
     var infoExpanded by remember(videoId) { mutableStateOf(false) }
 
     LaunchedEffect(videoId) { viewModel.open(videoId) }
+
+    // Transisi ala YouTube: halaman naik saat dibuka; saat mengecil
+    // (Kembali / dua panah) halaman meluncur turun + memudar dulu,
+    // baru bar mini mengambil alih. Satu nilai 0..1 mengatur keduanya.
+    val transition = remember { Animatable(0f) }
+    val transitionScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        transition.animateTo(1f, tween(240, easing = FastOutSlowInEasing))
+    }
+    fun requestMinimize() {
+        transitionScope.launch {
+            transition.animateTo(0f, tween(200, easing = FastOutSlowInEasing))
+            onMinimize()
+        }
+    }
     // Kembali di halaman tonton mengecilkan ke pemutar mini — putar
     // berlanjut, halaman lain bisa dijelajahi. Menutup total tinggal
     // di tombol ✕ bar mini. Belum ada yang berputar (memuat/gagal):
     // Kembali menutup seperti biasa.
     BackHandler {
         if (state is PlayerUiState.Ready) {
-            onMinimize()
+            requestMinimize()
         } else {
             viewModel.stopPlayback()
             onBack()
@@ -247,7 +274,11 @@ fun PlayerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .graphicsLayer {
+                alpha = transition.value
+                translationY = (1f - transition.value) * size.height * 0.3f
+            },
     ) {
         // Video first, edge to edge; the back button floats on it
         // (no separate app bar, like the official watch page).
@@ -429,7 +460,7 @@ fun PlayerScreen(
                     if (isLandscape) {
                         toggleFullscreen()
                     } else if (state is PlayerUiState.Ready) {
-                        onMinimize()
+                        requestMinimize()
                     } else {
                         viewModel.stopPlayback()
                         onBack()
@@ -455,7 +486,7 @@ fun PlayerScreen(
                         .background(Color.Black.copy(alpha = 0.45f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    IconButton(onClick = onMinimize) {
+                    IconButton(onClick = { requestMinimize() }) {
                         Icon(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = stringResource(R.string.player_minimize),

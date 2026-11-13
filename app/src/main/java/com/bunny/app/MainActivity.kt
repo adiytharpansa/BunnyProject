@@ -195,6 +195,13 @@ class MainActivity : ComponentActivity() {
                 // Membuka video lain selalu membesarkan pemutar lagi.
                 LaunchedEffect(videoId) { playerMinimized = false }
 
+                // Posisi gulir halaman tonton tinggal di sini (di luar
+                // layar yang dilipat), jadi mengecil lalu membesar
+                // tidak mengulang gulir dari atas.
+                val playerScrollState = remember(videoId) {
+                    androidx.compose.foundation.ScrollState(0)
+                }
+
                 // Pemutar mini memegang permukaan video (video langsung
                 // di bar bawah), jadi jalur video tetap menyala selama
                 // dilipat; hanya latar aplikasi yang mematikannya.
@@ -236,6 +243,7 @@ class MainActivity : ComponentActivity() {
                             if (videoId != null && !playerMinimized) {
                                 PlayerScreen(
                                     videoId = videoId,
+                                    scrollState = playerScrollState,
                                     onBack = { openVideoId = null },
                                     onChannelClick = { id, name ->
                                         openChannel = id to name
