@@ -4,8 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
-import com.bunny.core.model.DurationRange
-import com.bunny.core.model.SearchFilter
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -57,15 +55,17 @@ class ShortsViewModel @Inject constructor(
                         async {
                             try {
                                 Result.success(
-                                    // Filter durasi SHORT dari YouTube
-                                    // sendiri (di bawah 4 menit): halaman
-                                    // pertama pencarian biasa didominasi
-                                    // video panjang, jadi saringan lokal
-                                    // <= 180 dtk sering pulang kosong.
+                                    // TANPA filter durasi di permintaan:
+                                    // pencarian bertapis menjawab dengan
+                                    // halaman hasil polos tanpa rak —
+                                    // rak Shorts (baris reel) hanya muncul
+                                    // di pencarian biasa, dan hanya baris
+                                    // bertanda isShort yang diterima
+                                    // (bukti kosong 2026-11-13: bertapis
+                                    // + isShort = nol item).
                                     backend.search(
                                         query,
                                         null,
-                                        SearchFilter(duration = DurationRange.SHORT),
                                     ).items.filter { isShort(it) },
                                 )
                             } catch (e: CancellationException) {
