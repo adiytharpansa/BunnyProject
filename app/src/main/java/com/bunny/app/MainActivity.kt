@@ -193,6 +193,25 @@ class MainActivity : ComponentActivity() {
                 val barHeightDp = with(LocalDensity.current) { barHeightPx.toDp() }
 
                 val videoId = openVideoId
+
+                // Jepretan muatan terakhir yang tidak kosong.
+                // Cabang-cabang AnimatedContent di bawah masih
+                // tersusun selama transisi KELUAR, sesudah keadaan
+                // sumbernya dikosongkan (video ditutup, kanal
+                // ditutup) — membaca !! pada keadaan sumber di sana
+                // mogok (NPE MainActivity:276, laporan perangkat
+                // 2026-11-13). Jepretan ini diperbarui setiap
+                // komposisi saat sumbernya terisi, jauh sebelum
+                // cabangnya bisa ada, jadi !! pada jepretan aman
+                // menurut konstruksi.
+                var lastVideoId by remember { mutableStateOf<String?>(null) }
+                var lastChannel by remember {
+                    mutableStateOf<Pair<String, String>?>(null)
+                }
+                var lastPersonal by remember { mutableStateOf<String?>(null) }
+                if (videoId != null) lastVideoId = videoId
+                if (openChannel != null) lastChannel = openChannel
+                if (openPersonal != null) lastPersonal = openPersonal
                 // PiP hanya saat halaman tonton yang tampil — dalam
                 // keadaan mini, jendela PiP akan berisi UI tab, bukan
                 // video (permukaan pemutar sedang tidak terpasang).
@@ -273,7 +292,7 @@ class MainActivity : ComponentActivity() {
                                 when (key) {
                                     "player" -> {
                                 PlayerScreen(
-                                    videoId = videoId!!,
+                                    videoId = videoId ?: lastVideoId!!,
                                     scrollState = playerScrollState,
                                     onBack = { openVideoId = null },
                                     onChannelClick = { id, name ->
@@ -285,7 +304,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                                                 }
                                     "channel" -> {
-                                val (channelId, channelName) = openChannel!!
+                                val (channelId, channelName) = openChannel ?: lastChannel!!
                                 ChannelScreen(
                                     channelId = channelId,
                                     channelName = channelName,
@@ -312,7 +331,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                                                 }
                                     "personal" -> {
-                                when (openPersonal) {
+                                when (openPersonal ?: lastPersonal) {
                                     "subs" -> SubscriptionsScreen(
                                         onBack = { openPersonal = null },
                                         onChannelClick = { id, name ->
@@ -320,7 +339,7 @@ class MainActivity : ComponentActivity() {
                                         },
                                     )
                                     else -> PersonalFeedScreen(
-                                        mode = openPersonal!!,
+                                        mode = (openPersonal ?: lastPersonal)!!,
                                         onBack = { openPersonal = null },
                                         onVideoClick = { openVideoId = it },
                                     )
