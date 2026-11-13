@@ -49,7 +49,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -93,12 +92,9 @@ import com.bunny.app.R
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.presentation.components.VideoCard
 import com.bunny.app.presentation.components.ResilientImage
-import com.bunny.app.playback.PlaybackDiagnostics
 import com.bunny.app.playback.PlayerTouchGestures
 import com.bunny.core.model.Chapters
 import kotlin.math.roundToInt
-import com.bunny.app.playback.MetadataFailureLog
-import com.bunny.app.playback.PlaybackFailureLog
 import com.bunny.core.model.DataCost
 import com.bunny.core.model.VideoComment
 
@@ -116,7 +112,6 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
-    val diagnostics by viewModel.diagnostics.collectAsState()
     val controller by viewModel.controllerPlayer.collectAsState()
     val related by viewModel.related.collectAsState()
     val comments by viewModel.comments.collectAsState()
@@ -210,13 +205,6 @@ fun PlayerScreen(
             onDispose { player.removeListener(listener) }
         }
     }
-
-    // Fase 4 telemetry: terminal playback failures persist on-device
-    // across restarts; read once when this screen opens.
-    var pastFailures by remember { mutableStateOf(PlaybackFailureLog.read(context)) }
-
-    // Fase 7-A: the metadata surfaces' failure notebook, same deal.
-    var pastDataFailures by remember { mutableStateOf(MetadataFailureLog.read(context)) }
 
     // Player controls (S5): quality / speed dialogs over the options
     // state; PiP is delegated to the activity via onPipClick.
@@ -492,19 +480,6 @@ fun PlayerScreen(
                     Button(onClick = { viewModel.retry() }) {
                         Text(stringResource(R.string.retry))
                     }
-                    DiagnosticsBlock(
-                        events = diagnostics,
-                        pastFailures = pastFailures,
-                        onClearFailures = {
-                            PlaybackFailureLog.clear(context)
-                            pastFailures = null
-                        },
-                        pastDataFailures = pastDataFailures,
-                        onClearDataFailures = {
-                            MetadataFailureLog.clear(context)
-                            pastDataFailures = null
-                        },
-                    )
                 }
 
                 is PlayerUiState.Ready -> {
@@ -987,21 +962,6 @@ fun PlayerScreen(
                         }
                     }
 
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                    DiagnosticsBlock(
-                        events = diagnostics,
-                        pastFailures = pastFailures,
-                        onClearFailures = {
-                            PlaybackFailureLog.clear(context)
-                            pastFailures = null
-                        },
-                        pastDataFailures = pastDataFailures,
-                        onClearDataFailures = {
-                            MetadataFailureLog.clear(context)
-                            pastDataFailures = null
-                        },
-                        onDrillFloor = { viewModel.playViaFloor() },
-                    )
                     CommentsSection(
                         state = comments,
                         onLoadMore = { viewModel.loadMoreComments() },
@@ -1194,72 +1154,6 @@ private fun ActionPill(
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Medium,
             )
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticsBlock(
-    events: List<String>,
-    pastFailures: String? = null,
-    onClearFailures: () -> Unit = {},
-    pastDataFailures: String? = null,
-    onClearDataFailures: () -> Unit = {},
-    onDrillFloor: (() -> Unit)? = null,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    TextButton(onClick = { expanded = !expanded }) {
-        Text(
-            stringResource(R.string.player_diagnostics),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-    if (expanded) {
-        Text(
-            events.takeLast(12).joinToString("\n").ifEmpty { "—" },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        if (onDrillFloor != null) {
-            // Bor Lantai (RANCANGAN-LANTAI-PENYELAMAT Bagian 4):
-            // prove the rescue on demand instead of waiting for
-            // every other road to fail first.
-            OutlinedButton(
-                onClick = onDrillFloor,
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Text(stringResource(R.string.player_drill_floor))
-            }
-        }
-        if (pastFailures != null) {
-            Text(
-                stringResource(R.string.player_failures_title),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Text(
-                pastFailures,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onClearFailures) {
-                Text(stringResource(R.string.player_failures_clear))
-            }
-        }
-        if (pastDataFailures != null) {
-            Text(
-                stringResource(R.string.player_data_failures_title),
-                style = MaterialTheme.typography.titleSmall,
-                modifier = Modifier.padding(top = 12.dp),
-            )
-            Text(
-                pastDataFailures,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onClearDataFailures) {
-                Text(stringResource(R.string.player_failures_clear))
-            }
         }
     }
 }
