@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 27+: windowLightNavigationBar baru tersedia di sini
+         (minSdk aplikasi 26, jadi item itu tidak boleh di berkas dasar). -->
+    <style name="Theme.Bunny" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#FFFAF6</item>
+        <item name="android:navigationBarColor">#FFFAF6</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>
