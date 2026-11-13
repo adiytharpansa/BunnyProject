@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="nav_shorts">Shorts</string>
-    <string name="shorts_play">Putar</string>
-    <string name="shorts_empty">Belum ada video pendek.</string>
-</resources>
