@@ -678,11 +678,7 @@ class PlayerViewModel @Inject constructor(
         load()
     }
 
-    /** Geser ke atas di panggung putar: sama persis dengan tombol ⏭. */
-    fun swipeNext() = skipToNext(auto = false)
 
-    /** Geser ke bawah di panggung putar: sama persis dengan tombol ⏮. */
-    fun swipePrevious() = skipToPrevious()
 
     /** Terbit's source: local subscriptions, toggled from this screen. */
     fun subscriptionState(channelId: String): Flow<Boolean> =

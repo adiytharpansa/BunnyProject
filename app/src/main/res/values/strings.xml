@@ -54,8 +54,6 @@
     <string name="player_chapters">Bab video</string>
     <string name="gesture_forward">+10 detik</string>
     <string name="gesture_back">−10 detik</string>
-    <string name="gesture_next_video">Video berikutnya</string>
-    <string name="gesture_prev_video">Video sebelumnya</string>
     <string name="gesture_volume">Volume %1$d%%</string>
     <string name="gesture_brightness">Kecerahan %1$d%%</string>
     <string name="gesture_speed_boost">2x ▶▶</string>
