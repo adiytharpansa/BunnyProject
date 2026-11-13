@@ -38,6 +38,7 @@ import androidx.media3.extractor.mkv.MatroskaExtractor
 import java.io.File
 import androidx.media3.session.MediaSession
 import com.bunny.app.MainActivity
+import com.bunny.app.bug.BugPlayerListener
 import com.bunny.core.model.PlaybackStreams
 import com.bunny.engine.lontar.LontarEngine
 import com.bunny.engine.lontar.sabr.ClassicSpoolRecorder
@@ -768,6 +769,7 @@ class PlaybackManager @Inject constructor(
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
             .also { exo ->
+                exo.addListener(BugPlayerListener("player"))
                 exo.addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(state: Int) {
                         val name = when (state) {
@@ -872,129 +874,9 @@ class PlaybackManager @Inject constructor(
                 // Without these, "buffering" stays a feeling; with
                 // them it is a measurement.
                 exo.addAnalyticsListener(object : AnalyticsListener {
-                    override fun onPlaybackStateChanged(state: Int) {
-                        val name = when (state) {
-                            Player.STATE_IDLE -> "IDLE"
-                            Player.STATE_BUFFERING -> "BUFFERING"
-                            Player.STATE_READY -> "READY"
-                            Player.STATE_ENDED -> "ENDED"
-                            else -> "STATE_$state"
-                        }
-                    }
 
-                    override fun onPositionDiscontinuity(
-                        oldPosition: Player.PositionInfo,
-                        newPosition: Player.PositionInfo,
-                        reason: Int,
-                    ) {
-                        // Langkah 6, mechanism 23 — panic-free
-                        // seek: a seek on the SABR road is a named
-                        // event, and it restarts every buffering
-                        // clock that could otherwise convict the
-                        // road for the viewer's travel time: the
-                        // M12 rescue measures its stretch from the
-                        // seek, and an episode already open in the
-                        // AnalyticsListener's accounting restarts
-                        // (with its dropped-frame baseline) so the
-                        // post-seek wait is judged on its own.
-                        if (reason != Player.DISCONTINUITY_REASON_SEEK ||
-                            currentSabr == null
-                        ) {
-                            return
-                        }
-                        rescueBufferingSinceMs = -1
-                        // Mechanism 23, full form: hand the
-                        // target to the road itself. If the spool
-                        // does not cover it, the drive jumps — a
-                        // fresh session seeded at the target —
-                        // instead of rolling sequentially from
-                        // zero and racing the rescue clock.
-                        currentSabr?.onSeekObserved(newPosition.positionMs)
-                    }
 
-                    override fun onIsPlayingChanged(isPlaying: Boolean) {
-                        if (isPlaying) {
-                            networkRetries = 0
-                            releaseTransitionHold()
-                        }
-                    }
-
-                    override fun onPlayerError(error: PlaybackException) {
-                        if (isTransientNetworkError(error) &&
-                            !currentSourceIsLocal &&
-                            !playerOnSabrSource() &&
-                            networkRetries < MAX_NETWORK_RETRIES
-                        ) {
-                            networkRetries++
-                            val gen = chainGeneration
-                            mainHandler.postDelayed({
-                                if (gen == chainGeneration) exo.prepare()
-                            }, 1_000L * networkRetries)
-                            return
-                        }
-                        val step = fallback
-                        if (step != null) {
-                            step.invoke()
-                        } else {
-                            // Terminal: the chain has no next source, so
-                            // this failure is the one the user experiences.
-                            // Persist it as on-device telemetry (Fase 4).
-                            // Pemutus arus Lontar Hidup (Fase 6): an HTTP
-                            // 403 from the media host AFTER real playback
-                            // (past the cold-start allowance) is the GVS
-                            // gate's signature. The ViewModel's recovery
-                            // takes it from here — demote the persona,
-                            // re-resolve, continue from this position.
-                            val persona = currentPersonaName
-                            if (persona != null &&
-                                persona != LontarEngine.FLOOR_PERSONA_NAME &&
-                                !currentSourceIsLocal &&
-                                httpStatusOf(error) == 403 &&
-                                exo.currentPosition > GVS_POSITION_THRESHOLD_MS
-                            ) {
-                                onSuspectedGvs?.invoke(persona)
-                            } else if (!currentSourceIsLocal) {
-                                // Lantai Penyelamat: a terminal error
-                                // that is not the GVS signature means
-                                // the classic chain is exhausted — the
-                                // ViewModel's floor attempt takes it
-                                // from here. The floor's own persona is
-                                // excluded from the GVS branch above:
-                                // a floor failure is final, never a
-                                // recovery loop.
-                                onTerminalFailure?.invoke(exo.currentPosition)
-                            }
-                        }
-                    }
-                })
-                // Anti-buffering M2: the player's own evidence —
-                // which decoder really runs (a name settles the
-                // hardware/software question the web sources argue
-                // about), how many frames it drops, and how the
-                // SABR road's buffering episodes count and last.
-                // Without these, "buffering" stays a feeling; with
-                // them it is a measurement.
-                exo.addAnalyticsListener(object : AnalyticsListener {
-                    override fun onVideoDecoderInitialized(
-                        eventTime: AnalyticsListener.EventTime,
-                        decoderName: String,
-                        initializedTimestampMs: Long,
-                        initializationDurationMs: Long,
-                    ) {
-                    }
-
-                    override fun onDroppedVideoFrames(
-                        eventTime: AnalyticsListener.EventTime,
-                        droppedFrames: Int,
-                        elapsedMs: Long,
-                    ) {
-                        val before = droppedFramesTotal
-                        droppedFramesTotal += droppedFrames
-                        if (droppedFramesTotal / 60 > before / 60) {
-                        }
-                    }
-
-                    override fun onPlaybackStateChanged(
+override fun onPlaybackStateChanged(
                         eventTime: AnalyticsListener.EventTime,
                         state: Int,
                     ) {

@@ -5,6 +5,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.bunny.app.bug.BugRecorder
 import com.bunny.core.backend.ExtractionBackend
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -22,6 +23,9 @@ class BunnyApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        // Perekam Bug: dipasang paling awal — crash/ANR hanya untuk
+        // laporan pengguna, tidak menampilkan apa pun saat sehat.
+        BugRecorder.install(this)
         // Pemanasan: DNS, TLS, dan sesi InnerTube siap sebelum Beranda
         // memintanya. Gagal pun tidak apa-apa; Beranda mengulang sendiri.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {

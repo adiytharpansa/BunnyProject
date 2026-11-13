@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.bunny.app.bug.BugRecorder
 import com.bunny.app.data.AccountTasteRepository
 import com.bunny.app.data.AuthRepository
 import com.bunny.app.data.DesktopAuth
@@ -383,6 +384,13 @@ class HomeViewModel @Inject constructor(
                 // Cancellation is control flow, never a feed error.
                 throw e
             } catch (e: Exception) {
+                if (_uiState.value.items.isEmpty()) {
+                    BugRecorder.reportCritical(
+                        source = "Lontar/Beranda",
+                        title = "Feed beranda gagal dimuat",
+                        error = e,
+                    )
+                }
                 _uiState.update {
                     it.copy(isLoading = false, error = e.message ?: "Unknown error")
                 }

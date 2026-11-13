@@ -12,6 +12,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.lifecycle.viewModelScope
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.bunny.app.bug.BugRecorder
 import com.bunny.app.data.DownloadEntity
 import com.bunny.app.data.DownloadManager
 import com.bunny.app.data.LibraryRepository
@@ -1058,6 +1059,10 @@ class PlayerViewModel @Inject constructor(
                         finishOpenWithFloor(id, details, floor)
                         return@launch
                     }
+                    BugRecorder.reportCritical(
+                        source = "Pemutaran",
+                        title = "Semua sumber gagal diputar (videoId=$id)",
+                    )
                     _uiState.value = PlayerUiState.Error(
                         "Video ini tidak menyediakan aliran yang dapat diputar.",
                     )
@@ -1141,9 +1146,13 @@ class PlayerViewModel @Inject constructor(
                         return@launch
                     }
                 }
-                // Fase 4 telemetry: load failures persist on-device so a
-                // refusal pattern (e.g. a tightening bot gate) stays
-                // visible across restarts, not only in this session's ring.
+                // Semua jalan menyerah (tangga dua lintasan + lantai):
+                // ini kegagalan inti — tawarkan laporan ke pengguna.
+                BugRecorder.reportCritical(
+                    source = "Pemutaran",
+                    title = "Semua sumber gagal diputar (videoId=$id)",
+                    error = e,
+                )
                 _uiState.value = PlayerUiState.Error(
                     e.message ?: "Video tidak dapat disiapkan.",
                 )

@@ -88,6 +88,7 @@ import com.bunny.app.presentation.screens.profile.PersonalFeedScreen
 import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.profile.SubscriptionsScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
+import com.bunny.app.bug.BugReportHost
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
@@ -123,6 +124,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             BunnyTheme {
+                BugReportHost()
                 // Izin notifikasi diminta SEKALI saat Bunny pertama kali
                 // dibuka (Android 13+). Dialognya dibuat oleh sistem. Tanda
                 // "sudah diminta" disimpan sebelum dialog tampil, jadi tidak
