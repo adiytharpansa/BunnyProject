@@ -22,8 +22,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -218,6 +220,26 @@ class MainActivity : ComponentActivity() {
                 }
                 val barVisible =
                     (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
+
+                // PERBAIKAN: pemutar mini harus ikut turun bersama bar bawah.
+                // Dulu ia tetap "melayang" setinggi bar walau bar sudah
+                // meluncur keluar saat header Beranda dilipat, sehingga ada
+                // celah di bawahnya dan isi feed terlihat menembus celah itu.
+                // Sekarang posisinya dihitung dari barsFraction (dibaca hanya
+                // di graphicsLayer, tanpa rekomposisi) dan berhenti tepat di
+                // atas inset navigasi sistem.
+                val density = LocalDensity.current
+                val navBottomPx = WindowInsets.navigationBars.getBottom(density)
+                val navBottomDp = with(density) { navBottomPx.toDp() }
+                var miniPlayerHeightPx by remember { mutableFloatStateOf(0f) }
+                val miniPlayerVisible =
+                    videoId != null && playerMinimized && playerUiState is PlayerUiState.Ready
+                val miniPlayerHeightDp =
+                    if (miniPlayerVisible) with(density) { miniPlayerHeightPx.toDp() } else 0.dp
+                // Ruang bawah untuk isi tab: bar bawah + pemutar mini, supaya
+                // kartu terakhir tidak tertutup keduanya.
+                val contentBottomPadding = barHeightDp + miniPlayerHeightDp
+
                 // System Back walks the page stack back to Beranda
                 // instead of leaving the app; the player's own
                 // BackHandler owns Back while a video is open.
@@ -313,7 +335,7 @@ class MainActivity : ComponentActivity() {
                                     onBarsFraction = {
                                         barsFraction.floatValue = it
                                     },
-                                    bottomPadding = barHeightDp,
+                                    bottomPadding = contentBottomPadding,
                                 )
                                 val report = crashReport
                                 if (report != null) {
@@ -332,7 +354,7 @@ class MainActivity : ComponentActivity() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = barHeightDp),
+                                        .padding(bottom = contentBottomPadding),
                                 ) {
                                     ShortsScreen(
                                         onVideoClick = {
@@ -346,7 +368,7 @@ class MainActivity : ComponentActivity() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = barHeightDp),
+                                        .padding(bottom = contentBottomPadding),
                                 ) {
                                     KanalScreen(
                                         onChannelClick = { id, name ->
@@ -364,7 +386,7 @@ class MainActivity : ComponentActivity() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = barHeightDp),
+                                        .padding(bottom = contentBottomPadding),
                                 ) {
                                     ProfileScreen(
                                         onDownloadsClick = { openDownloads = true },
@@ -390,13 +412,29 @@ class MainActivity : ComponentActivity() {
                                     },
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
+                                        // Bar tampil: duduk di atas bar bawah.
+                                        // Bar tidak ada (Pencarian, Kanal, dst.):
+                                        // duduk di atas inset navigasi sistem.
                                         .padding(
                                             bottom = if (barVisible) {
                                                 barHeightDp
                                             } else {
-                                                0.dp
+                                                navBottomDp
                                             },
-                                        ),
+                                        )
+                                        .onSizeChanged {
+                                            miniPlayerHeightPx = it.height.toFloat()
+                                        }
+                                        .graphicsLayer {
+                                            // Ikut meluncur turun saat bar bawah
+                                            // disembunyikan; berhenti di atas
+                                            // inset navigasi (bukan menimpanya).
+                                            if (barVisible) {
+                                                translationY = barsFraction.floatValue *
+                                                    (barHeightPx - navBottomPx)
+                                                        .coerceAtLeast(0f)
+                                            }
+                                        },
                                 )
                             }
                         }
