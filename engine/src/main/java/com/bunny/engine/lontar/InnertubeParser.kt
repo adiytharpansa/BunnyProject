@@ -54,6 +54,22 @@ object InnertubeParser {
                     parseLockupVideo(node.getJSONObject("lockupViewModel"))
                         ?.let(out::add)
                 }
+                if (node.has("reelItemRenderer")) {
+                    // Rak Shorts (beranda/pencarian): item vertikal
+                    // tanpa teks durasi. Tanpa cabang ini parser
+                    // melewatinya begitu saja dan tab Shorts tidak
+                    // pernah berisi (terbukti kosong di perangkat
+                    // 2026-11-13).
+                    parseReelItem(node.getJSONObject("reelItemRenderer"))
+                        ?.let(out::add)
+                }
+                if (node.has("shortsLockupViewModel")) {
+                    // Bentuk lockup dari video pendek yang sama;
+                    // anatominya sama dengan lockupViewModel.
+                    parseLockupVideo(node.getJSONObject("shortsLockupViewModel"))
+                        ?.copy(isShort = true)
+                        ?.let(out::add)
+                }
                 val keys = node.keys()
                 while (keys.hasNext()) {
                     collectVideos(node.opt(keys.next()), out)
@@ -85,6 +101,7 @@ object InnertubeParser {
             durationSeconds = renderer.optJSONObject("lengthText")
                 ?.let { parseDuration(textOf(it)) },
             viewCount = viewCountText?.let { parseCount(it) },
+            viewCountText = viewCountText?.takeIf { it.isNotEmpty() },
             uploadedText = renderer.optJSONObject("publishedTimeText")
                 ?.let { textOf(it) }
                 ?.takeIf { it.isNotEmpty() },
@@ -109,9 +126,38 @@ object InnertubeParser {
             durationSeconds = renderer.optJSONObject("lengthText")
                 ?.let { parseDuration(textOf(it)) },
             viewCount = infoText.takeIf { it.isNotEmpty() }?.let { parseCount(it) },
+            viewCountText = infoText.takeIf { it.isNotEmpty() }
+                ?.substringBefore("•")?.trim()?.takeIf { it.isNotEmpty() },
             uploadedText = infoText.takeIf { it.contains("•") }
                 ?.substringAfter("•")?.trim()?.takeIf { it.isNotEmpty() },
             isLive = false,
+        )
+    }
+
+    /**
+     * Baris rak Shorts: judul dari headline, gambar vertikal dari
+     * thumbnail, teks tayang asli dari viewCountText. Tidak ada
+     * byline kanal dan tidak ada durasi pada perender ini.
+     */
+    private fun parseReelItem(renderer: JSONObject): VideoItem? {
+        val videoId = renderer.optString("videoId").takeIf { it.isNotEmpty() }
+            ?: return null
+        val title = renderer.optJSONObject("headline")?.let { textOf(it) }.orEmpty()
+        if (title.isEmpty()) return null
+        val viewCountText = textOf(renderer.optJSONObject("viewCountText"))
+            .takeIf { it.isNotEmpty() }
+        return VideoItem(
+            id = videoId,
+            title = title,
+            channelId = null,
+            channelName = "",
+            thumbnailUrl = bestThumbnail(renderer.optJSONObject("thumbnail")),
+            durationSeconds = null,
+            viewCount = viewCountText?.let { parseCount(it) },
+            viewCountText = viewCountText,
+            uploadedText = null,
+            isLive = false,
+            isShort = true,
         )
     }
 
@@ -269,6 +315,7 @@ object InnertubeParser {
             durationSeconds = durationSeconds,
             viewCount = viewsLabel.takeIf { it.isNotEmpty() }
                 ?.let { parseCount(it) },
+            viewCountText = viewsLabel.takeIf { it.isNotEmpty() },
             uploadedText = uploadedText,
             isLive = isLive,
         )
@@ -970,7 +1017,14 @@ object InnertubeParser {
 
     /** "12:34" / "1:02:03" -> seconds. Null when unparseable. */
     fun parseDuration(text: String): Long? {
-        val parts = text.trim().split(":").map { it.toLongOrNull() ?: return null }
+        // Server menulis durasi untuk lokal Indonesia dengan TITIK
+        // ("1.41" = 1 menit 41 detik), lokal lain dengan titik dua;
+        // samakan dulu. Tanpa ini durasi baris videoRenderer/playlist
+        // terbaca null di perangkat Indonesia — tab Shorts membuang
+        // semua videonya (kosong 2026-11-13) dan lencana durasi serta
+        // Timbangan di kartu ikut hilang.
+        val parts = text.trim().replace('.', ':')
+            .split(":").map { it.toLongOrNull() ?: return null }
         return when (parts.size) {
             2 -> parts[0] * 60 + parts[1]
             3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]

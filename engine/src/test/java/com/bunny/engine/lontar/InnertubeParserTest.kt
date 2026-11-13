@@ -1032,4 +1032,113 @@ class InnertubeParserTest {
         )
         assertNull(InnertubeParser.parseChannelInfo(json, "UCxxxxxxxxxxxxxxxxxxxxxx"))
     }
+
+    @Test
+    fun parseFeedPage_reelShelf_yieldsShortItems() {
+        // Rak Shorts di jawaban pencarian: reelItemRenderer tidak
+        // membawa durasi; parser harus tetap menghasilkannya dan
+        // menandainya isShort (regresi: tab Shorts kosong permanen).
+        val json = JSONObject(
+            """
+            {
+              "contents": {
+                "sectionListRenderer": {
+                  "contents": [
+                    {
+                      "reelShelfRenderer": {
+                        "items": [
+                          {
+                            "reelItemRenderer": {
+                              "videoId": "abc123XYZ09",
+                              "headline": { "simpleText": "Kucing lompat gagal" },
+                              "thumbnail": {
+                                "thumbnails": [
+                                  { "url": "https://i.ytimg.com/small.jpg", "width": 270, "height": 480 }
+                                ]
+                              },
+                              "viewCountText": { "simpleText": "1,2 jt x ditonton" }
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+        val page = InnertubeParser.parseFeedPage(json)
+        assertEquals(1, page.items.size)
+        val item = page.items.single()
+        assertEquals("abc123XYZ09", item.id)
+        assertEquals("Kucing lompat gagal", item.title)
+        assertTrue(item.isShort)
+        assertNull(item.durationSeconds)
+        assertEquals("1,2 jt x ditonton", item.viewCountText)
+    }
+
+    @Test
+    fun parseFeedPage_shortsLockup_yieldsShortItem() {
+        val json = JSONObject(
+            """
+            {
+              "contents": {
+                "richGridRenderer": {
+                  "contents": [
+                    {
+                      "richItemRenderer": {
+                        "content": {
+                          "shortsLockupViewModel": {
+                            "contentId": "def456XYZ09",
+                            "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                            "metadata": {
+                              "lockupMetadataViewModel": {
+                                "title": { "content": "Gol menit akhir" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+        val page = InnertubeParser.parseFeedPage(json)
+        assertEquals(1, page.items.size)
+        val item = page.items.single()
+        assertEquals("def456XYZ09", item.id)
+        assertEquals("Gol menit akhir", item.title)
+        assertTrue(item.isShort)
+    }
+
+    @Test
+    fun parseFeedPage_dotDuration_yieldsSeconds() {
+        // Durasi dari jawaban asli untuk lokal Indonesia memakai TITIK
+        // ("1.41" = 1 menit 41 detik) — dibuktikan dari jawaban
+        // pencarian asli 2026-11-13. Pembaca yang hanya paham ":"
+        // mengembalikan null dan tab Shorts membuang semua videonya.
+        val json = JSONObject(
+            """
+            {
+              "contents": [
+                {
+                  "videoRenderer": {
+                    "videoId": "dotdur12345",
+                    "title": { "simpleText": "Video pendek asli" },
+                    "lengthText": { "simpleText": "1.41" },
+                    "viewCountText": { "simpleText": "12 rb x ditonton" }
+                  }
+                }
+              ]
+            }
+            """.trimIndent(),
+        )
+        val page = InnertubeParser.parseFeedPage(json)
+        assertEquals(1, page.items.size)
+        assertEquals(101L, page.items.single().durationSeconds)
+    }
 }

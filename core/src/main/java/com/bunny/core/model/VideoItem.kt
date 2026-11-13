@@ -14,8 +14,21 @@ data class VideoItem(
     val thumbnailUrl: String?,
     val durationSeconds: Long?,
     val viewCount: Long?,
+    /**
+     * Teks jumlah tayang ASLI dari YouTube ("304,6 rb x ditonton",
+     * "1,2 rb sedang menonton") — yang ditampilkan apa adanya.
+     * Aplikasi tidak pernah menyusun teks ini dari angka.
+     */
+    val viewCountText: String? = null,
     val uploadedText: String?,
     val isLive: Boolean = false,
+    /**
+     * True bila baris sumbernya memang video pendek vertikal
+     * (perender reel/shorts di jawaban YouTube). Video begini tidak
+     * membawa teks durasi, jadi aturan durasi saja tidak bisa
+     * mengenalinya.
+     */
+    val isShort: Boolean = false,
     /**
      * Chip Alasan: why this item is being shown, in the user's language
      * ("Topik: Musik", "Dari langganan: Blender Foundation"). Computed

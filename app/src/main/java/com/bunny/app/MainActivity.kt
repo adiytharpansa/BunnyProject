@@ -84,7 +84,9 @@ import com.bunny.app.presentation.components.MiniPlayerBar
 import com.bunny.app.presentation.screens.channel.ChannelScreen
 import com.bunny.app.presentation.screens.home.HomeScreen
 import com.bunny.app.presentation.screens.kanal.KanalScreen
+import com.bunny.app.presentation.components.ShortsIcons
 import com.bunny.app.presentation.screens.live.LiveScreen
+import com.bunny.app.presentation.screens.shorts.ShortsScreen
 import com.bunny.app.presentation.screens.downloads.DownloadsScreen
 import com.bunny.app.presentation.screens.notifications.NotificationsScreen
 import com.bunny.app.presentation.screens.player.PlayerScreen
@@ -340,6 +342,17 @@ class MainActivity : ComponentActivity() {
                                         .fillMaxSize()
                                         .padding(bottom = barHeightDp),
                                 ) {
+                                    ShortsScreen(
+                                        onVideoClick = { openVideoId = it },
+                                        onSearchClick = { openSearch = true },
+                                    )
+                                }
+                            } else if (selectedTab == 3) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = barHeightDp),
+                                ) {
                                     KanalScreen(
                                         onChannelClick = { id, name ->
                                             openChannel = id to name
@@ -537,7 +550,7 @@ private fun CrashReportBlock(
 /**
  * Bottom bar: icon-only, a soft tonal pill behind the selected icon,
  * hairline on top. Built by hand because the Material NavigationBar has
- * a fixed 80dp height. Tabs: Beranda · Live · Kanal · Profil.
+ * a fixed 80dp height. Tabs: Beranda · Live · Shorts · Kanal · Profil.
  */
 @Composable
 private fun BunnyBottomBar(
@@ -583,14 +596,22 @@ private fun BunnyBottomBar(
             BottomBarItem(
                 selected = selectedTab == 2,
                 onClick = { onSelect(2) },
+                filled = ShortsIcons.Filled,
+                outlined = ShortsIcons.Outlined,
+                description = stringResource(R.string.nav_shorts),
+                modifier = Modifier.weight(1f),
+            )
+            BottomBarItem(
+                selected = selectedTab == 3,
+                onClick = { onSelect(3) },
                 filled = Icons.Filled.Subscriptions,
                 outlined = Icons.Outlined.Subscriptions,
                 description = stringResource(R.string.nav_kanal),
                 modifier = Modifier.weight(1f),
             )
             BottomBarItem(
-                selected = selectedTab == 3,
-                onClick = { onSelect(3) },
+                selected = selectedTab == 4,
+                onClick = { onSelect(4) },
                 filled = Icons.Filled.AccountCircle,
                 outlined = Icons.Outlined.AccountCircle,
                 description = stringResource(R.string.nav_profile),
