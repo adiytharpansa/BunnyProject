@@ -743,7 +743,70 @@ class LontarEngine(
             recordStat(persona.name, net, state)
             reports += report
         }
+        if (config.floorEnabled) {
+            val floorState = probeFloor(visitor)
+            val floorReport = PersonaHealthReport(
+                persona = FLOOR_PERSONA_NAME,
+                state = floorState.name,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                networkClass = net,
+            )
+            radarState[FLOOR_PERSONA_NAME] = floorReport
+            recordStat(FLOOR_PERSONA_NAME, net, floorState)
+            reports += floorReport
+        }
         return reports
+    }
+
+    /**
+     * Lantai Penyelamat (RANCANGAN-LANTAI-PENYELAMAT Bagian 3.6): the
+     * spare tire's pressure check — an ANDROID canary knock plus byte
+     * probes of its progressive file at offset 0 and past the
+     * cold-start allowance, the same two-layer standard the ladder
+     * personas are held to. The verdict rides the Radar under
+     * [FLOOR_PERSONA_NAME]; the floor never enters the ladder itself
+     * (LadderBuilder only ever orders configured ladder names).
+     */
+    private suspend fun probeFloor(visitorData: String?): PersonaHealthState {
+        val persona = PlayerPersonas.android(config.androidClientVersion)
+        for (canary in config.canaryVideoIds) {
+            val response = try {
+                postPlayer(persona, canary, visitorData)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                return PersonaHealthState.GAGAL_JARINGAN
+            }
+            val status = response.optJSONObject("playabilityStatus")
+                ?.optString("status")
+            if (status != "OK") {
+                if (status == "LOGIN_REQUIRED" || status == "ERROR") {
+                    return PersonaHealthState.DITOLAK_PLAYER
+                }
+                continue
+            }
+            val floor = InnertubeParser.parseFloorStreams(
+                response,
+                System.currentTimeMillis(),
+            ) ?: continue
+            val url = floor.progressiveUrl ?: continue
+            val first = rangeProbe(url, persona.userAgent, 0L)
+            // A floor file smaller than the deep offset is probed near
+            // its own end instead — the question is whether bytes flow
+            // deep into THIS file, not whether the offset exists.
+            val size = floor.estimatedSizeBytes
+            val deepOffset = if (size != null && size <= config.radarDeepProbeOffsetBytes + 2048) {
+                maxOf(0L, size - 2048)
+            } else {
+                config.radarDeepProbeOffsetBytes
+            }
+            val deep = rangeProbe(url, persona.userAgent, deepOffset)
+            if (first == null || deep == null) {
+                return PersonaHealthState.GAGAL_JARINGAN
+            }
+            return RadarClassifier.classify("OK", first, deep, networkFailed = false)
+        }
+        return PersonaHealthState.TAK_DIKETAHUI
     }
 
     private suspend fun probePersona(

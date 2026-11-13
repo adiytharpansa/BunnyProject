@@ -140,6 +140,7 @@
     <string name="health_state_ditolak">Ditolak YouTube</string>
     <string name="health_state_jaringan">Gagal karena jaringan</string>
     <string name="health_state_unknown">Belum jelas</string>
+    <string name="health_floor_name">Lantai Penyelamat (ANDROID · 360p)</string>
     <string name="health_sabr_title">Jalan SABR (Anyam)</string>
     <string name="health_sabr_config_off">Nonaktif oleh konfigurasi jarak jauh — yang dipakai jalan klasik.</string>
     <string name="health_sabr_active">Aktif di jaringan %1$s — %2$d percobaan terakhir tercatat, %3$d gagal.</string>

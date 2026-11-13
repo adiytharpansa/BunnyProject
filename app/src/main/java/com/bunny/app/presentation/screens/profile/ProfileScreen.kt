@@ -384,7 +384,7 @@ private fun EngineHealthPanel(
                     )
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "${report.persona} — ${healthLabel(report.state)}",
+                            "${healthPersonaLabel(report.persona)} — ${healthLabel(report.state)}",
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
@@ -454,6 +454,18 @@ private fun EngineHealthPanel(
         }
     }
 }
+
+/**
+ * The floor's machine label reads as what it is — the spare tire,
+ * checked like every other road but never part of the ladder.
+ */
+@Composable
+private fun healthPersonaLabel(persona: String): String =
+    if (persona == com.bunny.engine.lontar.LontarEngine.FLOOR_PERSONA_NAME) {
+        stringResource(R.string.health_floor_name)
+    } else {
+        persona
+    }
 
 private fun healthColor(state: String): Color = when (state) {
     "SEHAT" -> Color(0xFF43A047)
