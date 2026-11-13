@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
+import com.bunny.core.model.DurationRange
+import com.bunny.core.model.SearchFilter
 import com.bunny.core.model.VideoItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -55,8 +57,16 @@ class ShortsViewModel @Inject constructor(
                         async {
                             try {
                                 Result.success(
-                                    backend.search(query, null).items
-                                        .filter { isShort(it) },
+                                    // Filter durasi SHORT dari YouTube
+                                    // sendiri (di bawah 4 menit): halaman
+                                    // pertama pencarian biasa didominasi
+                                    // video panjang, jadi saringan lokal
+                                    // <= 180 dtk sering pulang kosong.
+                                    backend.search(
+                                        query,
+                                        null,
+                                        SearchFilter(duration = DurationRange.SHORT),
+                                    ).items.filter { isShort(it) },
                                 )
                             } catch (e: CancellationException) {
                                 throw e
@@ -70,7 +80,22 @@ class ShortsViewModel @Inject constructor(
                 if (items.isEmpty()) {
                     val failure = results.firstNotNullOfOrNull { it.exceptionOrNull() }
                     _uiState.update {
-                        it.copy(isLoading = false, items = emptyList(), error = failure?.message)
+                        it.copy(
+                            isLoading = false,
+                            items = emptyList(),
+                            // Gagal memuat TIDAK BOLEH tampil sebagai
+                            // "belum ada video": pesan pengecualian bisa
+                            // null, jadi kegagalan apa pun dipastikan
+                            // menghasilkan error tak-kosong dan layar
+                            // menampilkan galat + tombol coba lagi
+                            // (terbukti di perangkat 2026-11-13: mode
+                            // pesawat tampil sebagai daftar kosong).
+                            error = if (failure != null) {
+                                failure.message ?: "Unknown error"
+                            } else {
+                                null
+                            },
+                        )
                     }
                 } else {
                     thumbnails.preload(items)
