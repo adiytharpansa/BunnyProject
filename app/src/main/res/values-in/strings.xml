@@ -253,4 +253,19 @@
     <string name="bug_share_title">Bagikan laporan</string>
     <string name="bug_subject">Laporan bug Bunny: %1$s</string>
     <string name="bug_more_reports">+%1$d laporan lain</string>
+    <!-- Perekam masalah ringan -->
+    <string name="minor_lag">Ringan: layar sempat macet</string>
+    <string name="minor_memory">Ringan: memori menipis</string>
+    <string name="minor_network">Ringan: koneksi terputus</string>
+    <string name="minor_player">Ringan: pemutar tersendat</string>
+    <string name="minor_image">Ringan: gambar gagal dimuat</string>
+    <string name="minor_caught">Ringan: galat tertangani diam-diam</string>
+    <string name="minor_title">Masalah ringan terdeteksi</string>
+    <string name="minor_hint">Aplikasi tetap berjalan. Ketuk item untuk detail.</string>
+    <string name="minor_chip_desc">%1$d masalah ringan terdeteksi. Ketuk untuk melihat.</string>
+    <string name="minor_count">×%1$d</string>
+    <string name="minor_copy_all">Salin semua</string>
+    <string name="minor_share_all">Bagikan semua</string>
+    <string name="minor_clear_all">Hapus semua</string>
+    <string name="minor_subject">Laporan masalah ringan Bunny</string>
 </resources>

@@ -94,6 +94,9 @@ import com.bunny.app.presentation.screens.profile.ProfileScreen
 import com.bunny.app.presentation.screens.profile.SubscriptionsScreen
 import com.bunny.app.presentation.screens.search.SearchScreen
 import com.bunny.app.bug.BugReportHost
+import com.bunny.app.bug.MinorCategory
+import com.bunny.app.bug.MinorIssueHost
+import com.bunny.app.bug.MinorIssueRecorder
 import com.bunny.app.presentation.theme.BunnyTheme
 import dagger.hilt.android.AndroidEntryPoint
 import androidx.media3.common.util.UnstableApi
@@ -449,6 +452,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        // Perekam masalah ringan: tidak menggambar apa pun bila
+                        // tidak ada yang terdeteksi. Alat pengembangan; dihapus saat rilis.
+                        MinorIssueHost(
+                            bottomPadding = (if (barVisible) barHeightDp else 0.dp) +
+                                (if (videoId != null && playerMinimized) 72.dp else 0.dp),
+                        )
+
                         if (barVisible) {
                             // Slides down and fades with Home's header.
                             BunnyBottomBar(
@@ -496,6 +506,9 @@ class MainActivity : ComponentActivity() {
                 PictureInPictureParams.Builder().setAspectRatio(aspect).build(),
             )
         } catch (e: IllegalStateException) {
+            MinorIssueRecorder.report(
+                MinorCategory.CAUGHT, "MainActivity", "Mode PiP gagal dimasuki", e,
+            )
         }
     }
 

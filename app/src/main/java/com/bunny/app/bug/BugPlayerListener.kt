@@ -19,5 +19,11 @@ class BugPlayerListener(private val label: String = "player") : Player.Listener 
 
     override fun onPlayerError(error: PlaybackException) {
         BugRecorder.note(label, "error ${error.errorCodeName}: ${error.message}")
+        MinorIssueRecorder.report(
+            category = MinorCategory.PLAYER,
+            source = label,
+            title = "Pemutar error: ${error.errorCodeName}",
+            error = error,
+        )
     }
 }

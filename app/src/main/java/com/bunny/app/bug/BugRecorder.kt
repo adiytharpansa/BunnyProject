@@ -218,7 +218,7 @@ object BugRecorder {
         }
     }
 
-    private fun deviceInfo(): String {
+    internal fun deviceInfo(): String {
         val rt = Runtime.getRuntime()
         val usedMb = (rt.totalMemory() - rt.freeMemory()) shr 20
         val maxMb = rt.maxMemory() shr 20

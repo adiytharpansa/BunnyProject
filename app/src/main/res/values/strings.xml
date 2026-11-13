@@ -253,4 +253,19 @@
     <string name="bug_share_title">Share report</string>
     <string name="bug_subject">Bunny bug report: %1$s</string>
     <string name="bug_more_reports">+%1$d other reports</string>
+    <!-- Perekam masalah ringan -->
+    <string name="minor_lag">Minor: screen froze briefly</string>
+    <string name="minor_memory">Minor: low memory</string>
+    <string name="minor_network">Minor: connection lost</string>
+    <string name="minor_player">Minor: player hiccup</string>
+    <string name="minor_image">Minor: image failed to load</string>
+    <string name="minor_caught">Minor: error handled silently</string>
+    <string name="minor_title">Minor issues detected</string>
+    <string name="minor_hint">The app kept running. Tap an item for details.</string>
+    <string name="minor_chip_desc">%1$d minor issues detected. Tap to view.</string>
+    <string name="minor_count">×%1$d</string>
+    <string name="minor_copy_all">Copy all</string>
+    <string name="minor_share_all">Share all</string>
+    <string name="minor_clear_all">Clear all</string>
+    <string name="minor_subject">Bunny minor issue report</string>
 </resources>

@@ -6,6 +6,8 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.bunny.app.bug.BugRecorder
+import com.bunny.app.bug.MinorCategory
+import com.bunny.app.bug.MinorIssueRecorder
 import com.bunny.core.backend.ExtractionBackend
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -26,13 +28,18 @@ class BunnyApplication : Application(), ImageLoaderFactory {
         // Perekam Bug: dipasang paling awal — crash/ANR hanya untuk
         // laporan pengguna, tidak menampilkan apa pun saat sehat.
         BugRecorder.install(this)
+        // Perekam masalah ringan: tidak menampilkan apa pun saat tidak ada temuan.
+        MinorIssueRecorder.install(this)
         // Pemanasan: DNS, TLS, dan sesi InnerTube siap sebelum Beranda
         // memintanya. Gagal pun tidak apa-apa; Beranda mengulang sendiri.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
                 backend.get().healthCheck()
             } catch (e: Exception) {
-                // pemanasan hanya percepatan, bukan syarat
+                // pemanasan hanya percepatan, bukan syarat — cukup dicatat ringan
+                MinorIssueRecorder.report(
+                    MinorCategory.CAUGHT, "BunnyApplication", "Pemanasan mesin gagal", e,
+                )
             }
         }
     }
@@ -57,5 +64,6 @@ class BunnyApplication : Application(), ImageLoaderFactory {
                     .build()
             }
             .crossfade(false)
+            .eventListener(MinorIssueRecorder.imageListener)
             .build()
 }
