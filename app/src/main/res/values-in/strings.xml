@@ -242,6 +242,8 @@
     <string name="filter_hd">HD</string>
     <string name="filter_4k">4K</string>
     <string name="filter_subtitles">Subtitel/CC</string>
+    <string name="views_count">%1$s x ditonton</string>
+    <string name="watching_now">%1$s sedang menonton</string>
     <!-- Perekam bug -->
     <string name="bug_fatal">Crash: aplikasi tertutup paksa</string>
     <string name="bug_anr">ANR: aplikasi tidak merespons</string>

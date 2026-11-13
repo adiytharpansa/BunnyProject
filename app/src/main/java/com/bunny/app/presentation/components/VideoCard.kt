@@ -307,9 +307,9 @@ fun VideoCard(
                         // watching NOW, not how often it was watched.
                         item.viewCount?.let {
                             if (item.isLive) {
-                                "${formatCount(it)} sedang menonton"
+                                stringResource(R.string.watching_now, formatCount(it))
                             } else {
-                                "${formatCount(it)} x ditonton"
+                                stringResource(R.string.views_count, formatCount(it))
                             }
                         },
                         item.uploadedText,
@@ -537,8 +537,5 @@ private fun formatDuration(totalSeconds: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-private fun formatCount(count: Long): String = when {
-    count >= 1_000_000 -> "%.1f jt".format(count / 1_000_000.0)
-    count >= 1_000 -> "%.1f rb".format(count / 1_000.0)
-    else -> count.toString()
-}
+private fun formatCount(count: Long): String =
+    com.bunny.app.i18n.LocaleFormats.compactCount(count)

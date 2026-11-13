@@ -517,9 +517,9 @@ fun PlayerScreen(
                         // current watchers, and it says so.
                         current.details.viewCount?.let {
                             if (current.details.isLive) {
-                                formatCount(it) + " sedang menonton"
+                                stringResource(R.string.watching_now, formatCount(it))
                             } else {
-                                formatCount(it) + " x ditonton"
+                                stringResource(R.string.views_count, formatCount(it))
                             }
                         },
                         current.details.uploadedText,
@@ -1205,12 +1205,8 @@ private fun formatChapterTime(ms: Long): String {
     }
 }
 
-private fun formatCount(count: Long): String = when {
-    count >= 1_000_000_000 -> "%.1f M".format(count / 1_000_000_000.0)
-    count >= 1_000_000 -> "%.1f jt".format(count / 1_000_000.0)
-    count >= 1_000 -> "%.1f rb".format(count / 1_000.0)
-    else -> count.toString()
-}
+private fun formatCount(count: Long): String =
+    com.bunny.app.i18n.LocaleFormats.compactCount(count)
 
 private enum class RelatedFilter { SEMUA, KANAL, TERKAIT }
 
