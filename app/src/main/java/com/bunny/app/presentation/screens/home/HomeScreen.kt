@@ -378,7 +378,13 @@ fun HomeScreen(
                         val isPreviewingThis = previewingId == item.id
                         VideoCard(
                             item = item,
-                            modifier = Modifier.animateItem()
+                            // TANPA animateItem: animasi penempatan item
+                            // memaksa ukur-ulang massal setiap pergantian
+                            // isi feed (muat dua tahap/cache -> segar) —
+                            // terbukti di perangkat sebagai frame macet
+                            // 771 ms dengan tahap ukur 383 ms x3
+                            // (Perekam Masalah Ringan, 2026-11-13).
+                            modifier = Modifier
                                 .padding(horizontal = FeedHorizontalPadding),
                             onClick = { onVideoClick(item.id) },
                             previewPlayer = if (isPreviewingThis) {
