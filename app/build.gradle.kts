@@ -15,7 +15,7 @@ android {
     defaultConfig {
         applicationId = "com.bunny.app"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36   // sebelumnya 34; sejajar dengan compileSdk
         versionCode = 1
         versionName = "0.1.0"
 
@@ -175,6 +175,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("androidx.media3:media3-session:$media3Version")
 

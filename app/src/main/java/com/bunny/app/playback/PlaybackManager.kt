@@ -1,10 +1,9 @@
 package com.bunny.app.playback
 
 import android.app.PendingIntent
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -22,7 +21,9 @@ import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -52,7 +53,7 @@ import javax.inject.Singleton
  * PlayerView to it) and by [PlaybackService] (which exposes the session so
  * playback continues in the background with a media notification). The
  * foreground-service contract is Media3's own: MediaSessionService plus
- * DefaultMediaNotification — the arrangement whose absence crashed CLEAR.
+ * DefaultMediaNotificationProvider — the arrangement whose absence crashed CLEAR.
  *
  * Source order per video: generated DASH (adaptive quality) -> HLS ->
  * progressive file. A playback error on one source falls through to the
@@ -66,6 +67,19 @@ class PlaybackManager @Inject constructor(
 ) {
 
     private var userAgent: String = DEFAULT_USER_AGENT
+
+    /**
+     * Klien HTTP khusus pemutaran: HTTP/2 dan penggunaan ulang koneksi
+     * (penting untuk segmen DASH yang kecil-kecil), dengan batas waktu
+     * eksplisit. Pengalihan https -> http tidak diikuti.
+     */
+    private val playbackHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
+            .followSslRedirects(false)
+            .build()
+    }
 
     private val _player: ExoPlayer by lazy { buildPlayer() }
     val player: ExoPlayer get() = _player
@@ -481,7 +495,7 @@ class PlaybackManager @Inject constructor(
             "Jalan untuk \"$title\": SABR (Anyam) lebih dulu, " +
                 "klasik di belakangnya",
         )
-        playChain(chain, title, resumeOnFirstFallthrough = true)
+        playChain(chain, title)
         armSabrWatchdog(sabr)
         armSabrPositionReporter(sabr)
         armSabrStallRescue(sabr)
@@ -576,21 +590,6 @@ class PlaybackManager @Inject constructor(
             }
         }
         playChain(listOf("unduhan lokal" to merged), title)
-    }
-
-    /**
-     * Whether the current default network is metered, for the
-     * LoadControl sizing (M16). Unknown reads as unmetered — the
-     * shallower buffer is the safer wrong answer.
-     */
-    private fun isMeteredNetwork(): Boolean = try {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? ConnectivityManager
-        val caps = cm?.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-        caps != null &&
-            !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
-    } catch (e: Exception) {
-        false
     }
 
     private fun clearQualityOverride() {
@@ -711,21 +710,25 @@ class PlaybackManager @Inject constructor(
         // (15/40 s, 2,5/5 s, 24 MB — under Media3's own 144 MB
         // target the byte cap bound first at HD bitrates and the
         // extractor could never hold what the spool had rolled).
-        // Deeper on a metered link (M16): rebuffer insurance is
-        // worth its bytes there. One player serves both roads, so
-        // this sizing is deliberately global.
-        val metered = isMeteredNetwork()
-        val minBufferMs = if (metered) 90_000 else 60_000
-        val maxBufferMs = if (metered) 180_000 else 120_000
+        // Batas byte mengikuti kelas memori perangkat (seperempatnya, 24-64 MB),
+        // bukan angka tetap 128 MB. Catatan: dengan prioritas-waktu aktif, batas
+        // byte baru mengikat setelah penyangga minimum terpenuhi, karena itu
+        // durasi minimum juga diturunkan.
+        val memoryClassMb =
+            (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)
+                ?.memoryClass ?: 128
+        val targetBufferBytes = (memoryClassMb / 4).coerceIn(24, 64) * 1024 * 1024
         val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
-            .setBufferDurationsMs(minBufferMs, maxBufferMs, 1_000, 2_000)
-            .setTargetBufferBytes(128 * 1024 * 1024)
+            .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, 1_000, 2_000)
+            .setTargetBufferBytes(targetBufferBytes)
             .setPrioritizeTimeOverSizeThresholds(true)
+            .setBackBuffer(BACK_BUFFER_MS, true)
             .build()
         PlaybackDiagnostics.log(
-            "Penyangga pemutar: min ${minBufferMs / 1000} dtk, " +
-                "maks ${maxBufferMs / 1000} dtk, waktu-diutamakan" +
-                (if (metered) " (jaringan terukur)" else ""),
+            "Penyangga pemutar: min ${MIN_BUFFER_MS / 1000} dtk, " +
+                "maks ${MAX_BUFFER_MS / 1000} dtk, batas " +
+                "${targetBufferBytes / (1024 * 1024)} MB, " +
+                "belakang ${BACK_BUFFER_MS / 1000} dtk",
         )
         return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
@@ -1006,7 +1009,7 @@ class PlaybackManager @Inject constructor(
     private fun playChain(
         sources: List<Pair<String, MediaSource>>,
         title: String,
-        resumeOnFirstFallthrough: Boolean = false,
+        startPositionMs: Long = 0L,
     ) {
         cancelSabrWatchdog()
         currentTitle = title
@@ -1017,25 +1020,31 @@ class PlaybackManager @Inject constructor(
             null
         } else {
             {
-                // A late error event from the previous source must not
-                // advance the chain a second time.
+                // Kejadian error terlambat dari sumber sebelumnya tidak boleh
+                // memajukan rantai untuk kedua kalinya.
                 if (generation == chainGeneration) {
-                    // Anyam (Fase 8): when the head source was the SABR
-                    // road, the classic road continues from the same
-                    // position — the viewer keeps their place, the
-                    // spool keeps its bytes.
-                    val resumeAt = if (resumeOnFirstFallthrough) {
-                        player.currentPosition
-                    } else {
-                        0L
-                    }
-                    playChain(rest, title)
-                    if (resumeAt > 0) player.seekTo(resumeAt)
+                    // Posisi selalu dibawa, bukan hanya pada fallthrough
+                    // pertama dari SABR: DASH -> HLS -> progresif pun
+                    // melanjutkan dari tempat penonton berada.
+                    val resumeAt = player.currentPosition
+                    // Jalur error pemutar sebelumnya tidak menutup SABR, jadi
+                    // pump tetap mengunduh dan setiap seek di jalur klasik
+                    // diteruskan ke handle yang sudah mati. closeSabr()
+                    // idempoten, aman dipanggil lagi dari watchdog/rescue.
+                    closeSabr()
+                    playChain(rest, title, startPositionMs = resumeAt)
                 }
             }
         }
-        PlaybackDiagnostics.log("Memutar \"$title\" via $label")
-        player.setMediaSource(source)
+        PlaybackDiagnostics.log(
+            "Memutar \"$title\" via $label" +
+                if (startPositionMs > 0) " (lanjut dari ${startPositionMs}ms)" else "",
+        )
+        if (startPositionMs > 0) {
+            player.setMediaSource(source, startPositionMs)
+        } else {
+            player.setMediaSource(source)
+        }
         player.prepare()
         player.playWhenReady = true
     }
@@ -1045,9 +1054,8 @@ class PlaybackManager @Inject constructor(
         metadata: MediaMetadata,
         classicRecorder: ClassicSpoolRecorder? = null,
     ): List<Pair<String, MediaSource>> {
-        val httpFactory = DefaultHttpDataSource.Factory()
+        val httpFactory = OkHttpDataSource.Factory(playbackHttpClient)
             .setUserAgent(userAgent)
-            .setAllowCrossProtocolRedirects(true)
         val chain = mutableListOf<Pair<String, MediaSource>>()
         fun item(uri: Uri): MediaItem = MediaItem.Builder()
             .setUri(uri)
@@ -1157,6 +1165,14 @@ class PlaybackManager @Inject constructor(
          * working explanation (Lontar Hidup §8; allowance ≈ 60 s).
          */
         private const val GVS_POSITION_THRESHOLD_MS = 45_000L
+
+        /** Penyangga pemutar: cukup dalam untuk meredam macet, cukup dangkal
+         *  untuk tidak mengancam heap (penyangga hidup di heap Java). */
+        private const val MIN_BUFFER_MS = 40_000
+        private const val MAX_BUFFER_MS = 90_000
+
+        /** Penyangga belakang: tombol mundur 10 dtk tidak mengunduh ulang. */
+        private const val BACK_BUFFER_MS = 30_000
     }
 }
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Blob kredensial terenkripsi (kuncinya di Keystore, tidak ikut
+             dicadangkan, jadi salinannya tak berguna dan hanya menambah risiko). -->
+        <exclude domain="sharedpref" path="bunny_auth_secure.xml" />
+        <!-- Kartu tamu milik instalasi ini. -->
+        <exclude domain="sharedpref" path="bunny_visitor.xml" />
+        <!-- Riwayat jalan SABR khusus jaringan perangkat ini. -->
+        <exclude domain="sharedpref" path="bunny_sabr_governance.xml" />
+        <exclude domain="sharedpref" path="bunny_road_memory.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="bunny_auth_secure.xml" />
+        <exclude domain="sharedpref" path="bunny_visitor.xml" />
+        <exclude domain="sharedpref" path="bunny_sabr_governance.xml" />
+        <exclude domain="sharedpref" path="bunny_road_memory.xml" />
+    </device-transfer>
+</data-extraction-rules>

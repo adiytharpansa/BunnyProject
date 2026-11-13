@@ -11,6 +11,8 @@
     <application
         android:name=".BunnyApplication"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
@@ -45,19 +47,18 @@
 
         <!-- Media3 session service: background playback + media notification.
              The foreground contract (mediaPlayback type + the permissions
-             above) is what Android 14 requires for this to start at all. -->
+             above) is what Android 14+ requires for this to start at all. -->
         <service
             android:name=".playback.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
-                <!-- Media3 1.4's MediaSessionService.SERVICE_INTERFACE is the
-                     media3-prefixed action below. The legacy androidx.media
-                     variant made SessionToken resolution fail with
-                     IllegalArgumentException and crashed every video open
-                     (field crash report 2026-11-10). -->
+                <!-- Action milik Media3 (androidx.media3.session.MediaSessionService).
+                     Action androidx.media lama membuat resolusi SessionToken gagal dan
+                     menjatuhkan setiap pembukaan video (laporan lapangan 2026-11-10).
+                     Action android.media.session.MediaButtonReceiver dihapus: itu bukan
+                     action yang dikenal Media3. -->
                 <action android:name="androidx.media3.session.MediaSessionService" />
-                <action android:name="android.media.session.MediaButtonReceiver" />
             </intent-filter>
         </service>
     </application>

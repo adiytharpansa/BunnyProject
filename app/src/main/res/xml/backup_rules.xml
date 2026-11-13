@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="sharedpref" path="bunny_auth_secure.xml" />
+    <exclude domain="sharedpref" path="bunny_visitor.xml" />
+    <exclude domain="sharedpref" path="bunny_sabr_governance.xml" />
+    <exclude domain="sharedpref" path="bunny_road_memory.xml" />
+</full-backup-content>

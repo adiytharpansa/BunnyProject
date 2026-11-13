@@ -15,11 +15,9 @@ import javax.inject.Inject
  * a media notification with transport controls.
  *
  * The foreground contract is deliberately Media3's standard one — this
- * service plus DefaultMediaNotificationProvider (the media3-session 1.4
- * class name; plain DefaultMediaNotification does not exist there), which
- * performs startForeground itself while a session player is active.
- * Hand-rolling that contract is what crashed CLEAR's player; Fase 2 does
- * not repeat it.
+ * service plus DefaultMediaNotificationProvider, which performs
+ * startForeground itself while a session player is active. Hand-rolling
+ * that contract is what crashed CLEAR's player; Fase 2 does not repeat it.
  */
 @UnstableApi
 @AndroidEntryPoint
@@ -87,9 +85,20 @@ class PlaybackService : MediaSessionService() {
         private const val NOTIFICATION_ID = 1001
         private val CHANNEL_NAME_RES = com.bunny.app.R.string.playback_channel_name
 
-        /** Starts the service (call while the app is in the foreground). */
+        /**
+         * Memulai layanan (idealnya saat aplikasi di latar depan). Dari latar,
+         * Android bisa menolak dengan IllegalStateException — misalnya penonton
+         * menekan Home sebelum pemuatan selesai. Layanan sudah terikat lewat
+         * MediaController, jadi kegagalan di sini tidak boleh menjatuhkan pemuatan.
+         */
         fun start(context: Context) {
-            context.startService(Intent(context, PlaybackService::class.java))
+            try {
+                context.startService(Intent(context, PlaybackService::class.java))
+            } catch (e: IllegalStateException) {
+                PlaybackDiagnostics.log(
+                    "Layanan tidak dapat dimulai dari latar: ${e.message}",
+                )
+            }
         }
     }
 }

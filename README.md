@@ -1,41 +1,79 @@
 # Bunny
 
-Bunny adalah klien YouTube untuk Android yang ditulis dengan Kotlin. UI aplikasi dan engine akses YouTube dipisahkan melalui kontrak di modul `:core`; engine internalnya bernama **Lontar**.
+Klien YouTube untuk Android yang dirancang dan dibangun **dari nol** — bukan
+fork, dan tanpa library ekstraktor YouTube pihak ketiga. Mesinnya, **Lontar**,
+adalah klien InnerTube yang ditulis sendiri untuk proyek ini.
 
-> **Status:** masih dalam pengembangan. Ringkasan di bawah membedakan kemampuan yang sudah ada di kode dari fitur yang belum tersedia di UI.
+> Status: **Fase 1 dalam pengerjaan** — kerangka + mesin metadata Lontar.
+> Pemutaran penuh tiba di Fase 2. Lihat [`docs/DESIGN.md`](docs/DESIGN.md).
 
-## Yang sudah ada
+## Fitur khas
 
-- **Beranda:** menampilkan campuran video dari pencarian topik yang disusun oleh Lontar; duplikat dan siaran langsung disisihkan.
-- **Metadata video:** Lontar mengambil dan mengurai data feed serta detail video melalui InnerTube. Engine juga memiliki endpoint pencarian video, tetapi aplikasi belum menyediakan layar pencarian.
-- **Pemutaran:** layar video menggunakan Media3/ExoPlayer. Kode pemutaran menyiapkan sumber DASH (termasuk manifest yang dibentuk Lontar), HLS, atau progresif, lalu mencoba sumber berikutnya bila pemutaran gagal.
-- **Sesi dan diagnostik:** layanan MediaSession mendukung pemutaran latar dengan notifikasi media; layar pemutar juga menampilkan diagnostik pemutaran.
+Fitur yang dirancang khusus untuk Bunny (tidak ada di klien sejenis):
 
-Ketersediaan pemutaran tetap bergantung pada respons dan format stream yang tersedia untuk video dari YouTube.
+- **Timbangan** — setiap video menampilkan perkiraan biaya datanya (≈ MB)
+  sebelum diketuk, plus **Jatah**: anggaran kuota bulanan dengan peringatan
+  sebelum putar.
+- **Terbit** — langganan lokal diterbitkan sebagai satu edisi pagi bergaya
+  koran: dibuka, habis, selesai. Bukan umpan tak berujung.
+- **Chip Alasan** — setiap rekomendasi membawa alasannya ("Dari langganan: …",
+  "Topik: …"), dihitung di perangkat dan bisa diaudit pengguna.
 
-## Belum tersedia di UI
+## Arsitektur
 
-- Layar pencarian, meskipun engine Lontar sudah menyediakan operasi pencarian.
-- Langganan/edisi **Terbit**, **Timbangan** dan **Jatah**, **Chip Alasan**, serta unduhan.
-
-## Struktur proyek
-
-| Modul | Tanggung jawab |
-| --- | --- |
-| `:app` | Aplikasi Android, UI Jetpack Compose, ViewModel, dan pemutaran Media3. |
-| `:core` | Model domain dan kontrak `ExtractionBackend` yang dipakai UI dan engine. |
-| `:engine` | Lontar: sesi InnerTube, permintaan feed/detail/stream, serta parser. |
-
-## Build dan tes
-
-Prasyarat: JDK 17, Android SDK platform 34, dan Gradle 8.7. Repo ini belum menyertakan `gradle-wrapper.jar`, jadi jalankan perintah berikut dengan Gradle 8.7 yang sudah terpasang:
-
-```bash
-gradle lint testDebugUnitTest assembleDebug --stacktrace
+```
+                 ┌─────────────────────────────┐
+   Compose UI ──►│  ExtractionBackend (kontrak)│◄── :core
+                 └──────────────┬──────────────┘
+                                │ implements
+                 ┌──────────────▼──────────────┐
+                 │  Lontar (:engine)           │
+                 │  sesi • browse • search     │
+                 │  player • parser renderer   │
+                 └──────────────┬──────────────┘
+                                │ HTTPS (InnerTube)
+                                ▼
+                            YouTube
 ```
 
-Workflow GitHub Actions dikonfigurasi untuk menjalankan lint, unit test, dan build APK debug pada push maupun pull request. Laporan dan APK debug diunggah sebagai artifact selama 7 hari.
+| Modul     | Isi                                                        |
+|-----------|------------------------------------------------------------|
+| `:app`    | UI Compose/Material 3, ViewModel, Hilt, Room, Media3       |
+| `:core`   | Model domain Bunny + kontrak `ExtractionBackend` (Kotlin)  |
+| `:engine` | Lontar — klien InnerTube orisinal (OkHttp + org.json)      |
 
-## Hak cipta
+UI tidak pernah menyentuh JSON InnerTube; mesin tidak pernah menyentuh
+Compose. Keduanya hanya bertemu di kontrak `:core`.
 
-Hak cipta © 2026 adiytharpansa. All rights reserved. Lihat [`LICENSE`](LICENSE) untuk ketentuan yang berlaku.
+## Stack
+
+Kotlin 1.9.24 • AGP 8.13.2 • Gradle 8.13 • Jetpack Compose (Material 3) •
+Hilt 2.51.1 • Room 2.6.1 • Media3 1.4.0 • Coil 2.7.0 • OkHttp 4.12.0
+compileSdk/targetSdk 36 • minSdk 26 • Java 17
+
+## Membangun
+
+Syarat: JDK 17 dan Android SDK platform 36.
+
+```bash
+./gradlew lint testDebugUnitTest assembleDebug
+```
+
+CI GitHub Actions menjalankan perintah yang sama pada setiap push dan
+pull request, dan mengunggah laporan + APK debug sebagai artifact.
+
+## Roadmap
+
+- **Fase 0** — Kerangka profesional: modul, kontrak, CI, dokumen. ✅
+- **Fase 1** — Lontar bidang metadata: sesi, Beranda campuran, pencarian, detail.
+- **Fase 2** — Bidang putar: pemecah cipher Lontar, rantai HLS → DASH →
+  progresif, layanan Media3.
+- **Fase 3** — Fitur khas: Timbangan + Jatah, Terbit, Chip Alasan, Panen Bertingkat.
+- **Fase 4** — Ketahanan: persona bergilir, konfigurasi jarak jauh, telemetri.
+
+Rincian desain dan keputusan: [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Lisensi
+
+Copyright (c) 2026 adiytharpansa. All rights reserved — lihat
+[`LICENSE`](LICENSE). Ketentuan lisensi akan diputuskan sebelum rilis publik.

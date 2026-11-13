@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
+import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -292,19 +293,24 @@ class PlayerViewModel @Inject constructor(
     fun setSleepTimer(minutes: Int?) {
         sleepJob?.cancel()
         sleepJob = null
+        // Membatalkan di tengah redup suara (termasuk lewat stopPlayback())
+        // tidak boleh meninggalkan volume rendah untuk video berikutnya.
+        playbackManager.player.volume = NORMAL_VOLUME
         _options.update { it.copy(sleepMinutes = minutes) }
         if (minutes == null) return
         val player = playbackManager.player
         sleepJob = viewModelScope.launch {
-            delay((minutes * 60_000L - 10_000L).coerceAtLeast(0))
-            val original = player.volume
-            for (step in 10 downTo 1) {
-                player.volume = original * step / 10f
-                delay(1_000)
+            try {
+                delay((minutes * 60_000L - 10_000L).coerceAtLeast(0))
+                for (step in 10 downTo 1) {
+                    player.volume = NORMAL_VOLUME * step / 10f
+                    delay(1_000)
+                }
+                player.pause()
+                _options.update { it.copy(sleepMinutes = null) }
+            } finally {
+                player.volume = NORMAL_VOLUME
             }
-            player.pause()
-            player.volume = original
-            _options.update { it.copy(sleepMinutes = null) }
         }
     }
 
@@ -312,10 +318,17 @@ class PlayerViewModel @Inject constructor(
 
     fun seekBy(deltaMs: Long) {
         val player = playbackManager.player
-        val duration = player.duration.coerceAtLeast(0)
-        player.seekTo(
-            (player.currentPosition + deltaMs).coerceIn(0, duration),
-        )
+        if (player.mediaItemCount == 0 || !player.isCurrentMediaItemSeekable) return
+        val duration = player.duration
+        val target = player.currentPosition + deltaMs
+        // Durasi siaran langsung adalah C.TIME_UNSET (negatif): jangan dijadikan
+        // batas atas, kalau tidak setiap lompatan berakhir di posisi 0.
+        val clamped = if (duration == C.TIME_UNSET || duration <= 0L) {
+            target.coerceAtLeast(0L)
+        } else {
+            target.coerceIn(0L, duration)
+        }
+        player.seekTo(clamped)
     }
 
     fun seekTo(positionMs: Long) {
@@ -1232,5 +1245,6 @@ class PlayerViewModel @Inject constructor(
 
     private companion object {
         const val MAX_HISTORY = 20
+        const val NORMAL_VOLUME = 1.0f
     }
 }
