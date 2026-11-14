@@ -18,8 +18,6 @@ import com.bunny.app.playback.PreviewStatus
 import com.bunny.app.presentation.components.ThumbnailPreloader
 import com.bunny.core.backend.ExtractionBackend
 import com.bunny.core.model.VideoItem
-import com.bunny.core.rank.FeedRanker
-import com.bunny.core.rank.TasteProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -27,7 +25,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -198,7 +195,9 @@ class HomeViewModel @Inject constructor(
                 val status = backend.healthCheck()
                 _uiState.update { it.copy(backendStatus = status) }
                 // Home is ALWAYS the locally composed mixture,
-                // ranked by Mesin Selera — signed in or not. The
+                // shown in server order (owner decision 2026-11-14;
+                // Mesin Selera no longer re-ranks it) — signed in or
+                // not. The
                 // Fase 5 server-home branch died with the cookie
                 // door (its engine session no longer exists, so it
                 // could only ever answer empty and strand signed-in
@@ -300,40 +299,14 @@ class HomeViewModel @Inject constructor(
                 } catch (e: Exception) {
                     // pool enrichment only; the mixture stands
                 }
-                // Mesin Selera: the mixture is candidate generation;
-                // this ranking pass is Bunny's local second stage,
-                // fed by a one-shot snapshot of the on-device taste
-                // profile (subscriptions, opened channels, searches)
-                // plus, while signed in, the account's own taste.
-                val taste = TasteProfile(
-                    subscribedChannelIds = library.subscriptions.first()
-                        .map { it.channelId }
-                        .toSet(),
-                    channelAffinity = library.channelAffinity.first(),
-                    searchTerms = library.recentSearches.first()
-                        .flatMap { query -> query.lowercase().split(Regex("\\s+")) }
-                        .filter { it.length >= 3 }
-                        .toSet(),
-                    accountTerms = accountTaste?.terms ?: emptyMap(),
-                    accountChannelIds = accountTaste?.let {
-                        it.subscribedChannelIds + it.likedChannelIds
-                    } ?: emptySet(),
-                    // Aturan churn dari model resmi YouTube: yang sudah
-                    // tampil di Beranda muatan sebelumnya tapi tak pernah
-                    // dibuka turun peringkatnya di muatan ini.
-                    demotedIds = library.feedImpressions.first().toSet() -
-                        library.openedVideoIds.first().toSet(),
-                )
-                // Mesin Selera tahap 2: sinyal waktu tonton, umpan balik, dan
-                // peluruhan waktu dari TasteRepository melengkapi profil dasar.
-                // Benih eksplorasi berbeda tiap muatan, jadi Tarik-untuk-segarkan
-                // memberi sedikit kejutan seperti beranda YouTube.
-                val enriched = tasteRepo.enrich(taste)
-                val ranked = FeedRanker.rank(
-                    candidates,
-                    enriched,
-                    explorationSeed = System.currentTimeMillis(),
-                )
+                // Urutan server murni (keputusan pemilik 2026-11-14):
+                // Beranda menampilkan calon persis dalam urutan
+                // terbentuknya \u2014 umpan server lebih dulu dalam urutan
+                // server, lalu tambahan langganan dan rantai tontonan
+                // dalam urutan masuknya. Mesin Selera tidak lagi
+                // mengurutkan ulang Beranda; FeedRanker tetap tersedia
+                // di :core bila suatu saat diminta kembali.
+                val ranked = candidates
                 // Chip Alasan for the account's hand in the order: a
                 // title matching one of the account's own interest
                 // words says so. Subscription-pool items already
@@ -371,9 +344,9 @@ class HomeViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(isLoading = false, items = annotated)
                 }
-                // Catat tayangan muatan ini untuk aturan churn berikutnya
-                // (sesudah peringkat dihitung, supaya daftar ini tidak
-                // menghukum dirinya sendiri).
+                // Catat tayangan muatan ini; riwayat tayang tetap
+                // disimpan untuk pembukuan selera, walau urutan
+                // Beranda tidak lagi memakainya.
                 library.recordFeedImpressions(annotated.map { it.id })
             } catch (e: CancellationException) {
                 // Cancellation is control flow, never a feed error.
