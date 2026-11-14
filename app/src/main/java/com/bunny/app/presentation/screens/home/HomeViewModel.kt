@@ -301,7 +301,7 @@ class HomeViewModel @Inject constructor(
                 }
                 // Urutan server murni (keputusan pemilik 2026-11-14):
                 // Beranda menampilkan calon persis dalam urutan
-                // terbentuknya \u2014 umpan server lebih dulu dalam urutan
+                // terbentuknya: umpan server lebih dulu dalam urutan
                 // server, lalu tambahan langganan dan rantai tontonan
                 // dalam urutan masuknya. Mesin Selera tidak lagi
                 // mengurutkan ulang Beranda; FeedRanker tetap tersedia
