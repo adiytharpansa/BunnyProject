@@ -1,29 +1,34 @@
 package com.bunny.app.presentation.screens.shorts
 
+import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +40,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,10 +48,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -57,15 +62,28 @@ import com.bunny.app.R
 import com.bunny.app.presentation.components.ResilientImage
 import com.bunny.app.presentation.components.ShortsIcons
 import com.bunny.app.presentation.screens.player.PlayerUiState
+import com.bunny.app.presentation.screens.player.PlayerViewModel
+import com.bunny.core.model.VideoDetails
 import com.bunny.core.model.VideoItem
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /**
- * Halaman Shorts: gulir vertikal satu video per layar (rasio 9:16),
- * meniru cara menonton Shorts yang sebenarnya — video halaman yang
- * sedang tampil DIPUTAR DI TEMPAT oleh pemutar Bunny, geser ke atas
- * atau bawah untuk pindah video. Tidak ada lagi ketuk-untuk-pindah
- * ke halaman pemutar; ketuk pada video yang sedang main hanya
- * menjeda/melanjutkan.
+ * Halaman Shorts setara YouTube Shorts: gulir vertikal satu video per
+ * layar, video memenuhi layar (tanpa kartu), video halaman yang tampil
+ * DIPUTAR DI TEMPAT oleh pemutar Bunny.
+ *
+ * - Ketuk = jeda/lanjut, ketuk dua kali = suka (dengan hati melayang).
+ * - Rel kanan: Suka (angka asli), Tidak suka, Komentar, Bagikan.
+ * - Kiri-bawah: kanal + Langganan, judul (ketuk melebarkan dan
+ *   menampilkan deskripsi), jumlah tayang.
+ * - Bilah progres tipis di dasar; seret mendatar untuk menggeser.
+ * - Menu titik tiga: Tidak tertarik, Jangan rekomendasikan kanal ini,
+ *   Unduh, Salin tautan.
+ *
+ * Semua data berasal dari sumber (detail video, komentar, status
+ * langganan lokal); angka yang tidak diketahui tidak dikarang.
  */
 @UnstableApi
 @Composable
@@ -77,8 +95,23 @@ fun ShortsScreen(
     onRetryPlayback: () -> Unit,
     onSearchClick: () -> Unit = {},
     viewModel: ShortsViewModel = hiltViewModel(),
+    // Instans yang sama dengan milik MainActivity (sama-sama
+    // berpemilik Activity), jadi komentar & langganan menempel
+    // pada video Shorts yang sedang diputar.
+    playerViewModel: PlayerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val comments by playerViewModel.comments.collectAsState()
+    val context = LocalContext.current
+    var showComments by remember { mutableStateOf(false) }
+    var menuOpen by remember { mutableStateOf(false) }
+
+    val items = state.items
+    val pagerState = rememberPagerState(pageCount = { items.size })
+    val activeItem = items.getOrNull(pagerState.currentPage)
+    val activeDetails: VideoDetails? =
+        (playerUiState as? PlayerUiState.Ready)?.details
+            ?.takeIf { it.id == activeItem?.id }
 
     Box(
         modifier = Modifier
@@ -108,7 +141,7 @@ fun ShortsScreen(
                 }
             }
 
-            state.items.isEmpty() -> Column(
+            items.isEmpty() -> Column(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .padding(24.dp),
@@ -130,8 +163,6 @@ fun ShortsScreen(
             }
 
             else -> {
-                val items = state.items
-                val pagerState = rememberPagerState(pageCount = { items.size })
                 // Halaman yang berhenti digeser menjadi video aktif:
                 // laporkan ke pemilik pemutar supaya dimuat & diputar
                 // di tempat. Selama masih menggeser, jangan memuat
@@ -141,8 +172,8 @@ fun ShortsScreen(
                     pagerState.isScrollInProgress,
                     items,
                 ) {
-                    if (!pagerState.isScrollInProgress && items.isNotEmpty()) {
-                        onShortActive(items[pagerState.currentPage].id)
+                    if (!pagerState.isScrollInProgress) {
+                        items.getOrNull(pagerState.currentPage)?.let { onShortActive(it.id) }
                     }
                 }
                 VerticalPager(
@@ -157,27 +188,26 @@ fun ShortsScreen(
                         isActive = item.id == activeShortId,
                         player = player,
                         playerUiState = playerUiState,
+                        ownerAvatarUrl = comments.ownerAvatarUrl,
+                        subscriptionState = playerViewModel::subscriptionState,
+                        onToggleSubscription = playerViewModel::toggleSubscription,
+                        onLike = { details -> viewModel.like(item, details) },
+                        onDislike = { details -> viewModel.dislike(item, details) },
+                        onOpenComments = { showComments = true },
+                        onShare = { details -> shareShort(context, item, details) },
                         onRetryPlayback = onRetryPlayback,
                     )
                 }
             }
         }
 
-        // Bilah atas: judul + cari, melayang di atas halaman.
+        // Pojok kanan atas: cari + menu titik tiga, melayang di atas halaman.
         Row(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 4.dp, top = 4.dp),
+                .align(Alignment.TopEnd)
+                .padding(end = 4.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.nav_shorts),
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f),
-            )
             IconButton(onClick = onSearchClick) {
                 Icon(
                     Icons.Filled.Search,
@@ -185,10 +215,81 @@ fun ShortsScreen(
                     tint = Color.White,
                 )
             }
+            if (activeItem != null && state.error == null && !state.isLoading) {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = stringResource(R.string.shorts_more),
+                            tint = Color.White,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.shorts_menu_not_interested)) },
+                            onClick = {
+                                menuOpen = false
+                                viewModel.notInterested(activeItem, activeDetails)
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.shorts_hidden),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.shorts_menu_block_channel)) },
+                            onClick = {
+                                menuOpen = false
+                                viewModel.dontRecommendChannel(activeItem, activeDetails)
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.shorts_channel_blocked),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                            },
+                        )
+                        if (activeDetails != null) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.shorts_menu_download)) },
+                                onClick = {
+                                    menuOpen = false
+                                    playerViewModel.enqueueDownload()
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.shorts_download_started),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.shorts_menu_copy_link)) },
+                            onClick = {
+                                menuOpen = false
+                                copyShortLink(context, activeItem.id)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showComments) {
+            ShortsCommentsSheet(
+                state = comments,
+                onDismiss = { showComments = false },
+                onLoadMore = playerViewModel::loadMoreComments,
+                onToggleReplies = playerViewModel::toggleReplies,
+            )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @UnstableApi
 @Composable
 private fun ShortsPage(
@@ -196,8 +297,21 @@ private fun ShortsPage(
     isActive: Boolean,
     player: Player?,
     playerUiState: PlayerUiState,
+    ownerAvatarUrl: String?,
+    subscriptionState: (String) -> Flow<Boolean>,
+    onToggleSubscription: (String, String, Boolean) -> Unit,
+    onLike: (VideoDetails?) -> Unit,
+    onDislike: (VideoDetails?) -> Unit,
+    onOpenComments: () -> Unit,
+    onShare: (VideoDetails?) -> Unit,
     onRetryPlayback: () -> Unit,
 ) {
+    // Detail asli video ini, hanya bila halaman ini yang sedang aktif
+    // DAN pemutar sudah siap untuk video ini.
+    val details: VideoDetails? =
+        (playerUiState as? PlayerUiState.Ready)?.details
+            ?.takeIf { isActive && it.id == item.id }
+
     // Niat main/jeda halaman aktif, mengikuti pemutar bersama.
     // Memakai playWhenReady (bukan isPlaying) supaya jeda muat
     // (buffering) tidak disalahartikan sebagai jeda oleh pengguna.
@@ -222,197 +336,233 @@ private fun ShortsPage(
         }
     }
 
+    // Status suka/tidak suka hanya untuk sesi ini; yang dicatat ke
+    // selera lokal cukup sekali per tindakan.
+    var liked by rememberSaveable(item.id) { mutableStateOf(false) }
+    var disliked by rememberSaveable(item.id) { mutableStateOf(false) }
+    var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
+    var showHeart by remember { mutableStateOf(false) }
+    LaunchedEffect(showHeart) {
+        if (showHeart) {
+            delay(700)
+            showHeart = false
+        }
+    }
+
+    fun doLike() {
+        if (!liked) {
+            liked = true
+            disliked = false
+            onLike(details)
+        }
+    }
+
+    fun doDislike() {
+        if (!disliked) {
+            disliked = true
+            liked = false
+            onDislike(details)
+        }
+    }
+
+    // Kanal: detail asli bila ada, kalau tidak yang dibawa sumber.
+    val channelId = details?.channelId ?: item.channelId
+    val channelName = details?.channelName?.takeIf { it.isNotBlank() } ?: item.channelName
+    val subscribed by remember(channelId) {
+        channelId?.let { subscriptionState(it) } ?: flowOf(false)
+    }.collectAsState(initial = false)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
-        contentAlignment = Alignment.Center,
     ) {
-        Box(
-            modifier = Modifier
-                .padding(start = 12.dp, end = 12.dp, top = 52.dp, bottom = 12.dp)
-                .fillMaxHeight()
-                .aspectRatio(9f / 16f, matchHeightConstraintsFirst = true)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-        ) {
-            ResilientImage(
-                url = item.thumbnailUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.matchParentSize(),
-                requestBuilder = {
-                    size(960, 540)
-                    crossfade(false)
+        ResilientImage(
+            url = item.thumbnailUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+            requestBuilder = {
+                size(960, 540)
+                crossfade(false)
+            },
+        )
+
+        if (isActive && player != null) {
+            // Permukaan video hidup: halaman ini yang sedang
+            // diputar. Tanpa kontrol bawaan — ketuk = jeda/lanjut,
+            // ketuk dua kali = suka.
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        // Bingkai pertama belum datang: biarkan gambar
+                        // sampul di bawahnya terlihat, bukan hitam.
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        setEnableComposeSurfaceSyncWorkaround(true)
+                        this.player = player
+                    }
                 },
+                update = { view -> view.player = player },
+                modifier = Modifier.fillMaxSize(),
             )
-
-            if (isActive && player != null) {
-                // Permukaan video hidup: halaman ini yang sedang
-                // diputar. Tanpa kontrol bawaan — Shorts memang
-                // tanpa bilah geser; ketuk = jeda/lanjut.
-                AndroidView(
-                    factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            useController = false
-                            setEnableComposeSurfaceSyncWorkaround(true)
-                            this.player = player
-                        }
-                    },
-                    update = { view -> view.player = player },
-                    modifier = Modifier.matchParentSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clickable(interactionSource = null, indication = null) {
-                            if (player.playWhenReady) player.pause() else player.play()
-                        },
-                )
-
-                when (playerUiState) {
-                    PlayerUiState.Loading -> CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center),
-                        color = Color.White,
-                    )
-
-                    is PlayerUiState.Error -> Column(
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Text(
-                            text = playerUiState.message,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            fontSize = 14.sp,
-                        )
-                        Button(onClick = onRetryPlayback) {
-                            Text(stringResource(R.string.retry))
-                        }
-                    }
-
-                    is PlayerUiState.Ready -> {
-                        if (!wantsPlay) {
-                            // Penanda jeda: video sudah termuat, ketukan
-                            // pengguna sendiri yang menjedanya.
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .size(64.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.Black.copy(alpha = 0.5f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    Icons.Filled.PlayArrow,
-                                    contentDescription = stringResource(R.string.shorts_play),
-                                    tint = Color.White,
-                                    modifier = Modifier.size(40.dp),
-                                )
-                            }
-                        }
-                    }
-                }
-            } else if (!isActive) {
-                // Halaman tetangga: gambar diam + durasi, tanpa tombol
-                // apa pun — tidak ada lagi ketuk-untuk-pindah.
-                item.durationSeconds?.let { seconds ->
-                    Text(
-                        text = formatDuration(seconds),
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(12.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                            .padding(horizontal = 8.dp, vertical = 3.dp),
-                    )
-                }
-            }
-
-            // Gradasi + info di bawah.
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f)),
-                        ),
+                    .fillMaxSize()
+                    .combinedClickable(
+                        interactionSource = null,
+                        indication = null,
+                        onDoubleClick = {
+                            doLike()
+                            showHeart = true
+                        },
+                        onClick = {
+                            if (player.playWhenReady) player.pause() else player.play()
+                        },
                     ),
             )
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Baris kanal hanya bila sumber membawa nama kanal;
-                // grid Shorts tidak membawanya — tidak dikarang.
-                if (item.channelName.isNotBlank()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.2f)),
-                    ) {
-                        item.channelAvatarUrl?.let { url ->
-                            ResilientImage(
-                                url = url,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.matchParentSize(),
+        }
+
+        // Gradasi atas (supaya ikon cari/menu terbaca) dan bawah
+        // (supaya teks terbaca).
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(110.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(300.dp)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                    ),
+                ),
+        )
+
+        if (isActive && player != null) {
+            when (playerUiState) {
+                PlayerUiState.Loading -> CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = Color.White,
+                )
+
+                is PlayerUiState.Error -> Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = playerUiState.message,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        fontSize = 14.sp,
+                    )
+                    Button(onClick = onRetryPlayback) {
+                        Text(stringResource(R.string.retry))
+                    }
+                }
+
+                is PlayerUiState.Ready -> {
+                    if (!wantsPlay) {
+                        // Penanda jeda: video sudah termuat, ketukan
+                        // pengguna sendiri yang menjedanya.
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.5f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.PlayArrow,
+                                contentDescription = stringResource(R.string.shorts_play),
+                                tint = Color.White,
+                                modifier = Modifier.size(40.dp),
                             )
                         }
                     }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = item.channelName,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                }
-                Text(
-                    text = item.title,
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                val meta = listOfNotNull(
-                    item.viewCountText?.takeIf { it.isNotEmpty() },
-                    item.uploadedText,
-                ).joinToString(" • ")
-                if (meta.isNotEmpty()) {
-                    Text(
-                        text = meta,
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
             }
         }
-    }
-}
 
-private fun formatDuration(totalSeconds: Long): String {
-    val m = totalSeconds / 60
-    val s = totalSeconds % 60
-    return "%d:%02d".format(m, s)
+        // Hati melayang saat ketuk dua kali.
+        AnimatedVisibility(
+            visible = showHeart,
+            modifier = Modifier.align(Alignment.Center),
+            enter = scaleIn(initialScale = 0.4f) + fadeIn(),
+            exit = fadeOut(),
+        ) {
+            Icon(
+                Icons.Filled.Favorite,
+                contentDescription = null,
+                tint = Color(0xFFFF2D55),
+                modifier = Modifier.size(110.dp),
+            )
+        }
+
+        // Info kiri-bawah.
+        val meta = listOfNotNull(
+            item.viewCountText?.takeIf { it.isNotEmpty() },
+            item.uploadedText,
+        ).joinToString(" • ")
+        ShortsInfoBlock(
+            channelName = channelName,
+            avatarUrl = if (details != null) {
+                ownerAvatarUrl ?: item.channelAvatarUrl
+            } else {
+                item.channelAvatarUrl
+            },
+            showSubscribe = channelId != null && channelName.isNotBlank(),
+            subscribed = subscribed,
+            onToggleSubscribe = {
+                if (channelId != null) {
+                    onToggleSubscription(channelId, channelName, subscribed)
+                }
+            },
+            title = details?.title ?: item.title,
+            description = details?.description,
+            meta = meta,
+            expanded = expanded,
+            onToggleExpanded = { expanded = !expanded },
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 88.dp, bottom = 24.dp),
+        )
+
+        // Rel tombol kanan.
+        ShortsActionRail(
+            liked = liked,
+            disliked = disliked,
+            likeLabel = details?.likeCount?.let { formatCount(it) }
+                ?: stringResource(R.string.shorts_like),
+            onLike = { doLike() },
+            onDislike = { doDislike() },
+            onComments = { if (isActive) onOpenComments() },
+            onShare = { onShare(details) },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 8.dp, bottom = 32.dp),
+        )
+
+        // Bilah progres di dasar.
+        if (isActive && player != null && playerUiState is PlayerUiState.Ready) {
+            ShortsProgressBar(
+                player = player,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
+    }
 }

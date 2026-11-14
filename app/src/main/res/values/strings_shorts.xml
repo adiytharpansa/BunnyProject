@@ -3,4 +3,29 @@
     <string name="nav_shorts">Shorts</string>
     <string name="shorts_play">Putar</string>
     <string name="shorts_empty">Belum ada video pendek.</string>
+
+    <!-- Rel tombol kanan -->
+    <string name="shorts_like">Suka</string>
+    <string name="shorts_dislike">Tidak suka</string>
+    <string name="shorts_comments">Komentar</string>
+    <string name="shorts_share">Bagikan</string>
+    <string name="shorts_subscribed">Berlangganan</string>
+    <string name="shorts_more">Opsi lainnya</string>
+    <string name="shorts_close">Tutup</string>
+
+    <!-- Menu titik tiga -->
+    <string name="shorts_menu_not_interested">Tidak tertarik</string>
+    <string name="shorts_menu_block_channel">Jangan rekomendasikan kanal ini</string>
+    <string name="shorts_menu_download">Unduh</string>
+    <string name="shorts_menu_copy_link">Salin tautan</string>
+    <string name="shorts_link_copied">Tautan disalin</string>
+    <string name="shorts_hidden">Video disembunyikan</string>
+    <string name="shorts_channel_blocked">Kanal dicatat sebagai tidak direkomendasikan</string>
+    <string name="shorts_download_started">Unduhan dimulai</string>
+
+    <!-- Komentar -->
+    <string name="shorts_comments_empty">Belum ada komentar yang dapat dimuat.</string>
+    <string name="shorts_replies_count">%1$d balasan</string>
+    <string name="shorts_replies_hide">Sembunyikan balasan</string>
+    <string name="shorts_replies_failed">Balasan tidak dapat dimuat.</string>
 </resources>
