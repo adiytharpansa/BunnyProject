@@ -202,6 +202,11 @@ fun ShortsScreen(
                 ) {
                     if (!pagerState.isScrollInProgress) {
                         items.getOrNull(pagerState.currentPage)?.let { onShortActive(it.id) }
+                        // Pemanasan: Short berikutnya disiapkan lebih dulu
+                        // (metadata player; media ikut hanya di jaringan
+                        // tak berbayar) supaya geser berikutnya lebih cepat.
+                        items.getOrNull(pagerState.currentPage + 1)
+                            ?.let { playerViewModel.warmNext(it.id) }
                     }
                 }
                 VerticalPager(
@@ -217,6 +222,11 @@ fun ShortsScreen(
                         player = player,
                         playerUiState = playerUiState,
                         ownerAvatarUrl = comments.ownerAvatarUrl,
+                        commentCountText = if (item.id == activeShortId) {
+                            comments.totalCountText
+                        } else {
+                            null
+                        },
                         subscriptionState = playerViewModel::subscriptionState,
                         onToggleSubscription = playerViewModel::toggleSubscription,
                         onLike = { details -> viewModel.like(item, details) },
@@ -361,6 +371,7 @@ private fun ShortsPage(
     player: Player?,
     playerUiState: PlayerUiState,
     ownerAvatarUrl: String?,
+    commentCountText: String?,
     subscriptionState: (String) -> Flow<Boolean>,
     onToggleSubscription: (String, String, Boolean) -> Unit,
     onLike: (VideoDetails?) -> Unit,
@@ -704,6 +715,8 @@ private fun ShortsPage(
                 ?: stringResource(R.string.shorts_like),
             onLike = { doLike() },
             onDislike = { doDislike() },
+            commentLabel = commentCountText
+                ?: stringResource(R.string.shorts_comments),
             onComments = { if (isActive) onOpenComments() },
             onShare = { onShare(details) },
             modifier = Modifier

@@ -143,6 +143,7 @@ internal fun ShortsActionRail(
     liked: Boolean,
     disliked: Boolean,
     likeLabel: String,
+    commentLabel: String,
     onLike: () -> Unit,
     onDislike: () -> Unit,
     onComments: () -> Unit,
@@ -170,7 +171,7 @@ internal fun ShortsActionRail(
         )
         RailButton(
             icon = Icons.Filled.ChatBubbleOutline,
-            label = stringResource(R.string.shorts_comments),
+            label = commentLabel,
             description = stringResource(R.string.shorts_comments),
             active = false,
             onClick = onComments,

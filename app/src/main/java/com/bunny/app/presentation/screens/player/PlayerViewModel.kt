@@ -96,6 +96,8 @@ data class CommentsUiState(
     val isLoadingMore: Boolean = false,
     /** The watch page's owner photo for the channel row. */
     val ownerAvatarUrl: String? = null,
+    /** Jumlah komentar total (teks dari server), bila terbaca. */
+    val totalCountText: String? = null,
     /** Per-thread reply state, keyed by comment id. */
     val replies: Map<String, RepliesUiState> = emptyMap(),
 )
@@ -849,7 +851,20 @@ class PlayerViewModel @Inject constructor(
                 items = page?.items.orEmpty(),
                 nextPage = page?.nextPage,
                 ownerAvatarUrl = page?.ownerAvatarUrl,
+                totalCountText = page?.totalCountText,
             )
+        }
+    }
+
+    /**
+     * Pemanasan Short berikutnya: sama dengan yang dilakukan untuk
+     * kepala antrean rekomendasi (metadata player; media hanya di
+     * jaringan tak berbayar, diatur koordinator).
+     */
+    fun warmNext(id: String) {
+        viewModelScope.launch {
+            sabrCoordinator.warm(id)
+            sabrCoordinator.prewarmMedia(id)
         }
     }
 

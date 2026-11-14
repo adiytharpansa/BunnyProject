@@ -28,9 +28,23 @@ Salin isi zip ini ke root repo (struktur folder sama), timpa file yang ada.
 ## Sudah ada di kode sebelumnya (tidak diubah)
 Ketuk jeda/lanjut, ketuk dua kali = suka + hati, tahan = 2x, judul bisa dilebarkan, sheet komentar, jeda otomatis dan lipat ke mini player saat pindah tab.
 
-## Belum dikerjakan (perlu perubahan lebih besar)
-- **Jumlah komentar** di tombol Komentar: model `VideoDetails` dan `CommentsUiState` belum membawa angka total; perlu ditambah di engine Lontar/parser.
-- **Preload Short berikutnya**: pemutar dipakai bersama (satu instance), jadi preload butuh pemutar kedua atau antrean di `PlaybackManager`.
+## Tambahan (jumlah komentar + pemanasan Short berikutnya)
+Dua ini menyentuh file di luar folder Shorts, jadi dipasang lewat skrip.
+Dari root repo jalankan:
+
+    python3 apply_patch.py
+
+Skrip memeriksa tiap potongan cocok tepat satu kali; kalau tidak, berhenti tanpa mengubah apa pun pada file itu. Yang diubah:
+- `core/.../model/VideoComment.kt`: `CommentsPage` dapat field `totalCountText`.
+- `engine/.../InnertubeParser.kt`: `parseCommentsCountText()` membaca `commentsHeaderRenderer.countText`; dipakai di `parseCommentsPage`. Tanpa angka = null (tidak dikarang).
+- `app/.../PlayerViewModel.kt`: `CommentsUiState.totalCountText`, diisi saat `loadComments`; fungsi baru `warmNext(id)`.
+
+Efeknya di Shorts: label tombol Komentar menampilkan angka dari server (mis. "1,2 rb"); bila tidak terbaca, tetap "Komentar". Saat satu Short aktif, Short berikutnya dipanaskan (`sabrCoordinator.warm` + `prewarmMedia`, yang sama dengan antrean rekomendasi).
+
+Batas yang jujur:
+- Bentuk `commentsHeaderRenderer.countText` belum saya uji pada jawaban YouTube asli (tidak ada akses jaringan). Dibuat defensif, tapi cek di perangkat; bila angka tidak muncul, kirim log "komentar" dari Diagnostik.
+- Pemanasan hanya menyiapkan metadata (dan media di jaringan tak berbayar). Pemutarnya tetap satu instance bersama, jadi ini bukan preload dua pemutar.
+- Urutan pasang: jalankan `apply_patch.py` DULU, baru salin file Kotlin dari zip (ShortsScreen sekarang memanggil `warmNext` dan `totalCountText`).
 
 ## Catatan
 Kode ini belum saya kompilasi (tidak ada Gradle/SDK di lingkungan saya). Jalankan `gradle assembleDebug`; bila ada error impor (mis. ikon `VolumeUp`/`VolumeOff` dari material-icons-extended), kabari saya.

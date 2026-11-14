@@ -32,4 +32,9 @@ data class CommentsPage(
      * the first page carries it (later pages leave it null).
      */
     val ownerAvatarUrl: String? = null,
+    /**
+     * Jumlah komentar total sebagaimana disajikan server (mis. "1,2 rb");
+     * hanya halaman pertama yang membawanya, null bila tidak terbaca.
+     */
+    val totalCountText: String? = null,
 )

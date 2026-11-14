@@ -573,7 +573,25 @@ object InnertubeParser {
         return CommentsPage(
             items = items.distinctBy { it.id },
             nextPage = nextPage,
+            totalCountText = parseCommentsCountText(response),
         )
+    }
+
+    /**
+     * Jumlah komentar total dari commentsHeaderRenderer.countText (hanya
+     * ada di jawaban halaman pertama). Dibaca defensif: run pertama bila
+     * berisi angka, kalau tidak seluruh teksnya; tanpa angka = null —
+     * tidak pernah dikarang.
+     */
+    fun parseCommentsCountText(response: JSONObject): String? {
+        val header = findObject(response) { it.has("commentsHeaderRenderer") }
+            ?.optJSONObject("commentsHeaderRenderer") ?: return null
+        val count = header.optJSONObject("countText") ?: return null
+        val firstRun = count.optJSONArray("runs")?.optJSONObject(0)
+            ?.optString("text")?.trim()
+        val text = firstRun?.takeIf { run -> run.any { it.isDigit() } }
+            ?: textOf(count).trim()
+        return text.takeIf { value -> value.any { it.isDigit() } }
     }
 
     /**
