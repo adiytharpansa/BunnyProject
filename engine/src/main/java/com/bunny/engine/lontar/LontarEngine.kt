@@ -87,6 +87,13 @@ class LontarEngine(
     /** Paket Mesin B: short-window metadata answers (see [MetadataCache]). */
     private val metadataCache = MetadataCache()
 
+    /**
+     * Refresh walk for Home: the next-page token each seed search
+     * handed back at the last mixture build, keyed by seed query.
+     * Null until the first build; see seedMixture.
+     */
+    @Volatile private var homeNextTokens: Map<String, String?>? = null
+
     // ----------------------------------------------------- lontar hidup
 
     /** Background lane for warm-session harvests; never user-blocking. */
@@ -119,7 +126,9 @@ class LontarEngine(
         // and the anonymous FEwhat_to_watch shelf comes back empty. So the
         // home feed is composed locally from topic searches: interleaved
         // round-robin, live streams and duplicates removed. The mixture has
-        // no continuation token; later pages are simply empty.
+        // no continuation token of its own; later pages are simply empty.
+        // A rebuild (the user's pull-to-refresh) is the mixture's own
+        // walk over the seed searches' tokens — see seedMixture.
         if (page != null) return Page(items = emptyList(), nextPage = null)
         return seedMixture()
     }
@@ -1143,23 +1152,59 @@ class LontarEngine(
         // by the UI. The seed set itself is remotely updatable (Fase 4).
         // The topic searches are independent: run them in parallel so
         // the home feed costs one round trip, not five in a row.
-        val pages = coroutineScope {
+        //
+        // Refresh walk (owner order 2026-11-14: a refresh must always
+        // bring new videos, like YouTube): the FIRST build asks each
+        // seed search's first page — cached, because the mixture
+        // re-asks them on every rebuild. Every LATER build follows the
+        // continuation token each search handed back last time, so the
+        // user gets the next batch of that topic instead of the same
+        // plate again. A topic whose token ran out starts over from a
+        // FRESH first page: its cache entry is dropped first, or the
+        // refresh would serve the very page the user just saw.
+        val tokens = homeNextTokens
+        val results = coroutineScope {
             config.seedQueries.map { (query, label) ->
                 async {
                     try {
-                        search(query, null).items
-                            .filter { !it.isLive }
-                            .map { item -> item.copy(reason = "Topik: $label") }
+                        val token = tokens?.get(query)
+                        val page = when {
+                            tokens == null -> search(query, null)
+                            token != null -> search(query, token)
+                            else -> {
+                                metadataCache.invalidate("search:$query")
+                                search(query, null)
+                            }
+                        }
+                        SeedResult(query, label, page)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        emptyList()
+                        SeedResult(query, label, null)
                     }
                 }
             }.awaitAll()
         }
+        // Advance the walk: a fetched page hands over its next token;
+        // a failed fetch keeps its old token so the next refresh
+        // retries the same step instead of skipping a batch.
+        homeNextTokens = results.associate { result ->
+            result.query to (result.page?.nextPage ?: tokens?.get(result.query))
+        }
+        val pages = results.map { result ->
+            (result.page?.items ?: emptyList())
+                .filter { !it.isLive }
+                .map { item -> item.copy(reason = "Topik: ${result.label}") }
+        }
         return Page(items = roundRobin(pages, MAX_SEED_ITEMS), nextPage = null)
     }
+
+    /** One seed topic's contribution to a mixture build. */
+    private data class SeedResult(
+        val query: String,
+        val label: String,
+        val page: Page<VideoItem>?,
+    )
 
     /** Round-robin interleave of per-topic pages, duplicates removed. */
     private fun roundRobin(
