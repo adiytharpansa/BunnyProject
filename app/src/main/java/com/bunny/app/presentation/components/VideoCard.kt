@@ -332,8 +332,11 @@ fun VideoCard(
             }
             // Chip Alasan: why this video is on the list, stated plainly.
             // Aligned with the channel text, not the avatar.
+            // Topic reasons ("Topik: …") are not rendered: the owner asked
+            // for tidier cards (2026-11-14). Display only — the reason still
+            // exists on the item and ranking is unaffected.
             if (showReason) {
-                item.reason?.let { reason ->
+                item.reason?.takeUnless { it.startsWith("Topik:") }?.let { reason ->
                     Text(
                         text = reason,
                         style = MaterialTheme.typography.labelMedium,
