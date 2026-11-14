@@ -209,6 +209,14 @@ class MainActivity : ComponentActivity() {
                 var barHeightPx by remember { mutableFloatStateOf(0f) }
                 val barHeightDp = with(LocalDensity.current) { barHeightPx.toDp() }
 
+                // Hanya Beranda yang menyembunyikan bar bawah saat header
+                // dilipat. Pindah ke tab lain (mis. Shorts) selalu
+                // mengembalikan bar ke posisi penuh, supaya tidak tertinggal
+                // tersembunyi dari lipatan Beranda sebelumnya.
+                LaunchedEffect(selectedTab) {
+                    if (selectedTab != 0) barsFraction.floatValue = 0f
+                }
+
                 val videoId = openVideoId
                 // PiP hanya saat halaman tonton yang tampil — dalam
                 // keadaan mini, jendela PiP akan berisi UI tab, bukan
@@ -248,8 +256,14 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                // Tab Shorts sedang menampilkan video inline: pemutar
+                // penuh TIDAK mengambil alih layar, tetapi bar bawah
+                // harus tetap terlihat supaya pengguna bisa pindah tab
+                // tanpa keluar dari Shorts.
+                val shortsInlineShown =
+                    videoId != null && videoId == shortsInlineId && selectedTab == 1
                 val barVisible =
-                    (videoId == null || playerMinimized) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
+                    (videoId == null || playerMinimized || shortsInlineShown) && !openSearch && !openNotifications && openChannel == null && !openDownloads && openPersonal == null
 
                 // PERBAIKAN: pemutar mini harus ikut turun bersama bar bawah.
                 // Dulu ia tetap "melayang" setinggi bar walau bar sudah
@@ -293,13 +307,21 @@ class MainActivity : ComponentActivity() {
                         // While the bottom bar is on screen it overlays the
                         // content (so it can slide away), so the content only
                         // takes the top inset; each tab pads for the bar.
+                        // Tab Shorts: video menembus sampai tepi atas layar
+                        // (di bawah status bar), jadi inset atas TIDAK dipakai;
+                        // ShortsScreen sendiri menurunkan tombol-tombolnya
+                        // di bawah status bar.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(
                                     if (barVisible) {
                                         PaddingValues(
-                                            top = scaffoldPadding.calculateTopPadding(),
+                                            top = if (selectedTab == 1) {
+                                                0.dp
+                                            } else {
+                                                scaffoldPadding.calculateTopPadding()
+                                            },
                                         )
                                     } else {
                                         scaffoldPadding

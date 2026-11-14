@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shorts_mute">Matikan suara</string>
+    <string name="shorts_unmute">Nyalakan suara</string>
+    <string name="shorts_search">Cari</string>
+</resources>

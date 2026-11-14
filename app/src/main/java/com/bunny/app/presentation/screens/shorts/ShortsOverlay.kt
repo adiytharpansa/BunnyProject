@@ -50,11 +50,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +78,19 @@ import java.util.Locale
 // ----------------------------------------------------------------------
 // Pembantu
 // ----------------------------------------------------------------------
+
+/**
+ * Bayangan lembut untuk teks di atas video: tetap terbaca walau
+ * latarnya terang (mis. baju biru muda) dan gradasi bawah belum
+ * cukup gelap.
+ */
+private val ShortsTextShadow = TextStyle(
+    shadow = Shadow(
+        color = Color.Black.copy(alpha = 0.65f),
+        offset = Offset(0f, 1.5f),
+        blurRadius = 8f,
+    ),
+)
 
 internal fun shortUrl(id: String): String = "https://www.youtube.com/shorts/$id"
 
@@ -177,19 +193,24 @@ private fun RailButton(
     active: Boolean,
     onClick: () -> Unit,
 ) {
+    // Lebar kolom dikunci 68dp supaya label panjang ("Tidak suka",
+    // "Komentar") tidak mendorong rel keluar dari tepi layar, dan
+    // seluruh kolom (ikon + label) menjadi area ketuk ≥ 48dp.
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable(
-            interactionSource = null,
-            indication = null,
-            onClick = onClick,
-        ),
+        modifier = Modifier
+            .width(68.dp)
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                onClick = onClick,
+            ),
     ) {
         Box(
             modifier = Modifier
-                .size(46.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.32f)),
+                .background(Color.Black.copy(alpha = 0.35f)),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -206,6 +227,9 @@ private fun RailButton(
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+            style = ShortsTextShadow,
         )
     }
 }
@@ -270,24 +294,32 @@ internal fun ShortsInfoBlock(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    style = ShortsTextShadow,
                     modifier = Modifier
                         .weight(1f, fill = false)
                         .then(channelTap),
                 )
                 if (showSubscribe) {
                     Spacer(Modifier.width(12.dp))
+                    // Belum berlangganan: oranye Bunny (aksen utama tema)
+                    // supaya selaras dengan Beranda; sudah berlangganan:
+                    // tombol tembus pandang yang tenang.
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(18.dp))
                             .background(
-                                if (subscribed) Color.White.copy(alpha = 0.22f) else Color.White,
+                                if (subscribed) {
+                                    Color.White.copy(alpha = 0.22f)
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
                             )
                             .clickable(
                                 interactionSource = null,
                                 indication = null,
                                 onClick = onToggleSubscribe,
                             )
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                     ) {
                         Text(
                             text = if (subscribed) {
@@ -295,7 +327,11 @@ internal fun ShortsInfoBlock(
                             } else {
                                 stringResource(R.string.player_subscribe)
                             },
-                            color = if (subscribed) Color.White else Color.Black,
+                            color = if (subscribed) {
+                                Color.White
+                            } else {
+                                MaterialTheme.colorScheme.onPrimary
+                            },
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
@@ -312,6 +348,7 @@ internal fun ShortsInfoBlock(
             fontWeight = FontWeight.SemiBold,
             maxLines = if (expanded) 6 else 2,
             overflow = TextOverflow.Ellipsis,
+            style = ShortsTextShadow,
             modifier = Modifier.clickable(
                 interactionSource = null,
                 indication = null,
@@ -321,20 +358,22 @@ internal fun ShortsInfoBlock(
         if (expanded && !description.isNullOrBlank()) {
             Text(
                 text = description,
-                color = Color.White.copy(alpha = 0.85f),
+                color = Color.White.copy(alpha = 0.88f),
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
                 maxLines = 8,
                 overflow = TextOverflow.Ellipsis,
+                style = ShortsTextShadow,
             )
         }
         if (meta.isNotEmpty()) {
             Text(
                 text = meta,
-                color = Color.White.copy(alpha = 0.75f),
+                color = Color.White.copy(alpha = 0.8f),
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                style = ShortsTextShadow,
             )
         }
     }
@@ -366,11 +405,13 @@ internal fun ShortsProgressBar(
         }
     }
 
-    val barHeight = if (dragging) 6.dp else 2.dp
+    // Saat disentuh, bilah menebal (2dp → 8dp) dan area sentuhnya
+    // 32dp tinggi supaya gampang diseret dengan jempol.
+    val barHeight = if (dragging) 8.dp else 3.dp
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(24.dp)
+            .height(32.dp)
             .pointerInput(player) {
                 detectHorizontalDragGestures(
                     onDragStart = { dragging = true },
@@ -398,7 +439,9 @@ internal fun ShortsProgressBar(
             modifier = Modifier
                 .fillMaxWidth(fraction = progress)
                 .height(barHeight)
-                .background(Color.White),
+                .background(
+                    if (dragging) MaterialTheme.colorScheme.primary else Color.White,
+                ),
         )
     }
 }

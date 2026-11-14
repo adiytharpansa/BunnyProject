@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -28,6 +29,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -63,7 +66,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.bunny.app.R
 import com.bunny.app.presentation.components.ResilientImage
@@ -90,6 +95,8 @@ import kotlinx.coroutines.withTimeout
  * - Bilah progres tipis di dasar; seret mendatar untuk menggeser.
  * - Menu titik tiga: Tidak tertarik, Jangan rekomendasikan kanal ini,
  *   Unduh, Salin tautan.
+ * - Pojok kanan atas: suara (bisukan), cari, menu. Berada di bawah
+ *   status bar (video sendiri menembus sampai tepi atas layar).
  *
  * Semua data berasal dari sumber (detail video, komentar, status
  * langganan lokal); angka yang tidak diketahui tidak dikarang.
@@ -115,6 +122,17 @@ fun ShortsScreen(
     val context = LocalContext.current
     var showComments by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Bisu berlaku untuk seluruh sesi Shorts; saat halaman ini
+    // ditinggalkan, volume pemutar bersama dikembalikan ke penuh
+    // supaya video biasa tidak ikut bisu.
+    var muted by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(player, muted) {
+        player?.volume = if (muted) 0f else 1f
+    }
+    DisposableEffect(player) {
+        onDispose { player?.volume = 1f }
+    }
 
     val items = state.items
     val pagerState = rememberPagerState(pageCount = { items.size })
@@ -213,23 +231,56 @@ fun ShortsScreen(
             }
         }
 
-        // Pojok kanan atas: cari + menu titik tiga, melayang di atas halaman.
+        // Pojok kanan atas: suara + cari + menu titik tiga, melayang di
+        // atas halaman dan berada di bawah status bar. Tiap tombol diberi
+        // latar bundar tipis agar terbaca di atas video terang.
         Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(end = 4.dp, top = 4.dp),
+                .statusBarsPadding()
+                .padding(end = 8.dp, top = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            IconButton(onClick = onSearchClick) {
+            if (player != null && activeItem != null && state.error == null && !state.isLoading) {
+                IconButton(
+                    onClick = { muted = !muted },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.28f)),
+                ) {
+                    Icon(
+                        if (muted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                        contentDescription = stringResource(
+                            if (muted) R.string.shorts_unmute else R.string.shorts_mute,
+                        ),
+                        tint = Color.White,
+                    )
+                }
+            }
+            IconButton(
+                onClick = onSearchClick,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.28f)),
+            ) {
                 Icon(
                     Icons.Filled.Search,
-                    contentDescription = null,
+                    contentDescription = stringResource(R.string.shorts_search),
                     tint = Color.White,
                 )
             }
             if (activeItem != null && state.error == null && !state.isLoading) {
                 Box {
-                    IconButton(onClick = { menuOpen = true }) {
+                    IconButton(
+                        onClick = { menuOpen = true },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.28f)),
+                    ) {
                         Icon(
                             Icons.Filled.MoreVert,
                             contentDescription = stringResource(R.string.shorts_more),
@@ -350,6 +401,26 @@ private fun ShortsPage(
         }
     }
 
+    // Bentuk video aktif: tegak (9:16) → ZOOM supaya mengisi layar tanpa
+    // pita hitam; mendatar → FIT supaya tidak terpotong parah.
+    var portrait by remember { mutableStateOf(true) }
+    DisposableEffect(player, isActive) {
+        val activePlayer = if (isActive) player else null
+        if (activePlayer == null) {
+            onDispose { }
+        } else {
+            val size = activePlayer.videoSize
+            portrait = size.width == 0 || size.height >= size.width
+            val listener = object : Player.Listener {
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    portrait = videoSize.width == 0 || videoSize.height >= videoSize.width
+                }
+            }
+            activePlayer.addListener(listener)
+            onDispose { activePlayer.removeListener(listener) }
+        }
+    }
+
     // Status suka/tidak suka hanya untuk sesi ini; yang dicatat ke
     // selera lokal cukup sekali per tindakan.
     var liked by rememberSaveable(item.id) { mutableStateOf(false) }
@@ -420,6 +491,7 @@ private fun ShortsPage(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         // Bingkai pertama belum datang: biarkan gambar
                         // sampul di bawahnya terlihat, bukan hitam.
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -427,7 +499,14 @@ private fun ShortsPage(
                         this.player = player
                     }
                 },
-                update = { view -> view.player = player },
+                update = { view ->
+                    view.player = player
+                    view.resizeMode = if (portrait) {
+                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    } else {
+                        AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                },
                 modifier = Modifier.fillMaxSize(),
             )
             Box(
@@ -476,16 +555,17 @@ private fun ShortsPage(
             )
         }
 
-        // Gradasi atas (supaya ikon cari/menu terbaca) dan bawah
-        // (supaya teks terbaca).
+        // Gradasi atas (supaya ikon suara/cari/menu terbaca, termasuk di
+        // bawah status bar) dan bawah (supaya teks terbaca di atas video
+        // terang).
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .height(110.dp)
+                .height(150.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Black.copy(alpha = 0.45f), Color.Transparent),
+                        listOf(Color.Black.copy(alpha = 0.5f), Color.Transparent),
                     ),
                 ),
         )
@@ -493,10 +573,10 @@ private fun ShortsPage(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(300.dp)
+                .height(340.dp)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                        listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)),
                     ),
                 ),
         )
@@ -558,6 +638,7 @@ private fun ShortsPage(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .statusBarsPadding()
                     .padding(top = 20.dp)
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.55f))
@@ -612,7 +693,7 @@ private fun ShortsPage(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 88.dp, bottom = 24.dp),
+                .padding(start = 16.dp, end = 92.dp, bottom = 24.dp),
         )
 
         // Rel tombol kanan.
@@ -627,7 +708,7 @@ private fun ShortsPage(
             onShare = { onShare(details) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 8.dp, bottom = 32.dp),
+                .padding(end = 6.dp, bottom = 32.dp),
         )
 
         // Bilah progres di dasar.
