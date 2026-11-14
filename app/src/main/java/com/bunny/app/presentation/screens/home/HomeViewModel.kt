@@ -304,8 +304,8 @@ class HomeViewModel @Inject constructor(
                 // terbentuknya: umpan server lebih dulu dalam urutan
                 // server, lalu tambahan langganan dan rantai tontonan
                 // dalam urutan masuknya. Mesin Selera tidak lagi
-                // mengurutkan ulang Beranda; FeedRanker tetap tersedia
-                // di :core bila suatu saat diminta kembali.
+                // mengurutkan ulang Beranda, dan FeedRanker-nya sudah
+                // dihapus dari :core atas keputusan pemilik yang sama.
                 val ranked = candidates
                 // Chip Alasan for the account's hand in the order: a
                 // title matching one of the account's own interest

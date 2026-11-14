@@ -1,18 +1,13 @@
 package com.bunny.app.data
 
 import com.bunny.core.model.VideoItem
-import com.bunny.core.rank.Engagement
 import com.bunny.core.rank.SatisfactionPolicy
-import com.bunny.core.rank.TasteProfile
-import com.bunny.core.rank.TasteText
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.ln
-import kotlin.math.min
 import kotlin.random.Random
 
 /** Jenis umpan balik eksplisit yang disimpan di tabel feed_feedback. */
@@ -40,9 +35,9 @@ data class BlockedChannel(
 )
 
 /**
- * Mesin Selera, sisi data. Mencatat sinyal tontonan dan umpan balik,
- * lalu membangun profil selera (dengan peluruhan waktu) untuk FeedRanker.
- * Semuanya lokal: tidak ada akun Bunny dan tidak ada server Bunny.
+ * Sisi data selera: mencatat sinyal tontonan dan umpan balik, dan
+ * menjalankan survei kepuasan lewat SatisfactionPolicy. Semuanya
+ * lokal: tidak ada akun Bunny dan tidak ada server Bunny.
  */
 @Singleton
 class TasteRepository @Inject constructor(
@@ -174,107 +169,6 @@ class TasteRepository @Inject constructor(
             .map { BlockedChannel(it.channelId, it.channelName) }
             .distinctBy { it.channelId ?: it.channelName }
 
-    // --------------------------------------------------------------- profil
-
-    /**
-     * Melengkapi [base] (langganan, pencarian, Selera Akun, churn — dibangun
-     * HomeViewModel) dengan sinyal baru: minat channel dan topik yang
-     * meluruh menurut waktu, penolakan, dan daftar sembunyi/blokir.
-     */
-    suspend fun enrich(
-        base: TasteProfile,
-        nowMs: Long = System.currentTimeMillis(),
-    ): TasteProfile {
-        engagementDao.prune(nowMs - ENGAGEMENT_RETENTION_MS)
-        feedbackDao.prune(nowMs - FEEDBACK_RETENTION_MS, FeedbackKind.DONT_RECOMMEND_CHANNEL)
-
-        val channel = HashMap<String, Double>()
-        val topics = HashMap<String, Double>()
-        val rejected = HashMap<String, Double>()
-        val hiddenIds = HashSet<String>()
-        val blockedIds = HashSet<String>()
-        val blockedNames = HashSet<String>()
-
-        // 1) Tontonan: bobot kepuasan × peluruhan × bonus tonton ulang.
-        for (row in engagementDao.recent(MAX_ENGAGEMENT_ROWS)) {
-            val decay = Engagement.decay(nowMs - row.lastOpenedAtEpochMs, HALF_LIFE_DAYS)
-            val rewatch = 1.0 + min(ln(row.opens.coerceAtLeast(1).toDouble()), 1.0)
-            val weight = Engagement.weight(row.watchedMs, row.durationMs, row.completed) *
-                decay * rewatch
-            if (row.channelName.isNotEmpty()) channel.add(row.channelName, weight)
-            if (weight > 0.0) {
-                for (word in TasteText.words(row.title)) topics.add(word, weight)
-            }
-        }
-
-        // 2) Umpan balik eksplisit.
-        for (fb in feedbackDao.recent(MAX_FEEDBACK_ROWS)) {
-            val decay = if (fb.kind == FeedbackKind.DONT_RECOMMEND_CHANNEL) {
-                1.0
-            } else {
-                Engagement.decay(nowMs - fb.createdAtEpochMs, FEEDBACK_HALF_LIFE_DAYS)
-            }
-            val words = TasteText.words(fb.title)
-            val name = fb.channelName
-            when (fb.kind) {
-                FeedbackKind.NOT_INTERESTED -> {
-                    fb.videoId?.let { hiddenIds += it }
-                    if (name.isNotEmpty()) channel.add(name, -0.8 * decay)
-                    for (w in words) rejected.add(w, 1.0 * decay)
-                }
-                FeedbackKind.DONT_RECOMMEND_CHANNEL -> {
-                    fb.channelId?.takeIf { it.isNotBlank() }?.let { blockedIds += it }
-                    if (name.isNotEmpty()) blockedNames += name
-                    fb.videoId?.let { hiddenIds += it }
-                }
-                FeedbackKind.LIKE -> {
-                    if (name.isNotEmpty()) channel.add(name, 2.0 * decay)
-                    for (w in words) topics.add(w, 1.5 * decay)
-                }
-                FeedbackKind.DISLIKE -> {
-                    fb.videoId?.let { hiddenIds += it }
-                    if (name.isNotEmpty()) channel.add(name, -1.5 * decay)
-                    for (w in words) rejected.add(w, 1.0 * decay)
-                }
-                FeedbackKind.SURVEY_YES -> {
-                    if (name.isNotEmpty()) channel.add(name, 1.0 * decay)
-                    for (w in words) topics.add(w, 0.8 * decay)
-                }
-                FeedbackKind.SURVEY_NO -> {
-                    if (name.isNotEmpty()) channel.add(name, -1.0 * decay)
-                    for (w in words) rejected.add(w, 0.6 * decay)
-                }
-            }
-        }
-
-        // 3) Rapikan: topik teratas saja, penolakan dikurangi minat positif.
-        val topicMap = topics.entries
-            .sortedByDescending { it.value }
-            .take(MAX_TOPIC_WORDS)
-            .associate { it.key to it.value.coerceAtMost(TOPIC_VALUE_CAP) }
-        val rejectedMap = HashMap<String, Double>()
-        for ((word, value) in rejected) {
-            val net = value - 0.5 * (topics[word] ?: 0.0)
-            if (net > 0.0) rejectedMap[word] = net
-        }
-        val rejectedTop = rejectedMap.entries
-            .sortedByDescending { it.value }
-            .take(MAX_TOPIC_WORDS)
-            .associate { it.key to it.value }
-        val channelMap = channel.mapValues {
-            it.value.coerceIn(-CHANNEL_VALUE_CAP, CHANNEL_VALUE_CAP)
-        }
-
-        return base.copy(
-            channelInterest = channelMap,
-            topicInterest = topicMap,
-            rejectedTopics = rejectedTop,
-            hiddenVideoIds = hiddenIds,
-            blockedChannelIds = blockedIds,
-            blockedChannelNames = blockedNames,
-        )
-    }
-
     // -------------------------------------------------------------- survei
 
     /**
@@ -366,9 +260,6 @@ class TasteRepository @Inject constructor(
         settingDao.upsert(SettingEntity(key, value))
     }
 
-    private fun MutableMap<String, Double>.add(key: String, weight: Double) {
-        this[key] = (this[key] ?: 0.0) + weight
-    }
 
     private fun encode(prompt: SurveyPrompt): String =
         listOf(prompt.videoId, prompt.channelId.orEmpty(), prompt.channelName, prompt.title)
@@ -387,15 +278,6 @@ class TasteRepository @Inject constructor(
     }
 
     private companion object {
-        const val HALF_LIFE_DAYS = 30.0
-        const val FEEDBACK_HALF_LIFE_DAYS = 60.0
-        const val ENGAGEMENT_RETENTION_MS = 180L * 24 * 60 * 60 * 1000
-        const val FEEDBACK_RETENTION_MS = 365L * 24 * 60 * 60 * 1000
-        const val MAX_ENGAGEMENT_ROWS = 400
-        const val MAX_FEEDBACK_ROWS = 600
-        const val MAX_TOPIC_WORDS = 80
-        const val TOPIC_VALUE_CAP = 10.0
-        const val CHANNEL_VALUE_CAP = 8.0
 
         const val KEY_SURVEY_PENDING = "survey_pending"
         const val KEY_SURVEY_LAST_ASK = "survey_last_ask"
