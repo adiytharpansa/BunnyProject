@@ -226,8 +226,18 @@ internal fun ShortsInfoBlock(
     meta: String,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
+    onChannelClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val channelTap = if (onChannelClick != null) {
+        Modifier.clickable(
+            interactionSource = null,
+            indication = null,
+            onClick = onChannelClick,
+        )
+    } else {
+        Modifier
+    }
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -240,7 +250,8 @@ internal fun ShortsInfoBlock(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f)),
+                        .background(Color.White.copy(alpha = 0.2f))
+                        .then(channelTap),
                 ) {
                     if (avatarUrl != null) {
                         ResilientImage(
@@ -259,7 +270,9 @@ internal fun ShortsInfoBlock(
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .then(channelTap),
                 )
                 if (showSubscribe) {
                     Spacer(Modifier.width(12.dp))

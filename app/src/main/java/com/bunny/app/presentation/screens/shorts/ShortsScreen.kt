@@ -8,6 +8,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -47,10 +51,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -68,6 +75,8 @@ import com.bunny.core.model.VideoItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /**
  * Halaman Shorts setara YouTube Shorts: gulir vertikal satu video per
@@ -94,6 +103,7 @@ fun ShortsScreen(
     onShortActive: (String) -> Unit,
     onRetryPlayback: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onChannelClick: (channelId: String, channelName: String) -> Unit = { _, _ -> },
     viewModel: ShortsViewModel = hiltViewModel(),
     // Instans yang sama dengan milik MainActivity (sama-sama
     // berpemilik Activity), jadi komentar & langganan menempel
@@ -195,6 +205,8 @@ fun ShortsScreen(
                         onDislike = { details -> viewModel.dislike(item, details) },
                         onOpenComments = { showComments = true },
                         onShare = { details -> shareShort(context, item, details) },
+                        onChannelClick = onChannelClick,
+                        onHoldSpeed = playerViewModel::setHoldSpeed,
                         onRetryPlayback = onRetryPlayback,
                     )
                 }
@@ -304,6 +316,8 @@ private fun ShortsPage(
     onDislike: (VideoDetails?) -> Unit,
     onOpenComments: () -> Unit,
     onShare: (VideoDetails?) -> Unit,
+    onChannelClick: (String, String) -> Unit,
+    onHoldSpeed: (Boolean) -> Unit,
     onRetryPlayback: () -> Unit,
 ) {
     // Detail asli video ini, hanya bila halaman ini yang sedang aktif
@@ -342,6 +356,16 @@ private fun ShortsPage(
     var disliked by rememberSaveable(item.id) { mutableStateOf(false) }
     var expanded by rememberSaveable(item.id) { mutableStateOf(false) }
     var showHeart by remember { mutableStateOf(false) }
+    // Tahan layar = 2x selama ditahan (sama seperti YouTube).
+    var holding by remember { mutableStateOf(false) }
+    var suppressTap by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(isActive) {
+        if (!isActive && holding) {
+            holding = false
+            onHoldSpeed(false)
+        }
+    }
     LaunchedEffect(showHeart) {
         if (showHeart) {
             delay(700)
@@ -409,6 +433,33 @@ private fun ShortsPage(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .pointerInput(player) {
+                        // Hanya mengamati (tidak menelan peristiwa): tahan
+                        // >450 ms menyalakan 2x, lepas mengembalikannya.
+                        // Geser vertikal membatalkan pengamatan sehingga
+                        // pager tetap bebas berpindah video.
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            val held = try {
+                                withTimeout(450L) { waitForUpOrCancellation() }
+                                false
+                            } catch (e: PointerEventTimeoutCancellationException) {
+                                true
+                            }
+                            if (held) {
+                                suppressTap = true
+                                holding = true
+                                onHoldSpeed(true)
+                                waitForUpOrCancellation()
+                                holding = false
+                                onHoldSpeed(false)
+                                scope.launch {
+                                    delay(200)
+                                    suppressTap = false
+                                }
+                            }
+                        }
+                    }
                     .combinedClickable(
                         interactionSource = null,
                         indication = null,
@@ -417,7 +468,9 @@ private fun ShortsPage(
                             showHeart = true
                         },
                         onClick = {
-                            if (player.playWhenReady) player.pause() else player.play()
+                            if (!suppressTap) {
+                                if (player.playWhenReady) player.pause() else player.play()
+                            }
                         },
                     ),
             )
@@ -497,6 +550,21 @@ private fun ShortsPage(
             }
         }
 
+        if (holding) {
+            Text(
+                text = "2x",
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 20.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
+        }
+
         // Hati melayang saat ketuk dua kali.
         AnimatedVisibility(
             visible = showHeart,
@@ -536,6 +604,11 @@ private fun ShortsPage(
             meta = meta,
             expanded = expanded,
             onToggleExpanded = { expanded = !expanded },
+            onChannelClick = if (channelId != null) {
+                { onChannelClick(channelId, channelName) }
+            } else {
+                null
+            },
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
